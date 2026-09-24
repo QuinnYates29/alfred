@@ -78,6 +78,8 @@ export interface Task {
   reason: string | null;
   /** Accumulated notes; survive reclaim/retry so a retry is never from scratch. */
   notes: string;
+  /** P8: the finish summary (<= 2000 chars) — what a parent sees instead of the child's transcript. */
+  result?: string | null;
   createdAt: number;
   updatedAt: number;
 }
