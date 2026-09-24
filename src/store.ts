@@ -23,6 +23,7 @@ export interface CreateGoalInput {
   body?: string;
   acceptance?: AcceptanceCheck[];
   budget?: Partial<Budget>;
+  meta?: Record<string, any>;
 }
 
 export interface CreateTaskInput {
@@ -53,6 +54,8 @@ export interface Store {
   createGoal(input: CreateGoalInput): Goal;
   getGoal(id: string): Goal | undefined;
   listGoals(): Goal[];
+  /** Shallow-merge patch into the goal's meta; returns the updated goal. */
+  setGoalMeta(goalId: string, patch: Record<string, any>): Goal;
   createTask(input: CreateTaskInput): Task;
   getTask(id: string): Task | undefined;
   listTasks(goalId: string): Task[];
@@ -107,6 +110,7 @@ interface GoalRow {
   acceptance: string;
   budget: string;
   status: GoalStatus;
+  meta: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -150,6 +154,7 @@ function goalFromRow(r: GoalRow): Goal {
     acceptance: JSON.parse(r.acceptance),
     budget: JSON.parse(r.budget),
     status: r.status,
+    meta: JSON.parse(r.meta || '{}'),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -211,6 +216,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
       acceptance TEXT NOT NULL,
       budget TEXT NOT NULL,
       status TEXT NOT NULL,
+      meta TEXT NOT NULL DEFAULT '{}',
       createdAt INTEGER NOT NULL,
       updatedAt INTEGER NOT NULL
     );
@@ -251,17 +257,24 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     CREATE INDEX IF NOT EXISTS idx_events_goal ON events(goalId, id);
   `);
 
+  // Migration-safe: older DBs may predate the goals.meta column.
+  const goalCols = db.prepare(`PRAGMA table_info(goals)`).all() as { name: string }[];
+  if (!goalCols.some((c) => c.name === 'meta')) {
+    db.exec(`ALTER TABLE goals ADD COLUMN meta TEXT NOT NULL DEFAULT '{}'`);
+  }
+
   const subscribers = new Set<(e: EventRow) => void>();
 
   const stmts = {
     insertGoal: db.prepare(
-      `INSERT INTO goals (id, slug, title, body, acceptance, budget, status, createdAt, updatedAt)
-       VALUES (@id, @slug, @title, @body, @acceptance, @budget, @status, @createdAt, @updatedAt)`,
+      `INSERT INTO goals (id, slug, title, body, acceptance, budget, status, meta, createdAt, updatedAt)
+       VALUES (@id, @slug, @title, @body, @acceptance, @budget, @status, @meta, @createdAt, @updatedAt)`,
     ),
     getGoalById: db.prepare(`SELECT * FROM goals WHERE id = ?`),
     countGoalSlug: db.prepare(`SELECT COUNT(*) AS n FROM goals WHERE slug = ?`),
     listGoals: db.prepare(`SELECT * FROM goals ORDER BY seq ASC`),
     updateGoalStatus: db.prepare(`UPDATE goals SET status = ?, updatedAt = ? WHERE id = ?`),
+    updateGoalMeta: db.prepare(`UPDATE goals SET meta = ?, updatedAt = ? WHERE id = ?`),
 
     insertTask: db.prepare(
       `INSERT INTO tasks (id, goalId, parentTaskId, depth, persona, title, spec, acceptance, budget, status, attempt, leaseOwner, leaseExpiresAt, reason, notes, createdAt, updatedAt)
@@ -365,6 +378,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
       acceptance: JSON.stringify(input.acceptance ?? []),
       budget: JSON.stringify(mergeBudget(DEFAULT_BUDGET, input.budget)),
       status: 'active',
+      meta: JSON.stringify(input.meta ?? {}),
       createdAt: t,
       updatedAt: t,
     };
@@ -381,6 +395,17 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
 
   function listGoals(): Goal[] {
     return (stmts.listGoals.all() as GoalRow[]).map(goalFromRow);
+  }
+
+  function setGoalMeta(goalId: string, patch: Record<string, any>): Goal {
+    const row = getGoalRow(goalId);
+    if (!row) throw new Error(`no such goal: ${goalId}`);
+    const prev = goalFromRow(row).meta;
+    const next = { ...prev, ...patch };
+    stmts.updateGoalMeta.run(JSON.stringify(next), now(), goalId);
+    const updated = getGoalRow(goalId)!;
+    emit(goalId, null, 'goal_meta', { meta: next });
+    return goalFromRow(updated);
   }
 
   function createTask(input: CreateTaskInput): Task {
@@ -617,6 +642,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     createGoal,
     getGoal,
     listGoals,
+    setGoalMeta,
     createTask,
     getTask,
     listTasks,
