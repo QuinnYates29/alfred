@@ -34,3 +34,9 @@ Token: if the page URL has `?token=…`, store it in localStorage and send it as
 ## Acceptance (`test/acceptance/p5/dashboard.test.ts`, Playwright via `playwright-core` + the cached Chromium in ~/.cache/ms-playwright or /usr/bin/chromium-browser)
 Boots `startAlfred` with a scripted LLM, opens the dashboard, and checks: the goals list renders; creating a goal via the form works; a task failing
 shows a `failure-card` with its reason **within 5 s** without a reload (SSE); `alert-banner` appears; Stop works; a pending approval can be approved from the UI.
+
+## Addendum (P7/P8/P9, 2026-09-24)
+- **Models** view (`#/models`): lists models + roles, with a select per role to switch it (`POST /api/models/roles`). Shows which endpoint each role hits.
+- Goal detail shows **context economy**: goal prompt/completion token totals, per-persona split, and per task its peak prompt tokens + compaction count (from `usage`).
+- **Nodes** view (`#/nodes`): connected nodes (`GET /api/nodes` → hub.list()) with roots/caps. The New-goal form gets a "Where" select (`local` + connected nodes) and a repo path input.
+- PWA: `web/public/manifest.webmanifest` + icons + `<meta name="apple-mobile-web-app-capable">` so the iPhone can add it to the home screen.

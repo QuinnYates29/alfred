@@ -76,3 +76,8 @@ and restart it with backoff if it exits. `stop()` kills it. `deckUrl` goes to th
 
 ## Done when
 `npm run test:p4` + the full suite + typecheck are green on `p4-server`.
+
+## Addendum (P7/P8, 2026-09-24)
+- `startAlfred` builds a `ModelRegistry` from `config/models.local.yaml` if present, else `config/models.yaml`, and passes `models` to the Scheduler/runtime and the executors (`c.llm`, when given, still overrides everything for tests).
+- Routes: `GET /api/models` → `{models: registry.list(), roles: registry.roles()}`; `POST /api/models/roles` `{role, model}` → `setRole` (400 on ModelConfigError); `POST /api/models/reload`.
+- `GET /api/goals/:id` includes `usage: store.goalUsage(id)` (once P8 has landed; omit the field if the method is missing).
