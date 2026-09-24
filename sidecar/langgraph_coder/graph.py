@@ -11,7 +11,6 @@ from typing import Annotated, Any, Optional, TypedDict
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
-from langgraph.graph.state import Command
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
@@ -148,21 +147,19 @@ def build_graph(workspace: str, test_cmd: str, base_url: str, model: str,
             progress(f"test: PASS (iteration {iteration})")
         else:
             progress(f"test: FAIL (iteration {iteration}/{max_iterations})")
-        return {"iteration": iteration, "test_ok": ok, "last_test_output": out}
-
-    def route_after_test(state: State):
-        if state.get("test_ok"):
-            return Command(goto=END)
-        if state.get("iteration", 0) >= max_iterations:
-            return Command(goto=END)
-        tail = state.get("last_test_output", "")[-1500:]
-        return Command(
-            goto="agent",
-            update={"messages": [HumanMessage(
-                "The test command failed. Output tail:\n" + tail +
+        update: dict = {"iteration": iteration, "test_ok": ok, "last_test_output": out}
+        if not ok and iteration < max_iterations:
+            update["steps"] = 0
+            update["messages"] = [HumanMessage(
+                "The test command failed. Output tail:\n" + out[-1500:] +
                 "\nFix the files and try again."
-            )]},
-        )
+            )]
+        return update
+
+    def route_after_test(state: State) -> str:
+        if state.get("test_ok") or state.get("iteration", 0) >= max_iterations:
+            return "end"
+        return "agent"
 
     g = StateGraph(State)
     g.add_node("agent", agent)
@@ -171,5 +168,5 @@ def build_graph(workspace: str, test_cmd: str, base_url: str, model: str,
     g.add_edge(START, "agent")
     g.add_conditional_edges("agent", route_after_agent, {"tools": "tools", "test": "test"})
     g.add_conditional_edges("tools", after_tools, {"agent": "agent", "test": "test"})
-    g.add_conditional_edges("test", route_after_test)
+    g.add_conditional_edges("test", route_after_test, {"agent": "agent", "end": END})
     return g.compile()
