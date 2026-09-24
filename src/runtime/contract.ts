@@ -48,12 +48,18 @@ export interface ToolContext {
   workspace: string;
   persona: string;
   signal: AbortSignal;
+  /** The task's acceptance checks (executors use them as their test command). */
+  acceptance: import('../types.js').AcceptanceCheck[];
+  /** Long-running tools call this to record a `progress` event, which resets the stall watchdog. */
+  progress: (msg: string) => void;
 }
 
 export interface ToolResult {
   ok: boolean;
   /** What the model sees. Implementations truncate to <= 8000 chars. */
   output: string;
+  /** Park the task instead of continuing (e.g. an action needs Quinn's approval). The runtime transitions and returns. */
+  park?: { status: 'blocked' | 'needs_claude'; reason: string };
 }
 
 export interface Tool {

@@ -10,7 +10,7 @@ function setup() {
   const reg = new ToolRegistry();
   for (const t of builtinTools()) reg.register(t);
   const ws = mkdtempSync(join(tmpdir(), 'alfred-tools-'));
-  const ctx: ToolContext = { taskId: 't', goalId: 'g', workspace: ws, persona: 'coder', signal: new AbortController().signal };
+  const ctx: ToolContext = { taskId: 't', goalId: 'g', workspace: ws, persona: 'coder', signal: new AbortController().signal, acceptance: [], progress: () => {} };
   const run = (name: string, args: any) => reg.get(name)!.run(args, ctx);
   return { reg, ws, run };
 }

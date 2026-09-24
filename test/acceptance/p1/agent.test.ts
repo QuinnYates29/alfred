@@ -244,3 +244,41 @@ describe('scheduler', () => {
     expect(hs.reason).toMatch(/cancelled/);
   });
 });
+
+describe('long tools and parking', () => {
+  it('progress from a long-running tool keeps the stall watchdog quiet', async () => {
+    reg.register({
+      kind: 'exec',
+      schema: { name: 'slow_build', description: 'slow', parameters: { type: 'object', properties: {} } },
+      async run(_args, ctx) {
+        for (let i = 0; i < 8; i++) { await new Promise(r => setTimeout(r, 100)); ctx.progress(`step ${i}`); }
+        return { ok: true, output: `built with ${ctx.acceptance.length} checks` };
+      },
+    });
+    const p = personas.get('coder')!;
+    personas.set('coder', { ...p, tools: [...p.tools, 'slow_build'] });
+    const t = task();
+    const llm = scriptedLLM([
+      { toolCalls: [call('slow_build', {})] },
+      { toolCalls: [call('give_up', { reason: 'checked' })] },
+    ]);
+    const end = await runTask(t.id, opts(llm, { watchdog: { stallMs: 300 } }));
+    expect(end.reason).toBe('checked');
+    expect(toolText(llm.requests[1])).toContain('built with 1 checks');
+    expect(store.events(t.goalId).filter(e => e.kind === 'progress').length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('a tool result with park blocks the task with its reason', async () => {
+    reg.register({
+      kind: 'exec',
+      schema: { name: 'push_it', description: 'push', parameters: { type: 'object', properties: {} } },
+      async run() { return { ok: false, output: 'needs approval', park: { status: 'blocked', reason: 'approval needed: git push' } }; },
+    });
+    const p = personas.get('coder')!;
+    personas.set('coder', { ...p, tools: [...p.tools, 'push_it'] });
+    const t = task();
+    const end = await runTask(t.id, opts(scriptedLLM([{ toolCalls: [call('push_it', {})] }])));
+    expect(end.status).toBe('blocked');
+    expect(end.reason).toBe('approval needed: git push');
+  });
+});
