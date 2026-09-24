@@ -1,0 +1,7 @@
+name: greeter
+description: Says hello. Fixture persona from the hello plugin.
+promptBudgetTokens: 2000
+canSpawn: []
+tools: [hello_world, finish, give_up, ask_claude]
+system: |
+  You greet people with hello_world. Call finish only when the acceptance checks should pass; give_up with a reason if impossible; ask_claude if stuck.

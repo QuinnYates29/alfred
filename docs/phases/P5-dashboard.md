@@ -1,5 +1,7 @@
 # P5 — Dashboard (absorbs Mission Deck)
 
+> **Scope note (2026-09-24):** Quinn will redesign the control side. Build a *functional shell* that passes the acceptance test and talks only to the documented `/api/v1` + SSE contract (docs/API.md). Keep components small and replaceable, with no business logic in the UI. It is served as the default static UI; alternate UIs can be added as plugins (`registerStatic`).
+
 Status: **SPEC** · Branch: `p5-dashboard` · Acceptance: `npm run test:p5` (do not edit `test/acceptance/p5/`)
 Depends on: P4 API. Stack: Vite + React 19 (same as Mission Deck) in `web/`, built to `web/dist`, served by `createApp({staticDir})`.
 Reference for look and feel (read-only): `~/repos/ai-task-dashboard/src/` (App.jsx, index.css, components/). Reuse its CSS variables and
