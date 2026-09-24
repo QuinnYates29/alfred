@@ -1,0 +1,19 @@
+# Single-model pipeline config: every role on qwen3.8-flash-next (llama.cpp on :1110).
+# pipeline.verify.command is filled in per call by alfred's pipeline_run executor
+# from the task's acceptance checks, so it is intentionally absent here.
+pipeline:
+  roles:
+    planner: qwen3.8-flash-next
+    worker: qwen3.8-flash-next
+    supervisor: qwen3.8-flash-next
+    merger: qwen3.8-flash-next
+    explorer: qwen3.8-flash-next
+
+  verify:
+    timeout_s: 900
+    max_repair_attempts: 2
+
+  limits:
+    max_concurrent_workers: 3
+    max_agent_turns: 60
+    tool_output_chars: 8000
