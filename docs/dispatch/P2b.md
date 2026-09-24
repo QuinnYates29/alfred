@@ -1,0 +1,5 @@
+You are a senior TypeScript engineer working on the `alfred` agent platform in the current directory (a git worktree; Node 22, ESM, imports use `.js` suffixes, vitest). Read CLAUDE.md, docs/phases/P2-executors.md, docs/recon/executors.md, src/types.ts, src/runtime/contract.ts first. NEVER edit test/acceptance/**, src/types.ts semantics, src/runtime/contract.ts or src/runtime/testing.ts. Work method: implement, run the test command, read failures, fix, repeat until green. Reply with a short summary and the final test output line.
+
+YOUR SCOPE: sections "1. dsh_code" and "2. pipeline_run" of the phase doc: src/executors/dsh.ts, src/executors/pipeline.ts, config/pipeline-qwen.yaml, and a small shared helper src/executors/proc.ts if useful (spawn detached with process group kill via process.kill(-pid,'SIGKILL'), abort + timeout handling, output tail capture).
+Use the `yaml` package (installed) to read/modify/write the pipeline config. Important: kill the WHOLE process group on abort/timeout so background children die too.
+Test command: npx vitest run test/acceptance/p2/executors.test.ts
