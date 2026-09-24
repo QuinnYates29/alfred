@@ -4,14 +4,16 @@
 # Usage: qwen-task.sh NAME BRANCH PROMPT_FILE "CHECK_CMD" [ATTEMPTS=4] [TIMEOUT_MIN=60]
 set -uo pipefail
 NAME=$1 BRANCH=$2 PROMPT_FILE=$3 CHECK=$4 ATTEMPTS=${5:-4} TMIN=${6:-60}
-REPO=$HOME/repos/alfred
-WT=$HOME/repos/alfred-wt/$NAME
-LOGS=$REPO/.dispatch/$NAME; mkdir -p "$LOGS"
+REPO=${REPO:-$HOME/repos/alfred}
+WT=${WT_ROOT:-$HOME/repos/alfred-wt}/$NAME
+LOGS=$HOME/repos/alfred/.dispatch/$NAME; mkdir -p "$LOGS"
+PROTECT=${PROTECT:-test/acceptance src/types.ts src/runtime/contract.ts src/runtime/testing.ts}
+LINKS=${LINKS:-node_modules}
 BASE=${BASE:-master}
 
 if [ ! -d "$WT" ]; then
   git -C "$REPO" worktree add -q -b "$BRANCH" "$WT" "$BASE" || git -C "$REPO" worktree add -q "$WT" "$BRANCH"
-  ln -sfn "$REPO/node_modules" "$WT/node_modules"
+  for l in $LINKS; do ln -sfn "$REPO/$l" "$WT/$l"; done
 fi
 cd "$WT"
 status() { printf '{"name":"%s","branch":"%s","state":"%s","attempt":%s,"ts":"%s"}\n' "$NAME" "$BRANCH" "$1" "$2" "$(date -Is)" > "$LOGS/status.json"; }
@@ -36,11 +38,10 @@ Fix the failures. Read the failing test and the code before changing anything."
   echo "dsh exit=$? $(date -Is)" >> "$LOGS/run.log"
 
   # Acceptance tests are the contract: restore them if the agent touched them.
-  if ! git diff --quiet "$BASE" -- test/acceptance src/types.ts src/runtime/contract.ts src/runtime/testing.ts 2>/dev/null; then
+  if ! git diff --quiet "$BASE" -- $PROTECT 2>/dev/null; then
     echo "agent modified protected files; restoring" >> "$LOGS/run.log"
-    git checkout "$BASE" -- test/acceptance src/types.ts src/runtime/contract.ts src/runtime/testing.ts
+    git checkout "$BASE" -- $PROTECT 2>/dev/null
   fi
-  git ls-files --others --exclude-standard test/acceptance | xargs -r rm -f
 
   out=$(bash -c "$CHECK" 2>&1); rc=$?
   echo "$out" | tail -60 > "$LOGS/check$a.txt"
