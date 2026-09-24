@@ -54,7 +54,7 @@ Scheduler addition: `cancel(taskId, reason): boolean` aborts that one run (the t
 ## 4. `src/main.ts`
 ```ts
 export interface AlfredConfig { dbPath: string; mirrorDir: string; workRoot: string; personasDir?: string; automationsDir?: string;
-  mcpConfigPath?: string; port?: number /* 0 = ephemeral */; host?: string; llm?: LLM /* override for tests */; llmSlots?: number /* 6 */;
+  mcpConfigPath?: string; port?: number /* 0 = ephemeral */; host?: string; llm?: LLM /* override for tests */; llmSlots?: number /* 3 — see docs/LESSONS.md: more slots do not add agent throughput */;
   baseUrl?: string /* http://127.0.0.1:1110 */; model?: string; env?: Record<string,string|undefined>; tickMs?: number /* 30000 */;
   pollMs?: number; deck?: { dir: string; port: number } | null }
 export interface Alfred { url: string; store: Store; scheduler: Scheduler; automations: Automations; hub: McpHub; stop(): Promise<void> }
