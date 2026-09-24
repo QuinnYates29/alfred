@@ -9,6 +9,8 @@
     "test:p1": "vitest run test/acceptance/p1",
     "test:p2": "vitest run test/acceptance/p2",
     "test:p3": "vitest run test/acceptance/p3",
+    "test:p4": "vitest run test/acceptance/p4",
+    "test:p5": "vitest run test/acceptance/p5",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
