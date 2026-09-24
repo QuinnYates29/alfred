@@ -148,3 +148,44 @@ describe('remote access through startAlfred', () => {
     expect(alfred.store.getTask(other.id)!.status).toBe('blocked');
   }, 30_000);
 });
+
+describe('Mac-first additions', () => {
+  it('notifications are delivered to nodes that advertise notify', async () => {
+    const { hub, url } = await hubServer();
+    const got: any[] = [];
+    const n = connectNode({ url, token: 'tok', name: 'mac', roots: [tmpdir()], caps: ['fs', 'shell', 'notify'], reconnect: false,
+      onNotify: (m: any) => got.push(m) } as any);
+    cleanup.push(() => n.close());
+    await until(() => hub.list().length === 1);
+    const { nodeNotifySink } = await import('../../../src/notify/sinks.js');
+    await nodeNotifySink(hub).send({ level: 'failure', goalId: 'g', title: 'Build failed', body: 'tests red' });
+    await until(() => got.length === 1);
+    expect(got[0]).toMatchObject({ level: 'failure', title: 'Build failed' });
+  }, 15_000);
+
+  it('langgraph_code works on a node workspace through the file bridge', async () => {
+    const { hub, url } = await hubServer();
+    const root = mkdtempSync(join(tmpdir(), 'alfred-mac-'));
+    const n = connectNode({ url, token: 'tok', name: 'mac', roots: [root], caps: ['fs', 'shell'], reconnect: false });
+    cleanup.push(() => n.close());
+    await until(() => hub.list().length === 1);
+    const { langgraphTool } = await import('../../../src/executors/langgraph.js');
+    const srv = createServer((req, res) => {
+      let b = ''; req.on('data', c => (b += c)); req.on('end', () => {
+        const first = !(JSON.parse(b).messages as any[]).some(m => m.role === 'tool');
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ id: 'x', object: 'chat.completion', created: 0, model: 'm', usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          choices: [{ index: 0, finish_reason: first ? 'tool_calls' : 'stop', message: first
+            ? { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: 'answer.txt', content: '42' }) } }] }
+            : { role: 'assistant', content: 'done' } }] }));
+      });
+    });
+    await new Promise<void>(r => srv.listen(0, '127.0.0.1', r));
+    cleanup.push(() => srv.close());
+    const ctx: any = { taskId: 't', goalId: 'g', workspace: root, persona: 'coder-lg', signal: new AbortController().signal,
+      acceptance: [{ name: 'a', cmd: 'grep -q 42 answer.txt' }], progress: () => {}, backend: hub.backend('mac') };
+    const r = await langgraphTool({ baseUrl: `http://127.0.0.1:${(srv.address() as any).port}`, model: 'm' }).run({ task: 'answer' }, ctx);
+    expect(r.ok).toBe(true);
+    expect(readFileSync(join(root, 'answer.txt'), 'utf8')).toBe('42');
+  }, 60_000);
+});
