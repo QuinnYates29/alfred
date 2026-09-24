@@ -101,6 +101,8 @@ describe('dashboard', () => {
   it('has personas and deck views', async () => {
     await page.goto(`${alfred.url}/#/personas`);
     await page.getByText('coder-lg').first().waitFor({ timeout: 5000 });
+    await page.goto(`${alfred.url}/#/models`);
+    await page.getByText('qwen-local').first().waitFor({ timeout: 5000 });
     await page.goto(`${alfred.url}/#/deck`);
     await page.getByText(/deck not running/i).waitFor({ timeout: 5000 });
   }, 30_000);
