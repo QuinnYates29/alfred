@@ -44,3 +44,4 @@ reasonable point and fail loudly.**
 - 2026-09-24 16:15: Wave 1 (P1a tools/personas, P1b openai client, P2a workspaces) all passed attempt 1 on Qwen; verified + merged (60 tests). Personas cost ~0.9-1.1k tokens (vs Hermes ~15k).
 - 2026-09-24 17:06: Wave 2 dispatched: P1c agent loop+scheduler, P2b dsh/pipeline executors, P2c LangGraph sidecar.
 - 2026-09-24 17:20: Quinn added context economy, swappable models, and Spark-compute/laptop-workspace topology → phases P7 (models), P8 (context), P9 (nodes + remote access).
+- 2026-09-24 19:31: Wave 2 passed on attempt 2 (P1c agent loop+scheduler 74 tests, P2b dsh/pipeline, P2c LangGraph sidecar); merged, 88 tests green. Wave 3 dispatched: P2d orchestrator post-merge verify, P2e wiring, P3a MCP hub + sinks.
