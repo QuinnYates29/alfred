@@ -6,6 +6,9 @@
   "scripts": {
     "test": "vitest run",
     "test:p0": "vitest run test/acceptance/p0",
+    "test:p1": "vitest run test/acceptance/p1",
+    "test:p2": "vitest run test/acceptance/p2",
+    "test:p3": "vitest run test/acceptance/p3",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
