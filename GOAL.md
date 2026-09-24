@@ -1,0 +1,38 @@
+# GOAL: Alfred — one local agentic platform
+
+Status: **IN PROGRESS** · Started 2026-09-24 · Orchestrator: Claude Code (dispatch + verify only)
+
+## The goal
+
+One platform that replaces three overlapping tools: Mission Deck / A.L.F.R.E.D.
+(dashboard), `~/tools/orchestrator` (the coding pipeline) and the loose Hermes/DSH setup.
+It has personalities, automations and connections. It codes and spawns its own
+subagents. **You can hand it a long task and trust it to either finish or stop at a
+reasonable point and fail loudly.**
+
+## Decisions (from Quinn, 2026-09-24)
+
+| Topic | Decision |
+|---|---|
+| Core | **New thin repo** (`~/repos/alfred`), TypeScript. Reuses Mission Deck modules (agentloop, slots, trace, obsidian, mcpclient, automations, UI). |
+| Model | Qwen3.8-Flash-Next at `127.0.0.1:1110` handles every subtask. No Claude calls from inside the platform. |
+| Claude door | An MCP server that Claude Code/Desktop connects to so it can list goals, pick up `needs_claude` tasks, resume them and post results. Claude comes in; the platform never calls out. |
+| Context | Personas must stay lean. A stock Hermes agent costs 58 KB (~15k tokens: 16.5 KB system prompt + 40.5 KB for 18 tool schemas). Every persona has a **hard prompt budget** that is enforced by a test. |
+| Storage | **SQLite** is the source of truth (goals, tasks, runs, events, leases). A **markdown mirror** goes to an agent vault. Access to the personal Obsidian vault goes through MCP and is read-mostly. |
+| Coding | **DSH headless** for single-agent coding. **orchestrator pipeline** for large fan-out work. **LangGraph coder** (Python sidecar) for a second, more constrained flow. |
+| Fail loudly | Dashboard red card + desktop notification, **Slack** push, and a FAILED block in the goal's markdown. |
+| Autonomy | Free to edit, test and commit on local branches. Pushes, deploys, external messages and anything that costs money need approval. |
+| Mission Deck | Absorb it. The old `deck-server` is shut down now (Quinn runs the sudo command). |
+| Personas v1 | `alfred` (chief of staff/dispatcher), `coder` (DSH/orchestrator), `researcher`, `coder-lg` (LangGraph, constrained). |
+
+## Definition of done (whole project)
+
+1. `npm test` is green, and each phase's acceptance suite in `docs/phases/` passes.
+2. **Soak test:** a real multi-hour coding goal that runs through the finish or stops loudly, with no silent hang. This is checked by a no-progress watchdog with a known timeout.
+3. A deliberately impossible goal ends as `failed`/`blocked` with a written reason, a Slack message and a red card within its budget. It never reports "done".
+4. No persona's system prompt plus tool schemas exceeds its budget (default 6k tokens).
+5. Claude Code can connect with `claude mcp add alfred …` and complete a `needs_claude` task end to end.
+
+## Status log
+
+- 2026-09-24: Clarifying questions answered; repo created; PLAN.md written; Phase 0 dispatched.
