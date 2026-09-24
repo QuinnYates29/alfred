@@ -68,7 +68,6 @@ export function dshTool(o: { bin?: string; defaultTimeoutMin?: number } = {}): T
         tickMs: 20_000,
         onTick,
       });
-      stderrSoFar = res.stderr;
 
       if (res.cancelled) return { ok: false, output: `dsh: cancelled after abort.\nstderr tail: ${tail(res.stderr, 1500)}` };
       if (res.timedOut) return { ok: false, output: `dsh: timed out after ${Math.round(timeoutMs / 60000)} min.\nstderr tail: ${tail(res.stderr, 1500)}` };
