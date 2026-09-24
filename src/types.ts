@@ -53,6 +53,8 @@ export interface Goal {
   acceptance: AcceptanceCheck[];
   budget: Budget;
   status: GoalStatus;
+  /** Free-form goal metadata; `repo` = absolute path of the git repo the goal works on. */
+  meta: Record<string, any>;
   createdAt: number;
   updatedAt: number;
 }
