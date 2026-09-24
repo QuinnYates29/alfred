@@ -5,3 +5,4 @@ dist/
 .env
 .dispatch/
 sidecar/.venv
+__pycache__/
