@@ -64,16 +64,17 @@ export class Scheduler {
       this.runningMap.size < this.o.maxWorkers &&
       this.timer
     ) {
+      const workerId = `${this.prefix}-${this.runningMap.size}`;
       let claimed;
       try {
-        claimed = this.o.store.claimNext(`${this.prefix}-${this.runningMap.size}`, {
+        claimed = this.o.store.claimNext(workerId, {
           leaseMs: this.o.leaseMs ?? 5 * 60 * 1000,
         });
       } catch {
         return;
       }
       if (!claimed) return;
-      this.spawn(claimed.id, `${this.prefix}-${claimed.id.slice(0, 8)}`);
+      this.spawn(claimed.id, workerId);
     }
   }
 

@@ -114,8 +114,9 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
     throw new Error(`task ${taskId} is ${task.status}; only queued or self-leased running tasks can run`);
   }
 
-  const persona = o.personas.get(task.persona);
-  if (!persona) throw new Error(`no such persona: ${task.persona}`);
+  const personaOpt = o.personas.get(task.persona);
+  if (!personaOpt) throw new Error(`no such persona: ${task.persona}`);
+  const persona: Persona = personaOpt;
   const workspace = o.workspaceFor(task);
   const schemas = o.registry.schemasFor(persona.tools);
   const toolSet = new Set(persona.tools);
@@ -274,6 +275,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
           result = { ok: false, output: `unknown tool: ${c.name}` };
         } else if (c.name === 'finish') {
           result = await doFinish(c);
+          if (result.ok) control = { kind: 'return', task: o.store.getTask(taskId)! };
         } else if (c.name === 'give_up') {
           const reason = String(c.args?.reason ?? 'no reason given');
           o.store.transition(taskId, 'failed', { reason, by: o.workerId });
