@@ -23,6 +23,9 @@ reasonable point and fail loudly.**
 | Fail loudly | Dashboard red card + desktop notification, **Slack** push, and a FAILED block in the goal's markdown. |
 | Autonomy | Free to edit, test and commit on local branches. Pushes, deploys, external messages and anything that costs money need approval. |
 | Mission Deck | Absorb it. The old `deck-server` is shut down now (Quinn runs the sudo command). |
+| Context economy (added 2026-09-24) | Keep the main agent's context small: the chief of staff delegates, children return **compact summaries** (never transcripts), conversations are **compacted** when they reach a per-persona context budget, tool output is paged, and every task reports its context peak and token total. |
+| Swappable models (added) | `config/models.yaml` registry of OpenAI-compatible endpoints (llama.cpp, vLLM, Ollama, OpenRouter, …). Personas, goals and executors refer to models **by name**. Switching is one edit or an API call, with no code change. |
+| Topology (added) | **Compute on the Spark** (`gx10-de9a`). Laptop and phone connect over Tailscale (dashboard as a PWA via `tailscale serve`, the Claude door over HTTP MCP). **Workspaces live on the Spark or on the laptop**: a small `alfred-node` daemon on the Mac dials in and runs file/shell/git/acceptance ops in its allowed roots. |
 | Personas v1 | `alfred` (chief of staff/dispatcher), `coder` (DSH/orchestrator), `researcher`, `coder-lg` (LangGraph, constrained). |
 
 ## Definition of done (whole project)
@@ -31,7 +34,7 @@ reasonable point and fail loudly.**
 2. **Soak test:** a real multi-hour coding goal that runs through the finish or stops loudly, with no silent hang. This is checked by a no-progress watchdog with a known timeout.
 3. A deliberately impossible goal ends as `failed`/`blocked` with a written reason, a Slack message and a red card within its budget. It never reports "done".
 4. No persona's system prompt plus tool schemas exceeds its budget (default 6k tokens).
-5. Claude Code can connect with `claude mcp add alfred …` and complete a `needs_claude` task end to end.
+5. Claude Code (on the Spark **or the laptop**) can connect with `claude mcp add alfred …` and complete a `needs_claude` task end to end.
 
 ## Status log
 
@@ -40,3 +43,4 @@ reasonable point and fail loudly.**
 - 2026-09-24 15:15: First 6-agent Qwen wave stalled (0 files in 30 min): long-context 6-way decode ~1 tok/s/agent and Qwen drafted code in reasoning. Fixed with --reasoning-budget 1536 + economy preamble; waves capped at 3. See docs/LESSONS.md.
 - 2026-09-24 16:15: Wave 1 (P1a tools/personas, P1b openai client, P2a workspaces) all passed attempt 1 on Qwen; verified + merged (60 tests). Personas cost ~0.9-1.1k tokens (vs Hermes ~15k).
 - 2026-09-24 17:06: Wave 2 dispatched: P1c agent loop+scheduler, P2b dsh/pipeline executors, P2c LangGraph sidecar.
+- 2026-09-24 17:20: Quinn added context economy, swappable models, and Spark-compute/laptop-workspace topology → phases P7 (models), P8 (context), P9 (nodes + remote access).
