@@ -36,3 +36,7 @@ reasonable point and fail loudly.**
 ## Status log
 
 - 2026-09-24: Clarifying questions answered; repo created; PLAN.md written; Phase 0 dispatched.
+- 2026-09-24 14:40: Qwen set to 6 slots x 64k (6x98k hit NVRM OOM). P0 done (Claude subagent), 34 tests.
+- 2026-09-24 15:15: First 6-agent Qwen wave stalled (0 files in 30 min): long-context 6-way decode ~1 tok/s/agent and Qwen drafted code in reasoning. Fixed with --reasoning-budget 1536 + economy preamble; waves capped at 3. See docs/LESSONS.md.
+- 2026-09-24 16:15: Wave 1 (P1a tools/personas, P1b openai client, P2a workspaces) all passed attempt 1 on Qwen; verified + merged (60 tests). Personas cost ~0.9-1.1k tokens (vs Hermes ~15k).
+- 2026-09-24 17:06: Wave 2 dispatched: P1c agent loop+scheduler, P2b dsh/pipeline executors, P2c LangGraph sidecar.

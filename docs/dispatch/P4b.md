@@ -1,0 +1,5 @@
+You are a senior TypeScript engineer working on the `alfred` agent platform in the current directory (git worktree; Node 22, ESM, `.js` import suffixes, vitest). Read CLAUDE.md and the phase doc named below first, plus src/types.ts and src/runtime/contract.ts. NEVER edit test/acceptance/**, src/types.ts, src/runtime/contract.ts, src/runtime/testing.ts (if you truly need a contract change, stop and explain). Reply with a short summary and the final test output line.
+Phase doc: docs/phases/P4-server-automations.md sections 3, 4, 5 (server, main, CLI, deploy). Everything else (store, runtime, executors, MCP hub, sinks, automations, ops) already exists — read their exports and wire them. express v5 is installed.
+SCOPE: src/server/app.ts, src/main.ts, src/cli.ts, bin/alfred, deploy/alfred.service, deploy/install.sh (do NOT run it), Scheduler.cancel in src/runtime/scheduler.ts, package.json script "serve".
+SSE: set headers content-type text/event-stream, cache-control no-cache, connection keep-alive; call res.flushHeaders(); write "id: N\ndata: JSON\n\n" per event.
+Test: npx vitest run test/acceptance/p4 test/acceptance/p0 test/acceptance/p1 test/unit
