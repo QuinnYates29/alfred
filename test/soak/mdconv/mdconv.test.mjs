@@ -19,7 +19,7 @@ test('headings', () => {
   assert.match(conv('# One\n\n### Three'), /<h1>One<\/h1><h3>Three<\/h3>/);
 });
 test('paragraphs are separated by blank lines and joined within', () => {
-  assert.equal(conv('a\nb\n\nc'), '<p>a b</p><p>c</p>'.replace('a b', conv('a\nb').includes('a\nb') ? 'a\nb' : 'a b'));
+  assert.equal(conv('a\nb\n\nc'), '<p>a b</p><p>c</p>');
 });
 test('emphasis, strong, inline code', () => {
   const h = conv('some *em* and **strong** and `x < y`');
