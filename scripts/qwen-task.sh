@@ -21,7 +21,7 @@ status() { printf '{"name":"%s","branch":"%s","state":"%s","attempt":%s,"ts":"%s
 feedback=""
 for a in $(seq 1 "$ATTEMPTS"); do
   status running "$a"
-  prompt="$(cat "$PROMPT_FILE")"
+  prompt="$(cat "$HOME/repos/alfred/docs/dispatch/PREAMBLE.md" "$PROMPT_FILE")"
   if [ -n "$feedback" ]; then
     prompt="$prompt
 
