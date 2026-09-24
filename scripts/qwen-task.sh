@@ -16,6 +16,7 @@ if [ ! -d "$WT" ]; then
   for l in $LINKS; do ln -sfn "$REPO/$l" "$WT/$l"; done
 fi
 cd "$WT"
+FORK=$(git merge-base HEAD "$BASE")
 status() { printf '{"name":"%s","branch":"%s","state":"%s","attempt":%s,"ts":"%s"}\n' "$NAME" "$BRANCH" "$1" "$2" "$(date -Is)" > "$LOGS/status.json"; }
 
 feedback=""
@@ -38,9 +39,9 @@ Fix the failures. Read the failing test and the code before changing anything."
   echo "dsh exit=$? $(date -Is)" >> "$LOGS/run.log"
 
   # Acceptance tests are the contract: restore them if the agent touched them.
-  if ! git diff --quiet "$BASE" -- $PROTECT 2>/dev/null; then
+  if ! git diff --quiet "$FORK" -- $PROTECT 2>/dev/null; then
     echo "agent modified protected files; restoring" >> "$LOGS/run.log"
-    git checkout "$BASE" -- $PROTECT 2>/dev/null
+    git checkout "$FORK" -- $PROTECT 2>/dev/null
   fi
 
   out=$(bash -c "$CHECK" 2>&1); rc=$?
