@@ -52,6 +52,23 @@ export interface ToolContext {
   acceptance: import('../types.js').AcceptanceCheck[];
   /** Long-running tools call this to record a `progress` event, which resets the stall watchdog. */
   progress: (msg: string) => void;
+  /** P9: where the workspace lives. Absent = this machine's filesystem. */
+  backend?: WorkspaceBackend;
+}
+
+/** P9: file/exec operations for a workspace that may live on another machine (an alfred-node). */
+export interface WorkspaceBackend {
+  /** 'local' or the node's name. */
+  node: string;
+  readFile(path: string): Promise<string>;
+  writeFile(path: string, content: string): Promise<void>;
+  listDir(path: string): Promise<{ name: string; dir: boolean }[]>;
+  exec(cmd: string, o: { cwd: string; timeoutMs: number; signal?: AbortSignal }): Promise<{ exitCode: number | null; output: string; timedOut: boolean }>;
+}
+
+/** P9: raised by a remote backend when its node is not connected. The runtime parks the task `blocked`. */
+export class NodeOfflineError extends Error {
+  constructor(public node: string) { super(`node ${node} offline`); }
 }
 
 export interface ToolResult {
@@ -79,6 +96,10 @@ export interface Persona {
   /** Personas this one may spawn as subagents. Empty = may not spawn. */
   canSpawn: string[];
   maxTokensPerTurn?: number;
+  /** P7: model name or role from config/models.yaml. Default role 'default'. */
+  model?: string;
+  /** P8: max estimated prompt tokens per LLM call; older history is compacted above this. Default 24000. */
+  contextBudgetTokens?: number;
 }
 
 export interface WatchdogConfig {
