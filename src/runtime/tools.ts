@@ -5,12 +5,25 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'n
 import path from 'node:path';
 import {
   PersonaConfigError,
+  NodeOfflineError,
   type Tool,
   type ToolContext,
   type ToolResult,
   type ToolSchema,
+  type WorkspaceBackend,
 } from './contract.js';
 import { guardCommand, storeForTask } from '../approvals.js';
+
+/**
+ * P9: park the task when the workspace machine went away mid-call.
+ * (The scheduler's node-reconnect watcher re-queues it later.)
+ */
+export function parkIfNodeOffline(e: any): ToolResult | null {
+  if (e instanceof NodeOfflineError) {
+    return { ok: false, output: `error: ${e.message}`, park: { status: 'blocked', reason: e.message } };
+  }
+  return null;
+}
 
 const OUTPUT_CAP = 8000;
 /** P8: read_file caps — default window and char cap (a deliberate exception to OUTPUT_CAP). */
