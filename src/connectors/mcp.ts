@@ -72,6 +72,17 @@ export class McpHub {
     return this.o?.connectTimeoutMs ?? 15_000;
   }
 
+  /** P5 dashboard: one row per configured node — state, tool count, error. */
+  list() {
+    return [...this.conns.entries()].map(([name, c]) => ({
+      id: name,
+      name,
+      connected: c.ok,
+      tools: c.tools.length,
+      ...(c.error ? { error: c.error } : {}),
+    }));
+  }
+
   /** Never rejects. Retries only servers that are not currently connected. */
   async connectAll(): Promise<void> {
     for (const [name, cfg] of Object.entries(this.cfg.servers ?? {})) {

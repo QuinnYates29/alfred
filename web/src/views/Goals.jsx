@@ -3,7 +3,7 @@ import { api, post } from '../api.js';
 import { Chip, elapsed, goalNeedsAttention, go } from '../shared.jsx';
 
 function GoalCard({ summary }) {
-  const g = summary.goal;
+  const g = summary; // flat: goal fields + counts
   const c = summary.counts || {};
   const total = Object.values(c).reduce((a, b) => a + b, 0);
   return (
@@ -117,8 +117,8 @@ export default function GoalsView({ goals, tick }) {
 
   const attention = goals.filter(goalNeedsAttention);
   const rest = goals.filter((g) => !goalNeedsAttention(g));
-  const active = rest.filter((g) => g.goal.status === 'active');
-  const done = rest.filter((g) => g.goal.status !== 'active');
+  const active = rest.filter((g) => g.status === 'active');
+  const done = rest.filter((g) => g.status !== 'active');
 
   return (
     <section>
@@ -131,13 +131,13 @@ export default function GoalsView({ goals, tick }) {
       {showForm && <NewGoalForm personas={personas} nodes={nodes} />}
 
       <div className="group-title">Active ({active.length})</div>
-      {active.map((s) => <GoalCard key={s.goal.id} summary={s} />)}
+      {active.map((s) => <GoalCard key={s.id} summary={s} />)}
 
       <div className="group-title">Needs attention ({attention.length})</div>
-      {attention.map((s) => <GoalCard key={s.goal.id} summary={s} />)}
+      {attention.map((s) => <GoalCard key={s.id} summary={s} />)}
 
       <div className="group-title">Done ({done.length})</div>
-      {done.map((s) => <GoalCard key={s.goal.id} summary={s} />)}
+      {done.map((s) => <GoalCard key={s.id} summary={s} />)}
 
       {!goals.length && <p className="muted">No goals yet — create one above.</p>}
     </section>

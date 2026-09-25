@@ -2,6 +2,7 @@
 // personas, notifier, mirror, automations, MCP hub and the HTTP server.
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Server } from 'node:http';
 import type { LLM } from './runtime/contract.js';
 import { openStore, type Store } from './store.js';
@@ -170,8 +171,8 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     model: c.model ?? 'qwen3.8-flash-next',
     apiKey: env.ALFRED_LLM_API_KEY ?? env.OPENAI_API_KEY,
   });
-  let llm: LLM | undefined = c.llm;
-  if (!llm) {
+  // The registry is built even when the LLM is overridden: /api/models shows roles live.
+  {
     const modelsPath = file?.models ?? 'config/models.yaml';
     const localPath = modelsPath.replace(/\.ya?ml$/, '.local.yaml');
     const cfgPath = existsSync(localPath) ? localPath : modelsPath;
@@ -187,7 +188,7 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
       console.error(`[models] ${e?.message ?? e} — falling back to ${c.baseUrl ?? 'http://127.0.0.1:1110/v1'}`);
     }
   }
-  const runtimeLLM = llm ?? (modelsRegistry ? modelsRegistry.llm() : fallback);
+  const runtimeLLM = c.llm ?? (modelsRegistry ? modelsRegistry.llm() : fallback);
 
   // ---- MCP hub: file config + plugin-registered servers; reconnect forever.
   const mcpFile = mcpConfigPath ? loadMcpConfig(mcpConfigPath, env) : { servers: {} };
@@ -254,7 +255,7 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     personas,
     registry,
     ...(c.token ? { token: c.token } : {}),
-    ...(c.staticDir ? { staticDir: c.staticDir } : {}),
+    staticDir: c.staticDir ?? resolve(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist'),
     ...(deckState.url ? { deckUrl: deckState.url } : {}),
     plugins: { loaded: pluginRt.loaded, failed: pluginRt.failed },
     pluginRoutes,

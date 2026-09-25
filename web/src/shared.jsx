@@ -52,10 +52,10 @@ export function elapsed(startMs, endMs) {
 
 export const fmtTime = (ts) => new Date(ts).toLocaleTimeString();
 
-/** statuses that mean a goal needs attention */
+/** statuses that mean a goal needs attention. Summaries are flat: goal fields + counts. */
 export function goalNeedsAttention(summary) {
   if (!summary) return false;
-  if (summary.goal?.status === 'failed') return true;
+  if (summary.status === 'failed') return true;
   const c = summary.counts || {};
   return (c.failed || 0) + (c.blocked || 0) + (c.needs_claude || 0) > 0;
 }

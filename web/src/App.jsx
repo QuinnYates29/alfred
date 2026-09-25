@@ -87,7 +87,7 @@ export default function App() {
       {attention.length > 0 && (
         <div className="alert-banner" data-testid="alert-banner" role="alert">
           ⚠ {attention.length} goal{attention.length > 1 ? 's' : ''} need attention —{' '}
-          <a href={`#/goal/${attention[0].goal.id}`}>{attention[0].goal.title}</a>
+          <a href={`#/goal/${attention[0].id}`}>{attention[0].title}</a>
         </div>
       )}
 
