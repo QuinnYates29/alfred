@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# The Claude door: MCP over stdio into alfred's store.
+# Add with:  claude mcp add alfred -e ALFRED_DB=$HOME/.alfred/alfred.db -- ~/repos/alfred/bin/alfred-door
+set -euo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec npx --prefix "$repo" tsx "$repo/src/door/server.ts"

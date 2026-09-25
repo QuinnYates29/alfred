@@ -10,6 +10,7 @@ import {
   type ToolResult,
   type ToolSchema,
 } from './contract.js';
+import { guardCommand, storeForTask } from '../approvals.js';
 
 const OUTPUT_CAP = 8000;
 
@@ -124,7 +125,9 @@ function control(name: string, description: string, props: Record<string, unknow
   };
 }
 
-export function builtinTools(): Tool[] {
+/** `approvals: false` disables the P3 guard (used by tests that exercise the raw shell). */
+export function builtinTools(o?: { approvals?: boolean }): Tool[] {
+  const opts = o ?? {};
   return [
     {
       schema: schema('read_file', 'Read a UTF-8 text file inside the workspace.', {
@@ -174,7 +177,26 @@ export function builtinTools(): Tool[] {
       kind: 'exec',
       run: async (args, ctx) => {
         try {
-          return await runShell(args ?? {}, ctx);
+          const cmd = String(args?.cmd ?? '');
+          if (opts.approvals !== false) {
+            const guard = guardCommand(cmd);
+            if (guard) {
+              const store = storeForTask(ctx.taskId);
+              if (!store) {
+                return {
+                  ok: false,
+                  output: `blocked by guard '${guard}': no store bound to this task — ask Claude`,
+                };
+              }
+              // One approved command buys exactly one run.
+              if (!store.consumeApproval(ctx.taskId, cmd)) {
+                store.requestApproval(ctx.taskId, guard, cmd);
+                const reason = `approval needed: ${guard}: ${cmd}`;
+                return { ok: false, output: reason, park: { status: 'blocked', reason } };
+              }
+            }
+          }
+          return await runShell({ ...args, cmd }, ctx);
         } catch (e: any) {
           return { ok: false, output: `error: ${e?.message ?? String(e)}` };
         }

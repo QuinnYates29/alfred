@@ -1,6 +1,7 @@
 // P0 core store. SQLite-backed, WAL mode, BEGIN IMMEDIATE for claims.
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
+import { registerApprovalStore, unregisterApprovalStore } from './approvals.js';
 import {
   type Budget,
   DEFAULT_BUDGET,
@@ -72,6 +73,23 @@ export interface AutomationRow {
   updatedAt: number;
 }
 
+/** P3 §3 — one requested action awaiting a decision. */
+export type ApprovalStatus = 'pending' | 'approved' | 'denied';
+
+export interface Approval {
+  id: string;
+  taskId: string;
+  goalId: string;
+  /** The guard that tripped, e.g. 'git push'. */
+  action: string;
+  /** The exact thing requested (the command); consumeApproval matches on it. */
+  detail: string;
+  status: ApprovalStatus;
+  createdAt: number;
+  decidedAt: number | null;
+  decidedBy: string | null;
+}
+
 export interface Store {
   createGoal(input: CreateGoalInput): Goal;
   getGoal(id: string): Goal | undefined;
@@ -97,6 +115,13 @@ export interface Store {
   listAutomationRows(): AutomationRow[];
   putAutomationRow(row: AutomationRow): void;
   deleteAutomationRow(id: string): boolean;
+  /** P3: record a requested action and park-ready notify the decider (event `approval_requested`). */
+  requestApproval(taskId: string, action: string, detail: string): Approval;
+  /** P3: approve/deny; a `blocked` task goes back to `queued` with the outcome in its notes. */
+  decideApproval(id: string, decision: 'approved' | 'denied', by: string): Approval;
+  approvals(opts?: { status?: ApprovalStatus; taskId?: string }): Approval[];
+  /** P3: true once for an approved match, then the approval is spent. */
+  consumeApproval(taskId: string, detail: string): boolean;
   onEvent(cb: (e: EventRow) => void): () => void;
   close(): void;
   /** Internal: only the done-gate may call this. */
@@ -173,6 +198,33 @@ interface EventRowRaw {
   ts: number;
   kind: string;
   data: string;
+}
+
+interface ApprovalRow {
+  seq: number;
+  id: string;
+  taskId: string;
+  goalId: string;
+  action: string;
+  detail: string;
+  status: ApprovalStatus;
+  createdAt: number;
+  decidedAt: number | null;
+  decidedBy: string | null;
+}
+
+function approvalFromRow(r: ApprovalRow): Approval {
+  return {
+    id: r.id,
+    taskId: r.taskId,
+    goalId: r.goalId,
+    action: r.action,
+    detail: r.detail,
+    status: r.status,
+    createdAt: r.createdAt,
+    decidedAt: r.decidedAt,
+    decidedBy: r.decidedBy,
+  };
 }
 
 function goalFromRow(r: GoalRow): Goal {
@@ -299,6 +351,21 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
       createdAt INTEGER NOT NULL,
       updatedAt INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS approvals (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT UNIQUE NOT NULL,
+      taskId TEXT NOT NULL,
+      goalId TEXT NOT NULL,
+      action TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      status TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      decidedAt INTEGER,
+      decidedBy TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+    CREATE INDEX IF NOT EXISTS idx_approvals_task ON approvals(taskId);
   `);
 
   // Migration-safe: older DBs may predate the goals.meta column.
@@ -384,7 +451,34 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
          lastRunAt=@lastRunAt, lastGoalId=@lastGoalId, lastStatus=@lastStatus, lastNote=@lastNote, updatedAt=@updatedAt`,
     ),
     deleteAutomation: db.prepare(`DELETE FROM automations WHERE id = ?`),
+
+    insertApproval: db.prepare(
+      `INSERT INTO approvals (id, taskId, goalId, action, detail, status, createdAt, decidedAt, decidedBy)
+       VALUES (@id, @taskId, @goalId, @action, @detail, @status, @createdAt, @decidedAt, @decidedBy)`,
+    ),
+    getApproval: db.prepare(`SELECT * FROM approvals WHERE id = ?`),
+    approvedForTask: db.prepare(
+      `SELECT * FROM approvals WHERE taskId = ? AND detail = ? AND status = 'approved' ORDER BY seq ASC LIMIT 1`,
+    ),
+    decidedBy: db.prepare(`UPDATE approvals SET status = ?, decidedAt = ?, decidedBy = ? WHERE id = ?`),
+    deleteApproval: db.prepare(`DELETE FROM approvals WHERE id = ?`),
   };
+
+  /** Every approvals query, filtered in SQL by status and/or task. */
+  function approvalRows(opts?: { status?: ApprovalStatus; taskId?: string }): ApprovalRow[] {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (opts?.status) {
+      where.push('status = ?');
+      args.push(opts.status);
+    }
+    if (opts?.taskId) {
+      where.push('taskId = ?');
+      args.push(opts.taskId);
+    }
+    const sql = `SELECT * FROM approvals${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY seq ASC`;
+    return db.prepare(sql).all(...args) as ApprovalRow[];
+  }
 
   function emit(goalId: string, taskId: string | null, kind: string, data: any): EventRow {
     const ts = now();
@@ -535,6 +629,11 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     stmts.insertTask.run(row);
     const task = taskFromRow(row);
     emit(task.goalId, task.id, 'task_created', { title: task.title, persona: task.persona, depth: task.depth });
+    // New work on a settled goal wakes it up: a retry, or a follow-up Quinn added.
+    if (goal.status !== 'active') {
+      stmts.updateGoalStatus.run('active', now(), goal.id);
+      emit(goal.id, null, 'goal_status', { status: 'active', reason: 'new task' });
+    }
     return task;
   }
 
@@ -707,7 +806,96 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     return () => subscribers.delete(cb);
   }
 
+  const requestApprovalTxn = db.transaction((taskId: string, action: string, detail: string) => {
+    const row = getTaskRow(taskId);
+    if (!row) throw new Error(`no such task: ${taskId}`);
+    const t = now();
+    const aRow: ApprovalRow = {
+      seq: 0,
+      id: randomUUID(),
+      taskId,
+      goalId: row.goalId,
+      action: String(action ?? ''),
+      detail: String(detail ?? ''),
+      status: 'pending',
+      createdAt: t,
+      decidedAt: null,
+      decidedBy: null,
+    };
+    stmts.insertApproval.run(aRow);
+    emit(row.goalId, taskId, 'approval_requested', {
+      approvalId: aRow.id,
+      action: aRow.action,
+      detail: aRow.detail,
+    });
+    return approvalFromRow(aRow);
+  });
+
+  function requestApproval(taskId: string, action: string, detail: string): Approval {
+    return requestApprovalTxn.immediate(taskId, action, detail);
+  }
+
+  const decideApprovalTxn = db.transaction(
+    (id: string, decision: 'approved' | 'denied', by: string) => {
+      const a = stmts.getApproval.get(id) as ApprovalRow | undefined;
+      if (!a) throw new Error(`no such approval: ${id}`);
+      const t = now();
+      stmts.decidedBy.run(decision, t, by ?? null, id);
+      const task = getTaskRow(a.taskId);
+      if (task && task.status === 'blocked') {
+        stmts.transitionUpdate.run('queued', null, null, task.reason, t, a.taskId);
+        emit(
+          a.goalId,
+          a.taskId,
+          'transition',
+          { from: 'blocked', to: 'queued', reason: decision, by: by ?? null },
+        );
+      }
+      const note =
+        decision === 'approved'
+          ? `approved: ${a.detail}`
+          : `denied: ${a.detail} — find another way`;
+      stmts.appendNoteStmt.run(note, t, a.taskId);
+      emit(a.goalId, a.taskId, 'approval_decided', {
+        approvalId: id,
+        action: a.action,
+        detail: a.detail,
+        decision,
+        by: by ?? null,
+      });
+      return approvalFromRow(stmts.getApproval.get(id) as ApprovalRow);
+    },
+  );
+
+  function decideApproval(id: string, decision: 'approved' | 'denied', by: string): Approval {
+    if (decision !== 'approved' && decision !== 'denied') {
+      throw new Error(`unknown approval decision: ${decision}`);
+    }
+    return decideApprovalTxn.immediate(id, decision, by);
+  }
+
+  function approvals(opts?: { status?: ApprovalStatus; taskId?: string }): Approval[] {
+    return approvalRows(opts).map(approvalFromRow);
+  }
+
+  const consumeApprovalTxn = db.transaction((taskId: string, detail: string) => {
+    const a = stmts.approvedForTask.get(taskId, String(detail ?? '')) as ApprovalRow | undefined;
+    if (!a) return false;
+    stmts.deleteApproval.run(a.id);
+    emit(a.goalId, taskId, 'approval_consumed', {
+      approvalId: a.id,
+      action: a.action,
+      detail: a.detail,
+    });
+    return true;
+  });
+
+  function consumeApproval(taskId: string, detail: string): boolean {
+    return consumeApprovalTxn.immediate(taskId, detail);
+  }
+
   function close(): void {
+    unregisterApprovalStore(api);
     db.close();
   }
 
@@ -728,7 +916,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     return markDoneTxn.immediate(taskId, by);
   }
 
-  return {
+  const api: Store = {
     createGoal,
     getGoal,
     listGoals,
@@ -750,8 +938,15 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     listAutomationRows,
     putAutomationRow,
     deleteAutomationRow,
+    requestApproval,
+    decideApproval,
+    approvals,
+    consumeApproval,
     onEvent,
     close,
     _markDone,
   };
+  // So run_shell can raise/spend approvals without ToolContext carrying a store.
+  registerApprovalStore(api);
+  return api;
 }

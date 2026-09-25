@@ -80,3 +80,8 @@ export function goalSummary(store: Store, goalId: string): GoalSummary | undefin
   for (const t of store.listTasks(goalId)) counts[t.status] = (counts[t.status] ?? 0) + 1;
   return { ...goal, counts };
 }
+
+/** A goal by id or slug; undefined when neither matches. (from P3b, used by the Claude door) */
+export function resolveGoal(store: Store, ref: string): Goal | undefined {
+  return store.getGoal(ref) ?? store.listGoals().find((g) => g.slug === ref);
+}
