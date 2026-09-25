@@ -3,6 +3,7 @@
 // agent-level failures (tool errors, budgets, stalls, llm errors).
 import {
   DEFAULT_WATCHDOG,
+  NodeOfflineError,
   type LLMMessage,
   type LLMResponse,
   type Persona,
@@ -10,6 +11,7 @@ import {
   type ToolContext,
   type ToolResult,
   type WatchdogConfig,
+  type WorkspaceBackend,
 } from './contract.js';
 import { verifyAndComplete, defaultRunner } from '../gate.js';
 import type { Store } from '../store.js';
@@ -21,6 +23,7 @@ import {
   type Task,
 } from '../types.js';
 import type { ToolRegistry } from './tools.js';
+import { parkIfNodeOffline } from './tools.js';
 import type { ModelRegistry } from '../models.js';
 import { DEFAULT_CONTEXT_WINDOW } from '../models.js';
 import { compactMessages, estimateRequest, nudgeMessage } from './compact.js';
@@ -33,7 +36,12 @@ export interface RunOpts {
   personas: Map<string, Persona>;
   registry: ToolRegistry;
   workerId: string;
-  workspaceFor: (t: Task) => string;
+  /** Optional now (P9): when absent the runtime resolves the workspace itself (nodes-aware). */
+  workspaceFor?: (t: Task) => string;
+  /** P9: the NodeHub; with `workRoot` it replaces `workspaceFor`. */
+  nodes?: import('../node/hub.js').NodeHub;
+  /** P9: base directory for local workspaces when `workspaceFor` is absent. */
+  workRoot?: string;
   watchdog?: Partial<WatchdogConfig>;
   runner?: CheckRunner;
   leaseMs?: number;
@@ -122,7 +130,29 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
   const personaOpt = o.personas.get(task.persona);
   if (!personaOpt) throw new Error(`no such persona: ${task.persona}`);
   const persona: Persona = personaOpt;
-  const workspace = o.workspaceFor(task);
+
+  // P9: resolve where this task's workspace lives (possibly on an alfred-node).
+  let workspace: string;
+  let backend: WorkspaceBackend | undefined;
+  if (o.workspaceFor) {
+    workspace = o.workspaceFor(task);
+  } else {
+    try {
+      const { resolveWorkspace } = await import('../workspace.js');
+      const ws = await resolveWorkspace(o.store, task, {
+        ...(o.workRoot ? { root: o.workRoot } : {}),
+        ...(o.nodes ? { nodes: o.nodes } : {}),
+      });
+      workspace = ws.path;
+      backend = ws.backend;
+    } catch (e) {
+      if (e instanceof NodeOfflineError) {
+        o.store.transition(taskId, 'blocked', { reason: e.message, by: o.workerId });
+        return o.store.getTask(taskId)!;
+      }
+      throw e;
+    }
+  }
   const schemas = o.registry.schemasFor(persona.tools);
   const toolSet = new Set(persona.tools);
 
@@ -354,19 +384,20 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
             signal: scope.signal,
             acceptance: task!.acceptance,
             progress: (msg: string) => record('progress', { msg }),
+            ...(backend ? { backend } : {}),
           };
           try {
             result = await tool.run(c.args ?? {}, ctx);
           } catch (e: any) {
-            result = { ok: false, output: `error: ${e?.message ?? String(e)}` };
-          }
-          if (result.park) {
-            o.store.transition(taskId, result.park.status, { reason: result.park.reason, by: o.workerId });
-            control = { kind: 'park', status: result.park.status, reason: result.park.reason };
+            result = parkIfNodeOffline(e) ?? { ok: false, output: `error: ${e?.message ?? String(e)}` };
           }
         }
 
         scope.dispose();
+        if (result.park && !control) {
+          o.store.transition(taskId, result.park.status, { reason: result.park.reason, by: o.workerId });
+          control = { kind: 'park', status: result.park.status, reason: result.park.reason };
+        }
         if (!result.ok) failedCalls.add(c.id);
         record('tool', { name: c.name, ok: result.ok });
 
@@ -406,9 +437,35 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
     // P8: the compact result a parent sees via wait_subtasks.
     o.store.setResult(taskId, String(c.args?.summary ?? '').trim().slice(0, 2000));
     o.store.transition(taskId, 'verifying', { by: o.workerId });
-    const runner: CheckRunner = (check: AcceptanceCheck) =>
-      (o.runner ?? defaultRunner)({ ...check, cwd: check.cwd ?? workspace });
-    const v = await verifyAndComplete(o.store, taskId, { runner, by: o.workerId });
+    const runner: CheckRunner = backend
+      ? async (check: AcceptanceCheck) => {
+          const t0 = Date.now();
+          const r = await backend.exec(check.cmd, {
+            cwd: check.cwd ?? workspace,
+            timeoutMs: check.timeoutMs ?? 10 * 60 * 1000,
+          });
+          return {
+            name: check.name,
+            ok: !r.timedOut && r.exitCode === 0,
+            exitCode: r.exitCode,
+            output: (r.output ?? '').slice(-4000),
+            durationMs: Date.now() - t0,
+            timedOut: r.timedOut,
+          };
+        }
+      : (check: AcceptanceCheck) => (o.runner ?? defaultRunner)({ ...check, cwd: check.cwd ?? workspace });
+    let v: { ok: boolean; results: import('../types.js').CheckResult[] };
+    try {
+      v = await verifyAndComplete(o.store, taskId, { runner, by: o.workerId });
+    } catch (e) {
+      if (e instanceof NodeOfflineError) {
+        // The gate could not reach the node: back to running (legal from verifying),
+        // then the park machinery moves us to blocked.
+        o.store.transition(taskId, 'running', { by: o.workerId });
+        return { ok: false, output: `error: ${e.message}`, park: { status: 'blocked', reason: e.message } };
+      }
+      throw e;
+    }
     if (v.ok) return { ok: true, output: 'done' };
     const after = o.store.getTask(taskId)!;
     if (after.status === 'failed') return { ok: true, output: '' };

@@ -77,6 +77,20 @@ export function slackSink(o: {
   };
 }
 
+/** P9 Mac-first: desktop notifications delivered through connected alfred-nodes. */
+export function nodeNotifySink(
+  hub: { notify(o: { level: string; title: string; body: string; url?: string }): void },
+  o?: { dashboardUrl?: string },
+): Sink {
+  return {
+    name: 'node-notify',
+    async send(n: Notice): Promise<void> {
+      const url = o?.dashboardUrl && n.goalId ? `${o.dashboardUrl.replace(/\/+$/, '')}/#/goal/${n.goalId}` : undefined;
+      hub.notify({ level: n.level, title: n.title, body: n.body, ...(url ? { url } : {}) });
+    },
+  };
+}
+
 export function markdownSink(store: Store, dir: string): Sink {
   return {
     name: 'markdown',
@@ -90,6 +104,8 @@ export function sinksFromEnv(
   env: Record<string, string | undefined>,
   store: Store,
   mirrorDir: string,
+  /** P9: when a NodeHub is given, nodes with cap `notify` receive desktop notifications too. */
+  nodes?: { notify(o: { level: string; title: string; body: string; url?: string }): void },
 ): { sinks: Sink[]; warnings: string[] } {
   const warnings: string[] = [];
   const dashboardUrl = env.ALFRED_DASHBOARD_URL;
@@ -97,6 +113,7 @@ export function sinksFromEnv(
     desktopSink(),
     markdownSink(store, mirrorDir),
   ];
+  if (nodes) sinks.push(nodeNotifySink(nodes, dashboardUrl ? { dashboardUrl } : {}));
   const webhookUrl = env.SLACK_WEBHOOK_URL;
   const botToken = env.SLACK_BOT_TOKEN;
   const channel = env.SLACK_CHANNEL;

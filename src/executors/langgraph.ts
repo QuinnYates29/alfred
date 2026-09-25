@@ -1,8 +1,12 @@
 // P2 §3 — `langgraph_code`: runs the constrained LangGraph coder sidecar.
+// P9: on a node workspace the sidecar still runs here (Python + Qwen live on the
+// Spark) but reaches the files through a one-shot localhost "file bridge" backed
+// by ctx.backend.
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
+import { dirname, join, resolve as presolve, sep } from 'node:path';
+import type { Tool, ToolContext, ToolResult, WorkspaceBackend } from '../runtime/contract.js';
 import type { ModelRegistry } from '../models.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -12,6 +16,62 @@ interface SidecarResult {
   iterations: number;
   testOutput: string;
   filesChanged: string[];
+}
+
+/**
+ * P9: one-shot localhost HTTP bridge so the (Spark-local) sidecar can read /
+ * write / list / exec through a node backend. Paths are checked against the
+ * workspace here as well; the node enforces its own roots.
+ */
+async function startBridge(ctx: ToolContext): Promise<{ url: string; close: () => void }> {
+  const backend: WorkspaceBackend = ctx.backend!;
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c: Buffer) => (body += c));
+    req.on('end', () => {
+      void (async () => {
+        const reply = (v: unknown) => {
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify(v));
+        };
+        try {
+          const b = JSON.parse(body || '{}');
+          const inWs = (p: unknown): string | null => {
+            if (typeof p !== 'string') return null;
+            const abs = presolve(ctx.workspace, p);
+            return abs === ctx.workspace || abs.startsWith(ctx.workspace + sep) ? abs : null;
+          };
+          if (req.method === 'POST' && (req.url ?? '').split('?')[0] === '/fs') {
+            const abs = inWs(b.path);
+            if (!abs) return reply({ ok: false, error: 'path escapes the workspace' });
+            const op = String(b.op ?? '');
+            if (op === 'read') return reply({ ok: true, text: await backend.readFile(abs) });
+            if (op === 'write') {
+              await backend.writeFile(abs, String(b.content ?? ''));
+              return reply({ ok: true });
+            }
+            if (op === 'list') return reply({ ok: true, entries: await backend.listDir(abs) });
+            return reply({ ok: false, error: `unknown fs op: ${op}` });
+          }
+          if (req.method === 'POST' && (req.url ?? '').split('?')[0] === '/exec') {
+            const r = await backend.exec(String(b.cmd ?? ''), {
+              cwd: ctx.workspace,
+              timeoutMs: Number(b.timeoutMs) > 0 ? Number(b.timeoutMs) : 600_000,
+              ...(ctx.signal ? { signal: ctx.signal } : {}),
+            });
+            return reply({ ok: true, ...r });
+          }
+          reply({ ok: false, error: 'not found' });
+        } catch (e: any) {
+          reply({ ok: false, error: e?.message ?? String(e) });
+        }
+      })();
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const addr = server.address();
+  const port = typeof addr === 'object' && addr ? addr.port : 0;
+  return { url: `http://127.0.0.1:${port}`, close: () => server.close() };
 }
 
 export function langgraphTool(o?: {
@@ -42,7 +102,7 @@ export function langgraphTool(o?: {
         required: ['task'],
       },
     },
-    run(args: any, ctx: ToolContext): Promise<ToolResult> {
+    async run(args: any, ctx: ToolContext): Promise<ToolResult> {
       const task = String(args?.task ?? '');
       const maxIterations = Math.max(1, Math.floor(Number(args?.maxIterations ?? 6)) || 6);
       const cmds = (ctx.acceptance ?? []).map(c => c.cmd).filter(Boolean);
@@ -53,7 +113,18 @@ export function langgraphTool(o?: {
       const baseUrl = spec?.baseUrl ?? o?.baseUrl ?? 'http://127.0.0.1:1110';
       const model = spec?.model ?? o?.model ?? 'qwen3.8-flash-next';
 
-      return new Promise<ToolResult>(resolve => {
+      // P9: node workspace → the sidecar reaches the files through the bridge.
+      const remote = !!ctx.backend && ctx.backend.node !== 'local';
+      let bridge: { url: string; close: () => void } | undefined;
+      if (remote) {
+        try {
+          bridge = await startBridge(ctx);
+        } catch (e: any) {
+          return { ok: false, output: `file bridge failed to start: ${e?.message ?? e}` };
+        }
+      }
+      try {
+        return await new Promise<ToolResult>(resolve => {
         const child = spawn(
           python,
           ['-m', 'langgraph_coder'],
@@ -66,6 +137,7 @@ export function langgraphTool(o?: {
         );
         child.stdin.end(JSON.stringify({
           task, workspace: ctx.workspace, testCmd, maxIterations, baseUrl, model,
+          ...(bridge ? { bridgeUrl: bridge.url } : {}),
         }));
 
         let stdout = '';
@@ -144,7 +216,10 @@ export function langgraphTool(o?: {
           ].join('\n').slice(0, 8000);
           resolve({ ok: r.ok, output });
         });
-      });
+        });
+      } finally {
+        bridge?.close();
+      }
     },
   };
 }

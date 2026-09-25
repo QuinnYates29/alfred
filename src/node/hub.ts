@@ -208,8 +208,8 @@ export class NodeHub {
   backend(node: string): WorkspaceBackend {
     if (node === 'local') return new LocalBackend();
     const c = this.nodes.get(node);
-    if (!c) throw new NodeOfflineError(node);
-    return new RemoteBackend(node, [...c.caps], this);
+    // An absent node still gets a backend: every call on it rejects with NodeOfflineError.
+    return new RemoteBackend(node, c ? [...c.caps] : [], this);
   }
 
   onChange(cb: (e: { node: string; online: boolean }) => void): () => void {
@@ -273,7 +273,13 @@ export class NodeHub {
     this.dropAll('hub closed');
     const wss = this.wss;
     this.wss = null;
-    if (wss) wss.close().catch?.(() => {});
+    if (wss) {
+      try {
+        wss.close(() => {});
+      } catch {
+        /* already closed */
+      }
+    }
   }
 
   // ---- internals ----

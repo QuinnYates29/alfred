@@ -12,6 +12,8 @@ import { Scheduler } from './runtime/scheduler.js';
 import { openaiLLM, limitLLM } from './runtime/openai.js';
 import { ModelRegistry, loadModels, DEFAULT_SLOTS, type ModelSpec } from './models.js';
 import { workspaceFor } from './workspace.js';
+import { NodeHub } from './node/hub.js';
+import { buildDoor } from './door/server.js';
 import { Notifier, wireLoudFailures } from './notify.js';
 import { writeMirror } from './mirror.js';
 import { Automations } from './automations.js';
@@ -76,9 +78,21 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
 
   const port = c.port ?? file?.server?.port ?? 8790;
   const host = c.host ?? file?.server?.host ?? '127.0.0.1';
+  const token = c.token ?? env.ALFRED_TOKEN;
+
+  // P9: a public bind without a token is refused. Tailscale serve lets us stay on 127.0.0.1.
+  const isLoopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+  if (!isLoopback && !(typeof token === 'string' && token.trim())) {
+    throw new Error(
+      `refusing to bind ${host} without a token: set ALFRED_TOKEN (or pass token in config)`,
+    );
+  }
+
   const dbPath = c.dbPath ?? file?.paths?.db ?? join(REPO_ROOT, '.alfred-dev', 'alfred.db');
-  const mirrorSpec = c.mirrorDir ?? file?.paths?.mirror ?? 'local:~/vaults/alfred';
-  const mirrorDir = expandHome(String(mirrorSpec).replace(/^local:/, ''));
+  // P9 Mac-first: mirror spec is `local:/path` (default) or `node:<name>:/abs/path`.
+  const mirrorSpec = String(c.mirrorDir ?? file?.paths?.mirror ?? 'local:~/vaults/alfred');
+  const isNodeMirror = mirrorSpec.startsWith('node:');
+  const mirrorDir = isNodeMirror ? join(REPO_ROOT, '.alfred-dev', 'mirror-unused') : expandHome(mirrorSpec.replace(/^local:/, ''));
   const workRoot = c.workRoot ?? file?.paths?.work ?? join(REPO_ROOT, '.alfred-dev', 'work');
   const personasDir = c.personasDir ?? 'personas';
   const automationsDir = c.automationsDir;
@@ -90,6 +104,9 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
 
   const notifier = new Notifier([]);
   const deckState: DeckState = { url: null };
+
+  // P9: the node network — alfred-nodes dial OUT to /api/nodes/connect (token-checked).
+  const nodeHub = new NodeHub({ ...(token ? { token } : {}) });
 
   // ---- plugins (P11): built-ins dogfood the same API as file plugins.
   const pluginCfgBase: Record<string, any> = { ...(file?.plugins ?? {}) };
@@ -136,7 +153,13 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     c.builtins ??
     [
       builtinExecutorsPlugin({ registry, models: () => modelsRegistry }),
-      builtinSinksPlugin({ env: () => env, store, mirrorDir: () => mirrorDir }),
+      builtinSinksPlugin({
+        env: () => env,
+        store,
+        mirrorDir: () => mirrorDir,
+        mirrorSpec: () => mirrorSpec,
+        nodes: nodeHub,
+      }),
       builtinDeckPlugin({ deckState }),
     ];
 
@@ -210,7 +233,8 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     personas,
     registry,
     maxWorkers: 12, // waiting parents hold a worker; LLM concurrency is limited separately by the model registry
-    workspaceFor: (t: any) => workspaceFor(store, t, { root: workRoot }),
+    nodes: nodeHub, // P9: resolveWorkspace(store, task, { root: workRoot, nodes })
+    workRoot,
     ...(c.pollMs != null ? { pollMs: c.pollMs } : {}),
   } as any);
   scheduler.start();
@@ -219,6 +243,7 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
   wireLoudFailures(store, notifier);
   const pendingMirrors = new Map<string, ReturnType<typeof setTimeout>>();
   const mirrorUnsub = store.onEvent((e) => {
+    if (isNodeMirror) return; // node mirrors are written by the node-markdown sink
     if (pendingMirrors.has(e.goalId)) return;
     const t = setTimeout(() => {
       pendingMirrors.delete(e.goalId);
@@ -231,6 +256,26 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     }, 500);
     t.unref?.();
     pendingMirrors.set(e.goalId, t);
+  });
+
+  // P9: when a node returns, re-queue every task blocked by exactly that node.
+  const nodeWatcherUnsub = nodeHub.onChange((e) => {
+    if (!e.online) return;
+    try {
+      for (const g of store.listGoals()) {
+        for (const t of store.listTasks(g.id)) {
+          if (t.status !== 'blocked' || t.reason !== `node ${e.node} offline`) continue;
+          try {
+            store.appendNote(t.id, `node ${e.node} back online`);
+            store.transition(t.id, 'queued', { reason: `node ${e.node} back online`, by: 'nodes' });
+          } catch {
+            /* raced with another transition */
+          }
+        }
+      }
+    } catch {
+      /* a hub event must never take Alfred down */
+    }
   });
 
   // ---- automations
