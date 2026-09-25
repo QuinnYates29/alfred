@@ -1,5 +1,6 @@
 name: coder
 description: Implements code and files in the workspace to meet acceptance checks.
+model: coder
 promptBudgetTokens: 4000
 canSpawn: []
 tools: [read_file, write_file, list_dir, run_shell, note, dsh_code, pipeline_run, finish, give_up, ask_claude]

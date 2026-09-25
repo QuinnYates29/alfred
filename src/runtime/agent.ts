@@ -21,10 +21,13 @@ import {
   type Task,
 } from '../types.js';
 import type { ToolRegistry } from './tools.js';
+import type { ModelRegistry } from '../models.js';
 
 export interface RunOpts {
   store: Store;
   llm: import('./contract.js').LLM;
+  /** P7: when present, every call resolves its LLM per call from the registry (role switches apply on the next turn). `llm` stays the fallback. */
+  models?: ModelRegistry;
   personas: Map<string, Persona>;
   registry: ToolRegistry;
   workerId: string;
@@ -121,6 +124,16 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
   const schemas = o.registry.schemasFor(persona.tools);
   const toolSet = new Set(persona.tools);
 
+  /** P7 model precedence, evaluated per call so role switches take effect immediately. */
+  const modelRef = (): string => {
+    const gm = o.store.getGoal(task!.goalId)?.meta?.model;
+    if (typeof gm === 'string' && gm) return gm;
+    const tm = o.store.getTaskModel?.(taskId) ?? null;
+    if (tm) return tm;
+    return persona.model ?? 'default';
+  };
+  const llmForCall = () => (o.models ? o.models.llm(modelRef()) : o.llm);
+
   const messages: LLMMessage[] = [{ role: 'user', content: buildFirstMessage(task) }];
 
   const startedAt = Date.now();
@@ -202,7 +215,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
       let lastError: unknown = null;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          resp = await o.llm.chat({
+          resp = await llmForCall().chat({
             system: persona.system,
             messages,
             tools: schemas,
@@ -380,6 +393,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         spec: String(a.spec ?? ''),
         acceptance: Array.isArray(a.acceptance) ? a.acceptance : [],
         budget: a.budget && typeof a.budget === 'object' ? a.budget : undefined,
+        model: a.model ? String(a.model) : undefined,
       });
       const start = (childId: string) =>
         runTask(childId, { ...o, workerId: `${o.workerId}/${childId.slice(0, 8)}` }).catch(() => {});

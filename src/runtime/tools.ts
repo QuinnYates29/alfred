@@ -210,6 +210,7 @@ export function builtinTools(): Tool[] {
         items: { type: 'object', properties: { name: { type: 'string' }, cmd: { type: 'string' } } },
       },
       budget: { type: 'object', description: 'Optional budget overrides.' },
+      model: { type: 'string', description: 'Optional model name or role for the child (default: the child persona\'s model).' },
     }, ['persona', 'title', 'spec']),
     control('wait_subtasks', 'Wait until all spawned child tasks are terminal or parked.', {}),
   ];

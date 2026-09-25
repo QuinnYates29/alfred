@@ -46,6 +46,10 @@ function parsePersona(file: string, reg: ToolRegistry): Persona {
     promptBudgetTokens: raw.promptBudgetTokens,
     canSpawn,
   };
+  if (raw.model !== undefined && raw.model !== null) {
+    if (typeof raw.model !== 'string' || !raw.model) fail('model must be a non-empty string');
+    p.model = raw.model;
+  }
   if (raw.maxTokensPerTurn !== undefined && raw.maxTokensPerTurn !== null) {
     if (typeof raw.maxTokensPerTurn !== 'number') fail('maxTokensPerTurn must be a number');
     p.maxTokensPerTurn = raw.maxTokensPerTurn;
