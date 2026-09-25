@@ -23,6 +23,7 @@ EPOCHS = [
     ('2026-09-24 14:38', 'np=6 ctx=98k (NVRM OOM, CPU fallback)'),
     ('2026-09-24 14:39', 'np=6 ctx=64k, no reasoning cap'),
     ('2026-09-24 15:14', 'np=6 ctx=64k, --reasoning-budget 1536, <=3 agents'),
+    ('2026-09-24 21:36', 'np=3 ctx=262k ncmoe=8 lazy-PLE, pinned X925, budget 1536'),
 ]
 
 def epoch_for(ts):

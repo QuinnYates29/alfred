@@ -40,12 +40,13 @@ context economy, and workspaces on the Spark or the Mac (via `alfred-node`), git
 Planned order: P3a/P4a/P7 (running) → P3b, P11, P8 → P4b → P9, P10 → P5 → P6.
 
 ## Open items / decisions pending with Quinn
-- **Qwen decode speed**: investigation done → docs/qwen/SPEED-INVESTIGATION.md. Finding: decode is sync-bound. `-ncmoe 26` forces ~26 GPU↔CPU round trips per token (attention on GPU, experts on CPU, layers sequential). Per-slot rate is flat at 2.4–2.5 tok/s whether 1 or 4 slots are active; GPU ~25% and CPU ~25% busy. Experiments queued for the next wave boundary: (1) pin 10 threads to the X925 cores, (2) np 3 + ncmoe 14, (3) np 2 + ncmoe 8, (4) -ot per_layer_token_embd=CPU + low ncmoe, (5) -v load placement capture, (6) rebuild with GGML_CPU_KLEIDIAI=ON. Also: the qwenctl presets `fast`/`balanced` are stale (would NVRM at np 6), and --cache-ram 8 GiB is thrashing.
+- **Qwen decode speed: FIXED** (see Server state). Investigation → docs/qwen/SPEED-INVESTIGATION.md. Finding: decode is sync-bound. `-ncmoe 26` forces ~26 GPU↔CPU round trips per token (attention on GPU, experts on CPU, layers sequential). Per-slot rate is flat at 2.4–2.5 tok/s whether 1 or 4 slots are active; GPU ~25% and CPU ~25% busy. Experiments queued for the next wave boundary: (1) pin 10 threads to the X925 cores, (2) np 3 + ncmoe 14, (3) np 2 + ncmoe 8, (4) -ot per_layer_token_embd=CPU + low ncmoe, (5) -v load placement capture, (6) rebuild with GGML_CPU_KLEIDIAI=ON. Also: the qwenctl presets `fast`/`balanced` are stale (would NVRM at np 6), and --cache-ram 8 GiB is thrashing.
   We see ~2.3 tok/s per agent with 3 agents and a GPU at ~24% util / 25 W → suspect tensor placement (`-ncmoe 26`, mmap), threads, build flags or fork kernels.
   **Experiments need a qwen-server restart → do them between waves** (a restart kills in-flight DSH agents; their WIP survives, costing an attempt).
 - Control-side UX (dashboard/CLI/phone/Slack): Quinn will refine. Keep the core API-first (`/api/v1`, docs/API.md from P11).
 - Quinn to do: `sudo systemctl disable --now deck-server`; Slack token/channel (later); the Obsidian MCP on the Mac (`100.82.152.2:3556`, currently timing out); install `alfred-node` on the Mac after P9.
 
 ## Server state (qwen-server.service, env ~/.config/qwen-server.env)
-`QWEN_NP=6 QWEN_CTX=65536 (total 393216) QWEN_NCMOE=26 QWEN_EXTRA=--reasoning-budget 1536`. 6×98k caused NVRM OOM. Check `~/.dsh/crashes.log` for NVRM after any change.
-DSH `defaultContextWindow` must equal the per-slot ctx (`qwenctl ctx N` syncs it).
+**Fast config since 2026-09-24 21:36:** `QWEN_NP=3 QWEN_CTX=262144 QWEN_NCMOE=8 QWEN_EXTRA="--reasoning-budget 1536 --tensor-read-lazy on -t 10 --cpu-mask 0xF83E0 --cpu-strict 1"`.
+Measured 15.4 tok/s single, 11.8 each / 35.5 aggregate at 3 parallel (5x the old 2.35/slot). DSH defaultContextWindow = 262144.
+The old config backup is ~/.config/qwen-server.env.bak.20260924-ncmoe26. qwenctl presets `fast`/`balanced` are stale. Check ~/.dsh/crashes.log for NVRM after any change.

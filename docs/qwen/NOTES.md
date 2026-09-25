@@ -14,6 +14,7 @@ loop until the acceptance command passes, ≤ 4 attempts, 45–75 min each). Eve
 | 14:39 | `np 6 × 64k` (393k total, same total as the old 4×98k) | clean. Short-prompt bench: 9.3 tok/s single, 24.5 aggregate ×6. |
 | 14:43 | 6 agents at once, no reasoning cap | **0 files written in 30 min.** Reasoning share 72–90%. Qwen drafted whole files inside its thinking. ~2 tok/s per agent. Killed. |
 | 15:14 | `--reasoning-budget 1536` + "don't draft in reasoning" preamble, ≤ 3 agents | reasoning share → ~35% median. Output tokens per session up ~10×. P1a/P1b/P2a all passed on attempt 1. |
+| 21:36 | **np 3 × 262k, `-ncmoe 8`, `--tensor-read-lazy on`, `-t 10 --cpu-mask 0xF83E0 --cpu-strict 1`** | **15.4 tok/s single, 11.8 each / 35.5 aggregate at 3 parallel** (was 2.35/slot). Root cause of the slowness: `-ncmoe 26` meant ~26 GPU↔CPU round trips per token (sync-bound: GPU 25%, CPU 25%). Lazy PLE frees 26.8 GiB of device memory → 18 more expert blocks fit on the GPU. See SPEED-INVESTIGATION.md. |
 
 ## What the numbers say so far
 - **Per-agent speed is ~2.2–2.5 tok/s with 3 concurrent agents** (≈ 7 tok/s aggregate), vs 9.3 tok/s for one short-prompt request. Contexts sit at 8–15k tokens
@@ -28,6 +29,7 @@ loop until the acceptance command passes, ≤ 4 attempts, 45–75 min each). Eve
   → Split large tasks.
 
 ## Harness lessons (not the model's fault)
+- A qwen-server restart made every DSH call fail instantly, and the harness burned all remaining attempts in seconds (P7 lost all 4). Fixed: wait for `/health` before each attempt, and don't count a sub-2-minute failure during an outage.
 - A shared editable-install `.venv` imported the main checkout instead of the worktree. The model's correct work looked "failing" (P2d). Fix: `PYTHONPATH=.`.
 - Tests that load real personas with only built-in tools broke once personas listed executor tools. Fixed in the tests.
 - `vitest run test/acceptance/p1` also matches `p10`/`p11` (prefix filter). P2e had actually passed (41/41) but was marked failing. Fix: trailing slashes.

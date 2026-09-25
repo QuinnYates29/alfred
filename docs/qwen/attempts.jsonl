@@ -1,0 +1,4 @@
+{"name":"P7","attempt":1,"start":"2026-09-24T21:07:49-04:00","wall_s":1571,"dsh_exit":1,"check_rc":1,"tests":" Tests 92 passed (92)","timeout_min":60}
+{"name":"P7","attempt":2,"start":"2026-09-24T21:34:00-04:00","wall_s":18,"dsh_exit":1,"check_rc":1,"tests":" Tests 92 passed (92)","timeout_min":60}
+{"name":"P7","attempt":3,"start":"2026-09-24T21:34:18-04:00","wall_s":19,"dsh_exit":1,"check_rc":1,"tests":" Tests 92 passed (92)","timeout_min":60}
+{"name":"P7","attempt":4,"start":"2026-09-24T21:34:37-04:00","wall_s":19,"dsh_exit":1,"check_rc":1,"tests":" Tests 92 passed (92)","timeout_min":60}
