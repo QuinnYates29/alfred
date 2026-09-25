@@ -1,5 +1,6 @@
 name: researcher
 description: Gathers facts from files and the web; reports findings as notes.
+model: fast
 promptBudgetTokens: 4000
 canSpawn: []
 tools: [read_file, list_dir, run_shell, note, finish, give_up, ask_claude]

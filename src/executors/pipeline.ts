@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
+import type { ModelRegistry } from '../models.js';
 import { clampTimeoutMin, runProc, tail } from './proc.js';
 
 const OUTPUT_CAP = 8000;
@@ -84,11 +85,10 @@ function eventsScan(ws: string): { size: number; lastKind: string } {
 }
 
 export function pipelineTool(
-  o: { bin?: string; baseConfig?: string; baseUrl?: string } = {},
+  o: { bin?: string; baseConfig?: string; baseUrl?: string; /** P7: 'coder' role's endpoint applied to every generated-yaml role. */ models?: ModelRegistry } = {},
 ): Tool {
   const bin = expandHome(o.bin ?? process.env.ALFRED_PIPELINE_BIN ?? '~/tools/orchestrator/.venv/bin/pipeline');
   const baseConfig = o.baseConfig ?? DEFAULT_BASE_CONFIG;
-  const baseUrl = o.baseUrl ?? 'http://127.0.0.1:1110';
 
   return {
     kind: 'exec',
@@ -130,12 +130,19 @@ export function pipelineTool(
         return { ok: false, output: `pipeline_run: cannot read base config ${baseConfig}: ${err?.message ?? err}` };
       }
       const cmds = (ctx.acceptance ?? []).map((c) => c.cmd).filter(Boolean);
-      if (cmds.length) {
+      const spec = o.models?.resolve('coder');
+      const baseUrl = spec?.baseUrl ?? o.baseUrl ?? 'http://127.0.0.1:1110';
+      if (cmds.length || spec) {
         try {
           const cfg = parseYaml(cfgText) ?? {};
           cfg.pipeline = cfg.pipeline ?? {};
-          cfg.pipeline.verify = cfg.pipeline.verify ?? {};
-          cfg.pipeline.verify.command = cmds.join(' && ');
+          if (cmds.length) {
+            cfg.pipeline.verify = cfg.pipeline.verify ?? {};
+            cfg.pipeline.verify.command = cmds.join(' && ');
+          }
+          if (spec && cfg.pipeline.roles && typeof cfg.pipeline.roles === 'object') {
+            for (const role of Object.keys(cfg.pipeline.roles)) cfg.pipeline.roles[role] = spec.model;
+          }
           cfgText = stringifyYaml(cfg);
         } catch (err: any) {
           return { ok: false, output: `pipeline_run: bad base config: ${err?.message ?? err}` };

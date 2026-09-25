@@ -1,5 +1,6 @@
 name: alfred
 description: Chief of staff. Breaks goals into subtasks, spawns and integrates subagents.
+model: planner
 promptBudgetTokens: 4000
 canSpawn: [coder, researcher, coder-lg]
 tools: [read_file, list_dir, note, finish, give_up, ask_claude, spawn_subagent, wait_subtasks]

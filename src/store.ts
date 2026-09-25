@@ -34,6 +34,8 @@ export interface CreateTaskInput {
   spec?: string;
   acceptance?: AcceptanceCheck[];
   budget?: Partial<Budget>;
+  /** P7: model name or role from config/models.yaml for this task (additive). */
+  model?: string | null;
 }
 
 export interface ClaimNextOpts {
@@ -78,6 +80,8 @@ export interface Store {
   setGoalMeta(goalId: string, patch: Record<string, any>): Goal;
   createTask(input: CreateTaskInput): Task;
   getTask(id: string): Task | undefined;
+  /** P7: the per-task model name/role set at creation (spawn_subagent `model`), if any. */
+  getTaskModel(taskId: string): string | null;
   listTasks(goalId: string): Task[];
   children(taskId: string): Task[];
   claim(taskId: string, workerId: string, leaseMs: number): boolean;
@@ -157,6 +161,7 @@ interface TaskRow {
   leaseExpiresAt: number | null;
   reason: string | null;
   notes: string;
+  model: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -301,6 +306,11 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
   if (!goalCols.some((c) => c.name === 'meta')) {
     db.exec(`ALTER TABLE goals ADD COLUMN meta TEXT NOT NULL DEFAULT '{}'`);
   }
+  // P7: tasks.model — optional model name/role for the task (additive).
+  const taskCols = db.prepare(`PRAGMA table_info(tasks)`).all() as { name: string }[];
+  if (!taskCols.some((c) => c.name === 'model')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN model TEXT`);
+  }
 
   const subscribers = new Set<(e: EventRow) => void>();
 
@@ -316,8 +326,8 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     updateGoalMeta: db.prepare(`UPDATE goals SET meta = ?, updatedAt = ? WHERE id = ?`),
 
     insertTask: db.prepare(
-      `INSERT INTO tasks (id, goalId, parentTaskId, depth, persona, title, spec, acceptance, budget, status, attempt, leaseOwner, leaseExpiresAt, reason, notes, createdAt, updatedAt)
-       VALUES (@id, @goalId, @parentTaskId, @depth, @persona, @title, @spec, @acceptance, @budget, @status, @attempt, @leaseOwner, @leaseExpiresAt, @reason, @notes, @createdAt, @updatedAt)`,
+      `INSERT INTO tasks (id, goalId, parentTaskId, depth, persona, title, spec, acceptance, budget, status, attempt, leaseOwner, leaseExpiresAt, reason, notes, model, createdAt, updatedAt)
+       VALUES (@id, @goalId, @parentTaskId, @depth, @persona, @title, @spec, @acceptance, @budget, @status, @attempt, @leaseOwner, @leaseExpiresAt, @reason, @notes, @model, @createdAt, @updatedAt)`,
     ),
     getTaskById: db.prepare(`SELECT * FROM tasks WHERE id = ?`),
     listTasksByGoal: db.prepare(`SELECT * FROM tasks WHERE goalId = ? ORDER BY seq ASC`),
@@ -518,6 +528,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
       leaseExpiresAt: null,
       reason: null,
       notes: '',
+      model: input.model ?? null,
       createdAt: t,
       updatedAt: t,
     };
@@ -530,6 +541,11 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
   function getTask(id: string): Task | undefined {
     const r = getTaskRow(id);
     return r ? taskFromRow(r) : undefined;
+  }
+
+  function getTaskModel(taskId: string): string | null {
+    const r = getTaskRow(taskId) as (TaskRow & { model?: string | null }) | undefined;
+    return r?.model ?? null;
   }
 
   function listTasks(goalId: string): Task[] {
@@ -719,6 +735,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     setGoalMeta,
     createTask,
     getTask,
+    getTaskModel,
     listTasks,
     children,
     claim,

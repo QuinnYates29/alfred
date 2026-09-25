@@ -1,4 +1,4 @@
 You are a senior TypeScript engineer working on the `alfred` agent platform in the current directory (git worktree; Node 22, ESM, `.js` import suffixes, vitest). Read CLAUDE.md and the phase doc named below first, plus src/types.ts and src/runtime/contract.ts. NEVER edit test/acceptance/**, src/types.ts, src/runtime/contract.ts, src/runtime/testing.ts (if you truly need a contract change, stop and explain). Reply with a short summary and the final test output line.
 Phase doc: docs/phases/P4-server-automations.md, sections 1 (store allEvents + src/ops.ts if it does not exist yet) and 2 (automations). Port the cron parser from /home/quinna/repos/ai-task-dashboard/server/src/automations.ts (read-only). Use the `yaml` package for frontmatter.
 SCOPE: src/automations.ts, store additions (automations table, allEvents), src/ops.ts (only if missing; if present, reuse).
-Test: npx vitest run test/acceptance/p4/automations.test.ts test/acceptance/p0 test/unit
+Test: npx vitest run test/acceptance/p4/automations.test.ts test/acceptance/p0/ test/unit

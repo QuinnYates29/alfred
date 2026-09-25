@@ -3,6 +3,7 @@ dist/
 *.db
 *.db-*
 .env
+config/models.local.yaml
 .dispatch/
 sidecar/.venv
 __pycache__/

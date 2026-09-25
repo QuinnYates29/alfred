@@ -3,4 +3,4 @@ You are a senior TypeScript engineer working on the `alfred` agent platform in t
 YOUR SCOPE: section "0. Store + workspace additions" of the phase doc.
 - src/store.ts: add Goal.meta (JSON column, default {}), createGoal accepts meta, new method setGoalMeta(goalId, patch) (shallow merge). Add `meta: Record<string, any>` to the Goal interface in src/types.ts (that addition IS allowed).
 - src/workspace.ts: workspaceFor(store, task, {root}) exactly as specified. Use child_process.execFileSync('git', [...]) with cwd = the repo. Worktree: `git -C <repo> worktree add -b <branch> <path> HEAD`; if the path already exists, return it.
-Test command: npx vitest run test/acceptance/p2/workspace.test.ts test/acceptance/p0 test/unit
+Test command: npx vitest run test/acceptance/p2/workspace.test.ts test/acceptance/p0/ test/unit
