@@ -35,7 +35,11 @@ loop until the acceptance command passes, ≤ 4 attempts, 45–75 min each). Eve
 - `vitest run test/acceptance/p1` also matches `p10`/`p11` (prefix filter). P2e had actually passed (41/41) but was marked failing. Fix: trailing slashes.
 - Restoring protected files from a moving `master` copied newer files into running worktrees. Fixed: restore from the fork point.
 
+- Overwriting the harness script (`cp … .dispatch/run.sh`) while other jobs executed it killed them at loop end with no final status. Fixed: the script re-execs from a private temp copy.
+- P3a's acceptance file imported a module owned by a later phase (P3b's approvals.ts), so it could never pass. Split the tests. **Qwen's P3a "struggle" was partly an impossible check.**
+
 ## Tuning ideas to try after the build
+0. Re-measure 3 vs 4–6 concurrent agents on the FAST config (the old concurrency finding was from the sync-bound config).
 1. `--reasoning-budget` 1024 vs 1536 vs 2048 on the same task: time-to-pass.
 2. 2 vs 3 concurrent agents: per-agent tok/s vs total throughput on real tasks.
 3. `-ncmoe` 20–24 with np 3 (fewer slots → maybe room for more experts on device).

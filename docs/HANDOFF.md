@@ -1,6 +1,6 @@
 # HANDOFF: state of the alfred build (keep this current)
 
-Last updated: 2026-09-24 21:20 by the orchestrator (Claude Code session). Read with GOAL.md, PLAN.md, docs/LESSONS.md, docs/qwen/NOTES.md.
+Last updated: 2026-09-24 22:55 by the orchestrator (Claude Code session). Read with GOAL.md, PLAN.md, docs/LESSONS.md, docs/qwen/NOTES.md.
 
 ## What alfred is
 One local agent platform on the Spark (`gx10-de9a`) that replaces Mission Deck, `~/tools/orchestrator` and ad-hoc Hermes/DSH. It has personas,
@@ -11,24 +11,26 @@ context economy, and workspaces on the Spark or the Mac (via `alfred-node`), git
 ## How the build is run
 - **Orchestrator = Claude.** It writes each phase's spec (`docs/phases/PN-*.md`) and **acceptance tests first** (`test/acceptance/pN/`), dispatches Qwen agents, verifies, and merges.
 - **Implementers = Qwen3.8-Flash-Next via DSH headless**, one git worktree each (`~/repos/alfred-wt/<TASK>`), driven by `scripts/qwen-task.sh`:
-  `scripts/qwen-task.sh NAME BRANCH docs/dispatch/NAME.md "CHECK_CMD" [attempts] [timeout_min]`. Always launch from a copy
-  (`cp scripts/qwen-task.sh .dispatch/run.sh`) with `setsid nohup … &`. It loops until CHECK passes, commits WIP between attempts, restores protected
+  `setsid nohup scripts/qwen-task.sh NAME BRANCH $PWD/docs/dispatch/NAME.md "CHECK_CMD" [attempts=4] [timeout_min=60] >/dev/null 2>&1 </dev/null &`
+  from the repo root. The script re-execs from a private temp copy, so editing it never breaks running jobs. It waits for qwen-server `/health` before each attempt,
+  and a failure during a server outage doesn't count as an attempt. Worktree git needs the Python sidecar for LangGraph tests: `ln -sfn ~/repos/alfred/sidecar/.venv <wt>/sidecar/.venv`. It loops until CHECK passes, commits WIP between attempts, restores protected
   files (acceptance tests, fixtures, contract.ts, types.ts, testing.ts) from the fork point, and appends every attempt to `docs/qwen/attempts.jsonl`.
 - Status: `.dispatch/<TASK>/status.json`, `run.log`, `check<N>.txt`, `attempt<N>.{out,err}`.
 - **Run at most 3 Qwen agents at once** (see docs/qwen/NOTES.md). Use trailing slashes in vitest paths (`test/acceptance/p1/`, since `p1` matches `p10`).
 - To verify a finished task: diff vs the fork point excluding protected files, run its suites on the branch, merge into `master`, remove the worktree and branch, delete `.dispatch/<TASK>`.
 - Performance report: `python3 scripts/qwen-stats.py` → `docs/qwen/PERF.md`.
 
-## Phase status (master = 92 tests green, typecheck clean for implemented parts)
+## Phase status (master = 102 tests green; `src/` typechecks clean)
 | Phase | State |
 |---|---|
 | P0 core store, gate, notifier, mirror | ✅ merged |
 | P1 tools, personas, openai client, agent loop, scheduler | ✅ merged |
 | P2 workspaces, dsh/pipeline/langgraph executors, allTools wiring | ✅ merged. P2d (orchestrator post-merge verify) merged into `~/tools/orchestrator` main (443 tests) |
-| P3a MCP hub + sinks | 🔄 Qwen, attempt 2 (struggling: large surface). If it fails, split into P3a-1 MCP hub / P3a-2 sinks |
-| P4a automations | 🔄 Qwen, attempt 1 |
-| P7 model registry | 🔄 Qwen, attempt 1 |
-| P3b approvals + Claude door (+ src/ops.ts) | ⏳ prompt ready: docs/dispatch/P3b.md |
+| P7 model registry (config/models.yaml, roles, per-call resolution) | ✅ merged |
+| P3a1 MCP hub | ⏳ **relaunch**: worktree `~/repos/alfred-wt/P3a` (branch p3a-mcp-sinks) has a 209-line `src/connectors/mcp.ts` draft. Prompt docs/dispatch/P3a1.md, check `npx vitest run test/acceptance/p3/mcp.test.ts`. Reuse that worktree (NAME=P3a, BRANCH=p3a-mcp-sinks, or rename). |
+| P3a2 notification sinks | ⏳ prompt docs/dispatch/P3a2.md, check `test/acceptance/p3/sinks.test.ts` |
+| P4a automations | ⏳ **relaunch**: worktree `~/repos/alfred-wt/P4a` (branch p4a-automations) has store additions only (78 lines). Prompt docs/dispatch/P4a.md |
+| P3b approvals + Claude door (+ src/ops.ts); now also owns the guardCommand tests | ⏳ prompt ready: docs/dispatch/P3b.md |
 | P11 extension API (plugins, config/alfred.yaml, /api/v1) | ⏳ prompt ready, must land before P4b |
 | P8 context economy | ⏳ prompt ready |
 | P4b server/main/CLI/deploy | ⏳ prompt ready (on top of P11) |
@@ -37,7 +39,8 @@ context economy, and workspaces on the Spark or the Mac (via `alfred-node`), git
 | P5 dashboard (**functional shell only**; control UX to be redesigned by Quinn) | ⏳ prompt ready |
 | P6 soak (real multi-hour goal + impossible goal, hold-out tests in test/soak/) | ⏳ run by the orchestrator at the end |
 
-Planned order: P3a/P4a/P7 (running) → P3b, P11, P8 → P4b → P9, P10 → P5 → P6.
+**Next wave (3 agents):** P3a1 (reuse the P3a worktree), P3a2, P4a (reuse the worktree). Then P3b, P11, P8 → P4b → P9, P10 → P5 → P6.
+With the fast server (~35 tok/s aggregate), tasks now pass in ~30–35 min (P7: attempt 2, 34 min).
 
 ## Open items / decisions pending with Quinn
 - **Qwen decode speed: FIXED** (see Server state). Investigation → docs/qwen/SPEED-INVESTIGATION.md. Finding: decode is sync-bound. `-ncmoe 26` forces ~26 GPU↔CPU round trips per token (attention on GPU, experts on CPU, layers sequential). Per-slot rate is flat at 2.4–2.5 tok/s whether 1 or 4 slots are active; GPU ~25% and CPU ~25% busy. Experiments queued for the next wave boundary: (1) pin 10 threads to the X925 cores, (2) np 3 + ncmoe 14, (3) np 2 + ncmoe 8, (4) -ot per_layer_token_embd=CPU + low ncmoe, (5) -v load placement capture, (6) rebuild with GGML_CPU_KLEIDIAI=ON. Also: the qwenctl presets `fast`/`balanced` are stale (would NVRM at np 6), and --cache-ram 8 GiB is thrashing.

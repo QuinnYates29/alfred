@@ -1,6 +1,6 @@
 # Qwen3.8-Flash-Next performance ledger (alfred build)
 
-_Generated 2026-09-24 21:06 by `scripts/qwen-stats.py`. Re-run anytime. Hand-written observations: [NOTES.md](NOTES.md)._
+_Generated 2026-09-24 22:45 by `scripts/qwen-stats.py`. Re-run anytime. Hand-written observations: [NOTES.md](NOTES.md)._
 
 ## Per attempt (one DSH headless session each)
 
@@ -25,9 +25,13 @@ _Generated 2026-09-24 21:06 by `scripts/qwen-stats.py`. Re-run anytime. Hand-wri
 | P3a | 09-24 19:31 | 59m59s | np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 7 | 11 | 24,233 | 5,215 | 8,475 | 2.24 | 44% | bash×6, read×5 |
 | P2d | 09-24 19:31 | 44m58s | np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 16 | 25 | 32,671 | 5,845 | 15,272 | 2.24 | 34% | read×9, edit×9, grep×5 |
 | P2e | 09-24 20:18 | 44m59s | np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 18 | 22 | 13,814 | 5,958 | 2,466 | 2.29 | 57% | bash×20, write×1, edit×1 |
-| P4a | 09-24 20:18 | 47m46s | np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 11 | 18 | 31,446 | 5,014 | 13,433 | 2.28 | 36% | bash×6, read×6, edit×6 |
-| P3a | 09-24 20:31 | 34m36s | np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 7 | 13 | 12,191 | 3,603 | 3,201 | 2.38 | 78% | bash×9, read×4 |
-| P2e | 09-24 21:03 | 3m25s | np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 1 | 1 | 1,386 | 437 | 1,386 | 2.35 | 79% | bash×1 |
+| P4a | 09-24 20:18 | 59m59s | np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 11 | 18 | 31,446 | 5,014 | 13,433 | 2.28 | 27% | bash×6, read×6, edit×6 |
+| P3a | 09-24 20:31 | 59m59s | np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 9 | 15 | 14,743 | 7,454 | 3,201 | 2.33 | 42% | bash×10, read×4, write×1 |
+| P2e | 09-24 21:03 | 4m07s | np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 1 | 1 | 1,386 | 437 | 1,386 | 2.35 | 83% | bash×1 |
+| P7 | 09-24 21:07 | 26m08s | np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 9 | 15 | 31,729 | 3,178 | 8,457 | 2.18 | 65% | bash×11, read×4 |
+| P4a | 09-24 21:18 | 15m08s | np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 7 | 12 | 10,855 | 1,597 | 2,730 | 2.27 | 51% | bash×8, read×4 |
+| P7 | 09-24 21:38 | 0m46s | np=3 ctx=262k ncmoe=8 lazy-PLE, pinned X925, budget 1536 | 1 | 0 | 8,400 | 13 | 8,400 | 0.28 | 93% |  |
+| P7 | 09-24 21:39 | 33m46s | np=3 ctx=262k ncmoe=8 lazy-PLE, pinned X925, budget 1536 | 55 | 70 | 39,042 | 23,801 | 5,742 | 11.79 | 24% | edit×27, bash×24, read×16 |
 
 \* output tokens ÷ step wall time: what an agent actually experiences, including queueing behind other agents and prefill.
 
@@ -36,4 +40,18 @@ _Generated 2026-09-24 21:06 by `scripts/qwen-stats.py`. Re-run anytime. Hand-wri
 | config | sessions | median out tok/s | median peak ctx | total output tok | median reasoning share |
 |---|---|---|---|---|---|
 | np=6 ctx=64k, no reasoning cap | 6 | 2.06 | 10,183 | 10,788 | 79% |
-| np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 16 | 2.33 | 8,475 | 107,494 | 35% |
+| np=6 ctx=64k, --reasoning-budget 1536, <=3 agents | 18 | 2.29 | 8,462 | 116,120 | 35% |
+| np=3 ctx=262k ncmoe=8 lazy-PLE, pinned X925, budget 1536 | 2 | 11.79 | 8,400 | 23,814 | 93% |
+
+## Harness outcomes (acceptance-gated)
+
+| task | attempt | started | wall | dsh exit | check | result |
+|---|---|---|---|---|---|---|
+| P7 | 1 | 09-24 21:07 | 26m11s | 1 |  Tests 92 passed (92) | fail |
+| P7 | 2 | 09-24 21:34 | 0m18s | 1 |  Tests 92 passed (92) | fail |
+| P7 | 3 | 09-24 21:34 | 0m19s | 1 |  Tests 92 passed (92) | fail |
+| P7 | 4 | 09-24 21:34 | 0m19s | 1 |  Tests 92 passed (92) | fail |
+| P7 | 1 | 09-24 21:38 | 0m50s | 0 |  Tests 92 passed (92) | fail |
+| P7 | 2 | 09-24 21:39 | 33m49s | 0 |  Tests 102 passed (102) | PASS |
+
+Tasks passed: **1/1**, first-attempt passes: **0**.
