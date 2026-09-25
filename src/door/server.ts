@@ -57,7 +57,7 @@ export function buildDoor(store: Store, workRoot?: string): McpServer {
     { title: 'alfred_status', description: 'Goals with task counts, parked tasks, pending approvals.', inputSchema: {} },
     guard(() => {
       const goals = store.listGoals().map((g) => {
-        const { counts } = goalSummary(store, g.id);
+        const { counts } = goalSummary(store, g.id) ?? { counts: {} };
         return { id: g.id, slug: g.slug, title: g.title, status: g.status, counts };
       });
       const parked = store
