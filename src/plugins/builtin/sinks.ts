@@ -11,6 +11,10 @@ export interface BuiltinSinksDeps {
   env: () => Record<string, string | undefined>;
   store: Store;
   mirrorDir: () => string;
+  /** P9 addendum: `local:/path` or `node:<name>:/abs/path` (mirror lives on a node). */
+  mirrorSpec?: () => string;
+  /** P9: when a NodeHub is given, nodes with cap `notify` also receive notices. */
+  nodes?: { notify(o: { level: string; title: string; body: string; url?: string }): void };
 }
 
 function nodeSink(url: string): Sink {
@@ -33,7 +37,7 @@ export function builtinSinksPlugin(deps: BuiltinSinksDeps): AlfredPlugin {
     version: '1.0.0',
     setup(ctx) {
       const env = deps.env();
-      let { sinks, warnings } = sinksFromEnv(env, deps.store, deps.mirrorDir());
+      let { sinks, warnings } = sinksFromEnv(env, deps.store, deps.mirrorDir(), deps.nodes);
       if (env.ALFRED_NOTIFY_DESKTOP === '0') sinks = sinks.filter((s) => s.name !== 'desktop');
       for (const w of warnings) ctx.log(w);
       const nodeUrl = ctx.config?.nodeUrl ?? env.ALFRED_NODE_URL;

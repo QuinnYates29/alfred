@@ -29,6 +29,7 @@ def main() -> int:
     base_url = str(req.get("baseUrl", "http://127.0.0.1:1110"))
     model = str(req.get("model", "qwen3.8-flash-next"))
     max_steps = int(req.get("maxStepsPerIteration", 20))
+    bridge_url = req.get("bridgeUrl") or None
 
     files_changed: list[str] = []
     result = {"ok": False, "iterations": 0, "testOutput": "", "filesChanged": files_changed}
@@ -38,7 +39,8 @@ def main() -> int:
     try:
         progress(f"start: task on {workspace} (model={model}, maxIterations={max_iterations})")
         graph = build_graph(workspace, test_cmd, base_url, model,
-                            max_iterations, max_steps, files_changed, progress)
+                            max_iterations, max_steps, files_changed, progress,
+                            bridge_url=bridge_url)
         final = graph.invoke(
             {"messages": [("user", task)], "iteration": 0, "steps": 0,
              "files_changed": []},

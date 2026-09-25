@@ -4,8 +4,10 @@ The constraint is the point: the model gets ONLY read_file / write_file /
 list_dir, all workspace-scoped. No shell. The only thing that decides
 success is the acceptance test command run by the `test` node.
 """
+import json
 import os
 import subprocess
+import urllib.request
 from typing import Annotated, Any, Optional, TypedDict
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -36,8 +38,65 @@ class State(TypedDict, total=False):
     files_changed: list[str]
 
 
-def make_tools(workspace: str, files_changed: list):
+def _bridge_call(bridge_url: str, path: str, payload: dict, timeout: float = 660.0) -> dict:
+    """One POST to the TS file bridge. Raises on transport trouble; dict otherwise."""
+    req = urllib.request.Request(
+        bridge_url.rstrip("/") + path,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — localhost, one-shot
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def make_bridge_tools(bridge_url: str, files_changed: list):
+    """The same three tools, proxied through the bridge to the node backend."""
+
+    def _fs(op: str, path: str, content: Optional[str] = None):
+        payload: dict = {"op": op, "path": path}
+        if content is not None:
+            payload["content"] = content
+        try:
+            r = _bridge_call(bridge_url, "/fs", payload)
+        except Exception as e:  # noqa: BLE001 — tool errors go back to the model
+            return None, f"error: bridge {type(e).__name__}: {e}"
+        if not r.get("ok"):
+            return None, f"error: {r.get('error', 'bridge failure')}"
+        return r, None
+
+    def read_file(path: str) -> str:
+        """Read a UTF-8 text file in the workspace. Returns its contents or an error."""
+        r, err = _fs("read", path)
+        if err:
+            return err
+        return str(r.get("text", ""))[:200_000]
+
+    def write_file(path: str, content: str) -> str:
+        """Write a UTF-8 text file in the workspace (creates parent dirs)."""
+        r, err = _fs("write", path, content)
+        if err:
+            return err
+        files_changed.append(path)
+        return f"wrote {len(content)} chars to {path}"
+
+    def list_dir(path: str = ".") -> str:
+        """List a directory in the workspace. One entry per line, '/' suffix for dirs."""
+        r, err = _fs("list", path)
+        if err:
+            return err
+        entries = r.get("entries", [])
+        return "\n".join(
+            str(e.get("name", "")) + ("/" if e.get("dir") else "") for e in entries
+        ) or "(empty)"
+
+    return [read_file, write_file, list_dir]
+
+
+def make_tools(workspace: str, files_changed: list, bridge_url: Optional[str] = None):
     """Build the three workspace-scoped tools. Escape attempts return an error string."""
+    if bridge_url:
+        return make_bridge_tools(bridge_url, files_changed)
     ws = os.path.realpath(workspace)
 
     def resolve(path: str) -> Optional[str]:
@@ -90,9 +149,22 @@ def make_tools(workspace: str, files_changed: list):
     return [read_file, write_file, list_dir]
 
 
-def run_test(workspace: str, test_cmd: str, progress) -> tuple[bool, str]:
-    """Run the acceptance command. Returns (ok, output tail ≤ 3000 chars)."""
+def run_test(workspace: str, test_cmd: str, progress, bridge_url: Optional[str] = None) -> tuple[bool, str]:
+    """Run the acceptance command (locally or through the bridge). Returns (ok, output tail ≤ 3000 chars)."""
     progress(f"test: running {test_cmd!r}")
+    if bridge_url:
+        try:
+            r = _bridge_call(bridge_url, "/exec", {"cmd": test_cmd}, timeout=TEST_TIMEOUT_S + 30)
+        except Exception as e:  # noqa: BLE001
+            return False, f"test command failed via bridge: {type(e).__name__}: {e}"
+        if not r.get("ok"):
+            return False, f"test command failed via bridge: {r.get('error')}"
+        if r.get("timedOut"):
+            return False, f"test command timed out after {TEST_TIMEOUT_S}s"
+        out = str(r.get("output", ""))
+        if len(out) > TEST_OUTPUT_MAX:
+            out = out[-TEST_OUTPUT_MAX:]
+        return r.get("exitCode") == 0, out
     try:
         proc = subprocess.run(
             ["bash", "-c", test_cmd],
@@ -113,10 +185,10 @@ def run_test(workspace: str, test_cmd: str, progress) -> tuple[bool, str]:
 
 def build_graph(workspace: str, test_cmd: str, base_url: str, model: str,
                 max_iterations: int, max_steps_per_iteration: int,
-                files_changed: list, progress):
+                files_changed: list, progress, bridge_url: Optional[str] = None):
     llm = ChatOpenAI(base_url=base_url.rstrip("/") + "/v1", model=model,
                      api_key="local", max_tokens=4096, temperature=0)
-    tools = make_tools(workspace, files_changed)
+    tools = make_tools(workspace, files_changed, bridge_url)
     llm_with_tools = llm.bind_tools(tools)
 
     def agent(state: State) -> dict:
@@ -141,7 +213,7 @@ def build_graph(workspace: str, test_cmd: str, base_url: str, model: str,
         return "agent"
 
     def test(state: State) -> dict:
-        ok, out = run_test(workspace, test_cmd, progress)
+        ok, out = run_test(workspace, test_cmd, progress, bridge_url)
         iteration = state.get("iteration", 0) + 1
         if ok:
             progress(f"test: PASS (iteration {iteration})")

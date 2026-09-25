@@ -5,12 +5,25 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'n
 import path from 'node:path';
 import {
   PersonaConfigError,
+  NodeOfflineError,
   type Tool,
   type ToolContext,
   type ToolResult,
   type ToolSchema,
+  type WorkspaceBackend,
 } from './contract.js';
 import { guardCommand, storeForTask } from '../approvals.js';
+
+/**
+ * P9: park the task when the workspace machine went away mid-call.
+ * (The scheduler's node-reconnect watcher re-queues it later.)
+ */
+export function parkIfNodeOffline(e: any): ToolResult | null {
+  if (e instanceof NodeOfflineError) {
+    return { ok: false, output: `error: ${e.message}`, park: { status: 'blocked', reason: e.message } };
+  }
+  return null;
+}
 
 const OUTPUT_CAP = 8000;
 /** P8: read_file caps — default window and char cap (a deliberate exception to OUTPUT_CAP). */
@@ -78,15 +91,29 @@ function safe(fn: (args: any, ctx: ToolContext) => ToolResult | Promise<ToolResu
     try {
       return await fn(args ?? {}, ctx);
     } catch (e: any) {
-      return { ok: false, output: `error: ${e?.message ?? String(e)}` };
+      return parkIfNodeOffline(e) ?? { ok: false, output: `error: ${e?.message ?? String(e)}` };
     }
   };
+}
+
+/** P9: read a workspace file through the backend when the workspace lives on a node. */
+async function readText(abs: string, ctx: ToolContext): Promise<string> {
+  if (ctx.backend) return await ctx.backend.readFile(abs);
+  return readFileSync(abs, 'utf8');
 }
 
 function runShell(args: any, ctx: ToolContext): Promise<ToolResult> {
   const cmd = String(args?.cmd ?? '');
   const requested = Number(args?.timeoutSec);
   const timeoutSec = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 600) : 120;
+  if (ctx.backend) {
+    return ctx.backend
+      .exec(cmd, { cwd: ctx.workspace, timeoutMs: timeoutSec * 1000, signal: ctx.signal })
+      .then((r) => {
+        const suffix = r.timedOut ? `exit=-1 timed out after ${timeoutSec}s` : `exit=${r.exitCode}`;
+        return { ok: !r.timedOut && r.exitCode === 0, output: tailWithSuffix(r.output ?? '', suffix) };
+      });
+  }
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
@@ -149,10 +176,10 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
         ['path'],
       ),
       kind: 'read',
-      run: safe((args, ctx) => {
+      run: safe(async (args, ctx) => {
         const abs = inside(ctx.workspace, args.path);
         if (!abs) return outside(args.path);
-        const text = readFileSync(abs, 'utf8');
+        const text = await readText(abs, ctx);
         const lines = text.split('\n');
         if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop(); // trailing newline, not an empty line
         const total = lines.length;
@@ -185,12 +212,15 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
         content: { type: 'string', description: 'Full file content.' },
       }, ['path', 'content']),
       kind: 'write',
-      run: safe((args, ctx) => {
+      run: safe(async (args, ctx) => {
         const abs = inside(ctx.workspace, args.path);
         if (!abs) return outside(args.path);
-        mkdirSync(path.dirname(abs), { recursive: true });
         const content = String(args.content ?? '');
-        writeFileSync(abs, content, 'utf8');
+        if (ctx.backend) await ctx.backend.writeFile(abs, content);
+        else {
+          mkdirSync(path.dirname(abs), { recursive: true });
+          writeFileSync(abs, content, 'utf8');
+        }
         return { ok: true, output: `wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${args.path}` };
       }),
     },
@@ -199,12 +229,17 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
         path: { type: 'string', description: 'Directory path, relative to the workspace.' },
       }),
       kind: 'read',
-      run: safe((args, ctx) => {
+      run: safe(async (args, ctx) => {
         const abs = inside(ctx.workspace, args.path ?? '.');
         if (!abs) return outside(args.path);
-        const entries = readdirSync(abs, { withFileTypes: true })
-          .map((e) => `${e.name}${statSync(path.join(abs, e.name)).isDirectory() ? '/' : ''}`)
-          .sort();
+        let entries: string[];
+        if (ctx.backend) {
+          entries = (await ctx.backend.listDir(abs)).map((e) => `${e.name}${e.dir ? '/' : ''}`);
+        } else {
+          entries = readdirSync(abs, { withFileTypes: true })
+            .map((e) => `${e.name}${statSync(path.join(abs, e.name)).isDirectory() ? '/' : ''}`);
+        }
+        entries.sort();
         return { ok: true, output: truncate(entries.join('\n')) };
       }),
     },
@@ -237,7 +272,7 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
           }
           return await runShell({ ...args, cmd }, ctx);
         } catch (e: any) {
-          return { ok: false, output: `error: ${e?.message ?? String(e)}` };
+          return parkIfNodeOffline(e) ?? { ok: false, output: `error: ${e?.message ?? String(e)}` };
         }
       },
     },

@@ -2,6 +2,8 @@
 // Token auth (when set): `Authorization: Bearer <token>` or `?token=`.
 import express, { type Express, type Request, type Response } from 'express';
 import { existsSync } from 'node:fs';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Store } from '../store.js';
 import type { Scheduler } from '../runtime/scheduler.js';
 import type { Automations } from '../automations.js';
@@ -28,6 +30,8 @@ export interface AppDeps {
   pluginRoutes?: PluginRouteReg[];
   pluginStatics?: { plugin: string; dir: string }[];
   models?: ModelRegistry;
+  /** P9: factory for the Claude door — served at /mcp over Streamable HTTP (stateless), behind the token. */
+  door?: () => McpServer;
 }
 
 /** The UI contract: every event kind with a one-line meaning. */
@@ -311,6 +315,42 @@ export function createApp(d: AppDeps): Express {
 
   for (const s of d.pluginStatics ?? []) {
     if (existsSync(s.dir)) app.use(`/plugins/${s.plugin}/`, express.static(s.dir));
+  }
+
+  // P9 — the Claude door over Streamable HTTP MCP at /mcp (stateless: one fresh
+  // door per request). Same tools as the stdio door; behind the token.
+  if (d.door) {
+    app.use('/mcp', express.json({ limit: '4mb' }));
+    const authorize = (req: Request, res: Response): boolean => {
+      if (!d.token) return true;
+      if (getToken(req) === d.token) return true;
+      res.status(401).json({ error: 'unauthorized' });
+      return false;
+    };
+    app.post('/mcp', (req, res) => {
+      if (!authorize(req, res)) return;
+      const server = d.door!();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined, // stateless
+        enableJsonResponse: true,
+      });
+      res.on('close', () => {
+        void transport.close().catch(() => {});
+        void server.close().catch(() => {});
+      });
+      void server
+        .connect(transport)
+        .then(() => transport.handleRequest(req, res, req.body))
+        .catch((e: any) => {
+          if (!res.headersSent) res.status(500).json({ error: e?.message ?? String(e) });
+        });
+    });
+    const methodNotAllowed = (req: Request, res: Response) => {
+      if (!authorize(req, res)) return;
+      res.status(405).end();
+    };
+    app.get('/mcp', methodNotAllowed);
+    app.delete('/mcp', methodNotAllowed);
   }
 
   if (d.staticDir && existsSync(d.staticDir)) app.use('/', express.static(d.staticDir));

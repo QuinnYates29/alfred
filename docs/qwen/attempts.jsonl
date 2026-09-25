@@ -18,3 +18,4 @@
 {"name":"P9","attempt":1,"start":"2026-09-25T01:35:42-04:00","wall_s":4502,"dsh_exit":124,"check_rc":1,"tests":" Tests 10 failed | 124 passed (134)","timeout_min":75}
 {"name":"P9","attempt":2,"start":"2026-09-25T02:50:44-04:00","wall_s":4503,"dsh_exit":124,"check_rc":1,"tests":" Tests 5 failed | 129 passed (134)","timeout_min":75}
 {"name":"P5","attempt":2,"start":"2026-09-25T02:50:43-04:00","wall_s":4504,"dsh_exit":124,"check_rc":0,"tests":" Tests 5 passed (5)","timeout_min":75}
+{"name":"P9","attempt":3,"start":"2026-09-25T04:05:47-04:00","wall_s":1407,"dsh_exit":0,"check_rc":0,"tests":" Tests 135 passed (135)","timeout_min":75}

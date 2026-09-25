@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# alfred-node launcher (P9): the laptop daemon. Runs src/node/client.ts with tsx.
+# Needs only Node + tsx on the Mac: npx alfred-node --server … --root …
+set -euo pipefail
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec npx --prefix "$REPO" tsx "$REPO/src/node/client.ts" "$@"
