@@ -99,6 +99,8 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
   const automationsDir = c.automationsDir;
   const mcpConfigPath = c.mcpConfigPath ?? file?.mcp;
 
+  // A fresh machine has no ~/.alfred yet: create the DB directory (not for :memory:).
+  if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
   const store = openStore(dbPath);
   const registry = new ToolRegistry();
   for (const t of builtinTools()) registry.register(t);
