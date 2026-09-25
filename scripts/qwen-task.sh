@@ -20,7 +20,8 @@ FORK=$(git merge-base HEAD "$BASE")
 status() { printf '{"name":"%s","branch":"%s","state":"%s","attempt":%s,"ts":"%s"}\n' "$NAME" "$BRANCH" "$1" "$2" "$(date -Is)" > "$LOGS/status.json"; }
 
 feedback=""
-for a in $(seq 1 "$ATTEMPTS"); do
+a=1
+while [ "$a" -le "$ATTEMPTS" ]; do
   status running "$a"
   prompt="$(cat "$HOME/repos/alfred/docs/dispatch/PREAMBLE.md" "$PROMPT_FILE")"
   if [ -n "$feedback" ]; then
@@ -34,10 +35,16 @@ $feedback
 \`\`\`
 Fix the failures. Read the failing test and the code before changing anything."
   fi
+  # Never spend an attempt while the model server is down (a restart used to burn all attempts in seconds).
+  until curl -sf -m 5 http://127.0.0.1:1110/health >/dev/null; do echo "waiting for qwen-server $(date -Is)" >> "$LOGS/run.log"; sleep 30; done
   echo "=== attempt $a $(date -Is)" >> "$LOGS/run.log"
   t0=$(date +%s); start_iso=$(date -Is)
   timeout --kill-after=30 "${TMIN}m" dsh --profile headless "$prompt" >"$LOGS/attempt$a.out" 2>"$LOGS/attempt$a.err"
   dsh_rc=$?; echo "dsh exit=$dsh_rc $(date -Is)" >> "$LOGS/run.log"
+  # A run that died within 2 minutes while the server was unhealthy is an outage, not an attempt: redo it.
+  if [ $(( $(date +%s) - t0 )) -lt 120 ] && ! curl -sf -m 5 http://127.0.0.1:1110/health >/dev/null; then
+    echo "server outage during attempt $a; not counting it" >> "$LOGS/run.log"; continue
+  fi
 
   # Acceptance tests are the contract: restore them if the agent touched them.
   if ! git diff --quiet "$FORK" -- $PROTECT 2>/dev/null; then
@@ -58,5 +65,6 @@ Fix the failures. Read the failing test and the code before changing anything."
   feedback=$(echo "$out" | grep -vE '^\s*$' | tail -80)
   # keep partial work so the next attempt builds on it rather than starting over
   git add -A && git commit -qm "$NAME: WIP attempt $a (check failing)" || true
+  a=$((a+1))
 done
 status failed "$ATTEMPTS"; exit 1
