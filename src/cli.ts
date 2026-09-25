@@ -263,6 +263,7 @@ async function main(): Promise<void> {
       if (!p.rest[0]) throw new Error('usage: alfred approve <id> [--deny]');
       const out = await api('POST', `/approvals/${encodeURIComponent(p.rest[0])}`, {
         decision: p.bools.has('deny') ? 'denied' : 'approved',
+        by: 'cli',
       });
       console.log(`approval ${p.rest[0]}: ${p.bools.has('deny') ? 'denied' : 'approved'}`, out ?? '');
       break;
