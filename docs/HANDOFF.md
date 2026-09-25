@@ -3,7 +3,7 @@
 Last updated: 2026-09-24 22:55 by the orchestrator (Claude Code session). Read with GOAL.md, PLAN.md, docs/LESSONS.md, docs/qwen/NOTES.md.
 
 ## ⚠️ LIVE AGENTS (check before launching anything)
-As of 2026-09-24 22:47 the original session running: **P9 (nodes + remote access)**; merged since handoff: P3a2, P3a, P4a, P3b, P8, P11, P4b, P5 (master 179 tests incl. Playwright; P4 server core + e2e already pass). Then P10 after P9, then P6 soak.
+As of 2026-09-24 22:47 the original session running: **P10 (git hub + workspace modes)**; merged since handoff: P3a2, P3a, P4a, P3b, P8, P11, P4b, P5, P9 (master 185 tests incl. Playwright; P4 server core + e2e already pass). Then P10 after P9, then P6 soak.
 `running` = leave it alone (verify + merge when `passed`); `failed`/`stopped` = relaunch per the table. Never launch a task whose status is `running`.
 
 ## What alfred is
@@ -38,7 +38,7 @@ context economy, and workspaces on the Spark or the Mac (via `alfred-node`), git
 | P11 extension API (plugins, config/alfred.yaml, /api/v1) | ✅ merged 01:40 (also built main.ts/app.ts; P4 server tests pass) |
 | P8 context economy | ✅ merged 01:08 (attempt 2) |
 | P4b server/main/CLI/deploy | ✅ merged 02:33 (attempt 1). `deploy/install.sh` not yet run |
-| P9 nodes + remote access (Mac-first addendum) | ⏳ prompt ready |
+| P9 nodes + remote access (Mac-first addendum) | ✅ merged 04:32 (attempt 3) |
 | P10 git hub + workspace modes | ⏳ prompt ready |
 | P5 dashboard (**functional shell only**; control UX to be redesigned by Quinn) | ✅ merged 04:10 (attempt 2). Build: `npm run build:web` |
 | Live smoke on real Qwen (docs/SOAK.md) | ✅ 04:15: coder goal done, alfred→coder delegation done, impossible goal failed loudly with a precise reason |
