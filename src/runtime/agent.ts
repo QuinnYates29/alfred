@@ -560,6 +560,11 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
   }
 
   async function doWait(signal: AbortSignal): Promise<ToolResult> {
+    // Soak finding (2026-09-25): a parent blocked here recorded no events, so its stall watchdog
+    // killed it while its children were busy. Mirror child liveness: when any child has a new event,
+    // record a (throttled) progress event for the parent. A stuck child is stopped by its own watchdog.
+    let seenEventId = o.store.events(task!.goalId).at(-1)?.id ?? 0;
+    let lastMirror = 0;
     for (;;) {
       if (signal.aborted) return { ok: false, output: 'wait aborted' };
       const kids = o.store.children(taskId);
@@ -572,6 +577,13 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         });
         lines.push('(details: alfred_goal / task notes)');
         return { ok: true, output: lines.join('\n') };
+      }
+      const kidIds = new Set(kids.map((k) => k.id));
+      const fresh = o.store.events(task!.goalId, { sinceId: seenEventId });
+      if (fresh.length) seenEventId = fresh[fresh.length - 1].id;
+      if (fresh.some((e) => e.taskId && kidIds.has(e.taskId)) && Date.now() - lastMirror >= Math.min(30_000, wd.stallMs / 3)) {
+        lastMirror = Date.now();
+        record('progress', { msg: `waiting on ${kids.length} subtask(s); children active` });
       }
       heartbeat();
       await sleep(pollMs);
