@@ -58,6 +58,19 @@ export interface AllEventsOpts extends EventsOpts {
   limit?: number;
 }
 
+/** P8: token accounting derived from a task's `turn` / `compacted` events. */
+export interface Usage {
+  promptTokens: number;
+  completionTokens: number;
+  peakPromptTokens: number;
+  turns: number;
+  compactions: number;
+}
+
+export interface GoalUsage extends Usage {
+  byPersona: Record<string, { promptTokens: number; completionTokens: number }>;
+}
+
 /** Raw row of the automations table (P4). Templates ride as JSON text. */
 export interface AutomationRow {
   id: string;
@@ -108,6 +121,12 @@ export interface Store {
   reclaimExpired(): string[];
   transition(taskId: string, to: TaskStatus, opts?: TransitionOpts): Task;
   appendNote(taskId: string, text: string): void;
+  /** P8: store the finish summary (what a parent sees instead of the child's transcript). */
+  setResult(taskId: string, text: string): void;
+  /** P8: token accounting for one task, from its `turn` / `compacted` events. */
+  taskUsage(taskId: string): Usage;
+  /** P8: usage summed over every task of the goal, split by persona. */
+  goalUsage(goalId: string): GoalUsage;
   appendEvent(goalId: string, taskId: string | null, kind: string, data: any): EventRow;
   events(goalId: string, opts?: EventsOpts): EventRow[];
   /** Ascending across all goals, for SSE replay. limit defaults to 500. */
@@ -187,6 +206,7 @@ interface TaskRow {
   reason: string | null;
   notes: string;
   model: string | null;
+  result: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -259,6 +279,7 @@ function taskFromRow(r: TaskRow): Task {
     leaseExpiresAt: r.leaseExpiresAt,
     reason: r.reason,
     notes: r.notes,
+    result: r.result ?? null,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -378,6 +399,10 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
   if (!taskCols.some((c) => c.name === 'model')) {
     db.exec(`ALTER TABLE tasks ADD COLUMN model TEXT`);
   }
+  // P8: tasks.result — the finish summary a parent sees (additive).
+  if (!taskCols.some((c) => c.name === 'result')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN result TEXT`);
+  }
 
   const subscribers = new Set<(e: EventRow) => void>();
 
@@ -393,8 +418,8 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     updateGoalMeta: db.prepare(`UPDATE goals SET meta = ?, updatedAt = ? WHERE id = ?`),
 
     insertTask: db.prepare(
-      `INSERT INTO tasks (id, goalId, parentTaskId, depth, persona, title, spec, acceptance, budget, status, attempt, leaseOwner, leaseExpiresAt, reason, notes, model, createdAt, updatedAt)
-       VALUES (@id, @goalId, @parentTaskId, @depth, @persona, @title, @spec, @acceptance, @budget, @status, @attempt, @leaseOwner, @leaseExpiresAt, @reason, @notes, @model, @createdAt, @updatedAt)`,
+      `INSERT INTO tasks (id, goalId, parentTaskId, depth, persona, title, spec, acceptance, budget, status, attempt, leaseOwner, leaseExpiresAt, reason, notes, model, result, createdAt, updatedAt)
+       VALUES (@id, @goalId, @parentTaskId, @depth, @persona, @title, @spec, @acceptance, @budget, @status, @attempt, @leaseOwner, @leaseExpiresAt, @reason, @notes, @model, @result, @createdAt, @updatedAt)`,
     ),
     getTaskById: db.prepare(`SELECT * FROM tasks WHERE id = ?`),
     listTasksByGoal: db.prepare(`SELECT * FROM tasks WHERE goalId = ? ORDER BY seq ASC`),
@@ -429,6 +454,13 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
 
     appendNoteStmt: db.prepare(
       `UPDATE tasks SET notes = notes || ? || char(10), updatedAt = ? WHERE id = ?`,
+    ),
+
+    setResultStmt: db.prepare(`UPDATE tasks SET result = ?, updatedAt = ? WHERE id = ?`),
+    usageEventsByTask: db.prepare(`SELECT kind, data FROM events WHERE taskId = ? ORDER BY id ASC`),
+    usageEventsByGoal: db.prepare(
+      `SELECT e.kind AS kind, e.data AS data, t.persona AS persona
+       FROM events e JOIN tasks t ON t.id = e.taskId WHERE e.goalId = ? ORDER BY e.id ASC`,
     ),
 
     insertEvent: db.prepare(
@@ -623,6 +655,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
       reason: null,
       notes: '',
       model: input.model ?? null,
+      result: null,
       createdAt: t,
       updatedAt: t,
     };
@@ -764,6 +797,69 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
   function appendNote(taskId: string, text: string): void {
     const t = now();
     stmts.appendNoteStmt.run(text, t, taskId);
+  }
+
+  function setResult(taskId: string, text: string): void {
+    stmts.setResultStmt.run(text, now(), taskId);
+  }
+
+  interface UsageAccum extends Usage {
+    personas: Map<string, { promptTokens: number; completionTokens: number }>;
+  }
+
+  function newAccum(): UsageAccum {
+    return {
+      promptTokens: 0,
+      completionTokens: 0,
+      peakPromptTokens: 0,
+      turns: 0,
+      compactions: 0,
+      personas: new Map(),
+    };
+  }
+
+  function feed(a: UsageAccum, kind: string, dataRaw: string, persona: string | null): void {
+    if (kind !== 'turn' && kind !== 'compacted') return;
+    let d: any;
+    try {
+      d = JSON.parse(dataRaw);
+    } catch {
+      return;
+    }
+    if (kind === 'compacted') {
+      a.compactions += 1;
+      return;
+    }
+    a.turns += 1;
+    const p = Number(d?.usage?.promptTokens) || 0;
+    const c = Number(d?.usage?.completionTokens) || 0;
+    a.promptTokens += p;
+    a.completionTokens += c;
+    if (p > a.peakPromptTokens) a.peakPromptTokens = p;
+    if (persona) {
+      const bp = a.personas.get(persona) ?? { promptTokens: 0, completionTokens: 0 };
+      bp.promptTokens += p;
+      bp.completionTokens += c;
+      a.personas.set(persona, bp);
+    }
+  }
+
+  function taskUsage(taskId: string): Usage {
+    const a = newAccum();
+    for (const r of stmts.usageEventsByTask.all(taskId) as { kind: string; data: string }[]) {
+      feed(a, r.kind, r.data, null);
+    }
+    const { personas: _drop, ...usage } = a;
+    return usage;
+  }
+
+  function goalUsage(goalId: string): GoalUsage {
+    const a = newAccum();
+    for (const r of stmts.usageEventsByGoal.all(goalId) as { kind: string; data: string; persona: string }[]) {
+      feed(a, r.kind, r.data, r.persona);
+    }
+    const { personas, ...usage } = a;
+    return { ...usage, byPersona: Object.fromEntries(personas) };
   }
 
   function appendEvent(goalId: string, taskId: string | null, kind: string, data: any): EventRow {
@@ -932,6 +1028,9 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     reclaimExpired,
     transition,
     appendNote,
+    setResult,
+    taskUsage,
+    goalUsage,
     appendEvent,
     events,
     allEvents,

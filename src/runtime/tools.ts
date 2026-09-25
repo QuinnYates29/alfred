@@ -13,6 +13,9 @@ import {
 import { guardCommand, storeForTask } from '../approvals.js';
 
 const OUTPUT_CAP = 8000;
+/** P8: read_file caps — default window and char cap (a deliberate exception to OUTPUT_CAP). */
+const READ_DEFAULT_LIMIT = 400;
+const READ_CHAR_CAP = 16000;
 
 export class ToolRegistry {
   private tools = new Map<string, Tool>();
@@ -130,14 +133,45 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
   const opts = o ?? {};
   return [
     {
-      schema: schema('read_file', 'Read a UTF-8 text file inside the workspace.', {
-        path: { type: 'string', description: 'File path, relative to the workspace.' },
-      }, ['path']),
+      schema: schema(
+        'read_file',
+        'Read a window of a UTF-8 text file inside the workspace (paged: offset/limit, default 400 lines).',
+        {
+          path: { type: 'string', description: 'File path, relative to the workspace.' },
+          offset: { type: 'number', description: 'First line to read (1-based). Default 1.' },
+          limit: { type: 'number', description: 'Max lines to read (default 400).' },
+        },
+        ['path'],
+      ),
       kind: 'read',
       run: safe((args, ctx) => {
         const abs = inside(ctx.workspace, args.path);
         if (!abs) return outside(args.path);
-        return { ok: true, output: truncate(readFileSync(abs, 'utf8')) };
+        const text = readFileSync(abs, 'utf8');
+        const lines = text.split('\n');
+        if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop(); // trailing newline, not an empty line
+        const total = lines.length;
+        const rawOff = Number(args.offset);
+        const start = Number.isFinite(rawOff) && rawOff >= 1 ? Math.floor(rawOff) : 1;
+        const rawLim = Number(args.limit);
+        const limit = Number.isFinite(rawLim) && rawLim >= 1 ? Math.floor(rawLim) : READ_DEFAULT_LIMIT;
+        const from = Math.min(start, total + 1);
+        const to = Math.min(from + limit - 1, total); // inclusive; < from when past EOF
+        const shown = to >= from ? lines.slice(from - 1, to).join('\n') : '';
+        const more = to < total;
+        let header = `[${String(args.path)} lines ${total === 0 ? 0 : from}-${to} of ${total}]`;
+        if (more) header += ` (more: offset=${to})`;
+        const budget = Math.max(0, READ_CHAR_CAP - header.length - 1);
+        let body = shown;
+        if (shown.length > budget) {
+          // Char cap bites: cut at the last whole line so no partial line misleads.
+          body = shown.slice(0, budget);
+          const nl = body.lastIndexOf('\n');
+          if (nl > 0) body = body.slice(0, nl);
+          const lastLine = from + body.split('\n').length - 1;
+          header = `[${String(args.path)} lines ${from}-${lastLine} of ${total}] (more: offset=${lastLine})`;
+        }
+        return { ok: true, output: `${header}\n${body}` };
       }),
     },
     {
