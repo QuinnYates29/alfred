@@ -39,6 +39,8 @@ context economy, and workspaces on the Spark or the Mac (via `alfred-node`), git
 | P5 dashboard (**functional shell only**; control UX to be redesigned by Quinn) | ⏳ prompt ready |
 | P6 soak (real multi-hour goal + impossible goal, hold-out tests in test/soak/) | ⏳ run by the orchestrator at the end |
 
+**Before relaunching P3a/P4a:** in each kept worktree run `git merge master` first (the P3 tests were split and the harness was hardened after they forked).
+
 **Next wave (3 agents):** P3a1 (reuse the P3a worktree), P3a2, P4a (reuse the worktree). Then P3b, P11, P8 → P4b → P9, P10 → P5 → P6.
 With the fast server (~35 tok/s aggregate), tasks now pass in ~30–35 min (P7: attempt 2, 34 min).
 
