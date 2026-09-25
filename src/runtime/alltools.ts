@@ -8,6 +8,8 @@ import { langgraphTool } from '../executors/langgraph.js';
 
 export function allTools(
   o: {
+    /** P3: false turns off the run_shell approval guard. Default: on. */
+    approvals?: boolean;
     dsh?: Parameters<typeof dshTool>[0];
     pipeline?: Parameters<typeof pipelineTool>[0];
     langgraph?: Parameters<typeof langgraphTool>[0];
@@ -16,7 +18,7 @@ export function allTools(
   } = {},
 ): Tool[] {
   return [
-    ...builtinTools(),
+    ...builtinTools({ approvals: o.approvals }),
     dshTool(o.dsh),
     pipelineTool({ ...o.pipeline, models: o.pipeline?.models ?? o.models }),
     langgraphTool({ ...o.langgraph, models: o.langgraph?.models ?? o.models }),
