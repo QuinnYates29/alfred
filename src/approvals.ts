@@ -84,9 +84,40 @@ function recursiveForceRm(cmd: string): boolean {
   return false;
 }
 
+/**
+ * P10: pushes to the Spark hub (the remote named `spark`) are Alfred-internal
+ * and must NOT be guarded. A command is exempt only when *every* git push in
+ * it targets `spark` exactly (remote names never contain ':', which keeps
+ * scp-style URLs like spark:/x out of the exemption).
+ */
+function hasSparkOnlyPush(cmd: string): boolean {
+  let sawPush = false;
+  for (const segment of cmd.split(/[;&|\n\r]+/)) {
+    if (!invokes(segment, 'git')) continue;
+    const parts = words(segment);
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i] !== 'push') continue;
+      sawPush = true;
+      let remote: string | null = null;
+      for (let j = i + 1; j < parts.length; j++) {
+        const t = parts[j]!;
+        if (t.startsWith('-')) {
+          // Flags that consume the next word as their value.
+          if (['-o', '--push-option', '--receive-pack', '--exec'].includes(t)) j++;
+          continue;
+        }
+        if (!t.includes(':')) remote = t;
+        break;
+      }
+      if (remote !== 'spark') return false;
+    }
+  }
+  return sawPush;
+}
+
 /** Guards, checked in order. Names appear in the park reason and the approval row. */
 export const GUARDS: Guard[] = [
-  { name: 'git push', test: (c) => /\bgit\b/.test(c) && /\bpush\b/.test(c) },
+  { name: 'git push', test: (c) => /\bgit\b/.test(c) && /\bpush\b/.test(c) && !hasSparkOnlyPush(c) },
   { name: 'gh pr', test: (c) => /\bgh\b[\s\S]*?\bpr\b[\s\S]*?\b(create|merge)\b/.test(c) },
   { name: 'gh release', test: (c) => /\bgh\b[\s\S]*?\brelease\b/.test(c) },
   { name: 'npm publish', test: (c) => /\b(npm|pnpm|yarn)\b[\s\S]*?\bpublish\b/.test(c) },

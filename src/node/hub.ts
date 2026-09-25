@@ -49,6 +49,8 @@ interface NodeConn {
   roots: string[];
   caps: string[];
   connectedAt: number;
+  /** P10: sandbox workspace dir advertised in hello. */
+  sandbox: string;
   ws: WebSocket;
   pending: Map<string, Pending>;
   misses: number;
@@ -59,6 +61,8 @@ export interface NodeInfo {
   roots: string[];
   caps: string[];
   connectedAt: number;
+  /** P10: where sandbox workspaces go on this node (advertised; default <first root>/alfred-sandbox). */
+  sandbox: string;
 }
 
 /**
@@ -197,12 +201,13 @@ export class NodeHub {
       roots: c.roots,
       caps: c.caps,
       connectedAt: c.connectedAt,
+      sandbox: c.sandbox,
     }));
   }
 
   info(name: string): NodeInfo | null {
     const c = this.nodes.get(name);
-    return c ? { name: c.name, roots: c.roots, caps: c.caps, connectedAt: c.connectedAt } : null;
+    return c ? { name: c.name, roots: c.roots, caps: c.caps, connectedAt: c.connectedAt, sandbox: c.sandbox } : null;
   }
 
   backend(node: string): WorkspaceBackend {
@@ -351,6 +356,10 @@ export class NodeHub {
         roots: msg.roots.map(String),
         caps: Array.isArray(msg.caps) ? msg.caps.map(String) : [],
         connectedAt: Date.now(),
+        sandbox:
+          typeof (msg as any).sandbox === 'string' && (msg as any).sandbox
+            ? String((msg as any).sandbox)
+            : `${(msg.roots.map(String)[0] ?? '').replace(/\/+$/, '')}/alfred-sandbox`,
         ws,
         pending: new Map(),
         misses: 0,

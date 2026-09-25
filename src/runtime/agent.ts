@@ -42,6 +42,9 @@ export interface RunOpts {
   nodes?: import('../node/hub.js').NodeHub;
   /** P9: base directory for local workspaces when `workspaceFor` is absent. */
   workRoot?: string;
+  /** P10: the Spark repo hub. With `workRoot` (and no `workspaceFor`) the runtime resolves via
+   * resolveWorkspace and publishes finished work: commit + `git push spark HEAD:<branch>`. */
+  hub?: import('../git/hub.js').RepoHub;
   watchdog?: Partial<WatchdogConfig>;
   runner?: CheckRunner;
   leaseMs?: number;
@@ -134,6 +137,9 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
   // P9: resolve where this task's workspace lives (possibly on an alfred-node).
   let workspace: string;
   let backend: WorkspaceBackend | undefined;
+  /** P10: publishing info from resolveWorkspace (set only on hub-managed workspaces). */
+  let wsBranch: string | undefined;
+  let wsRemote: string | undefined;
   if (o.workspaceFor) {
     workspace = o.workspaceFor(task);
   } else {
@@ -142,9 +148,12 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
       const ws = await resolveWorkspace(o.store, task, {
         ...(o.workRoot ? { root: o.workRoot } : {}),
         ...(o.nodes ? { nodes: o.nodes } : {}),
+        ...(o.hub ? { hub: o.hub } : {}),
       });
       workspace = ws.path;
       backend = ws.backend;
+      wsBranch = ws.branch;
+      wsRemote = ws.remote;
     } catch (e) {
       if (e instanceof NodeOfflineError) {
         o.store.transition(taskId, 'blocked', { reason: e.message, by: o.workerId });
@@ -153,6 +162,47 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
       throw e;
     }
   }
+
+  /**
+   * P10: commit + push the workspace to the Spark hub. Best-effort: emits
+   * `pushed` {branch, sha} or `push_failed` {error} and never throws.
+   */
+  let publishInflight: Promise<void> | null = null;
+  let lastPublishedSha: string | null = null;
+  const publishWork = (): Promise<void> => {
+    // v1 publishes Spark-side work; node workspaces push themselves via their own git.
+    if (!(o.hub && o.workRoot && !o.workspaceFor && backend && wsRemote && wsBranch && backend.node === 'local')) {
+      return Promise.resolve();
+    }
+    if (publishInflight) return publishInflight;
+    publishInflight = (async () => {
+      try {
+        const { shq, be, identityArgs } = await import('../workspace.js');
+        const b = backend!;
+        const dirty = await b.exec('git status --porcelain', { cwd: workspace, timeoutMs: 30_000 });
+        if (dirty.exitCode !== 0) throw new Error(`workspace is not a git repo: ${dirty.output.slice(-300)}`);
+        if (dirty.output.trim()) {
+          await be(b, workspace, 'git add -A');
+          const idn = (await identityArgs(b, workspace)).map(shq).join(' ');
+          const commit = await b.exec(
+            `git ${idn ? idn + ' ' : ''}commit -m ${shq(`${task.title} (alfred)`)} --allow-empty-message`,
+            { cwd: workspace, timeoutMs: 60_000 },
+          );
+          if (commit.exitCode !== 0) throw new Error(`commit failed: ${commit.output.slice(-400)}`);
+        }
+        const sha = (await b.exec('git rev-parse HEAD', { cwd: workspace, timeoutMs: 15_000 })).output.trim();
+        if (!dirty.output.trim() && sha === lastPublishedSha) return;
+        await be(b, workspace, `git push spark HEAD:${shq(wsBranch!)}`, 120_000);
+        lastPublishedSha = sha;
+        record('pushed', { branch: wsBranch, sha });
+      } catch (e: any) {
+        record('push_failed', { error: e?.message ?? String(e) });
+      } finally {
+        publishInflight = null;
+      }
+    })();
+    return publishInflight;
+  };
   const schemas = o.registry.schemasFor(persona.tools);
   const toolSet = new Set(persona.tools);
 
@@ -226,6 +276,8 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
     return await loop();
   } finally {
     clearInterval(watchdogTimer);
+    // P10: one last best-effort publish on every exit path.
+    await publishWork().catch(() => {});
   }
 
   async function loop(): Promise<Task> {
@@ -466,6 +518,8 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
       }
       throw e;
     }
+    // P10: publish on every finish attempt (best-effort, never fails the task).
+    await publishWork();
     if (v.ok) return { ok: true, output: 'done' };
     const after = o.store.getTask(taskId)!;
     if (after.status === 'failed') return { ok: true, output: '' };

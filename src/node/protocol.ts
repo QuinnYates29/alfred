@@ -14,6 +14,8 @@ export interface HelloMsg {
   roots: string[];
   caps: string[];
   version: string;
+  /** P10: where the node keeps sandbox workspaces (must be inside its roots). */
+  sandbox?: string;
 }
 export interface CallMsg {
   type: 'call';

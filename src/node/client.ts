@@ -18,6 +18,8 @@ export interface ConnectNodeOpts {
   reconnect?: boolean;
   /** Default: osascript on macOS, notify-send on Linux. */
   onNotify?: (n: { level: string; title: string; body: string; url?: string }) => void;
+  /** P10: sandbox workspace location on this machine (must be inside roots). Default <first root>/alfred-sandbox. */
+  sandbox?: string;
 }
 
 export interface NodeHandle {
@@ -153,6 +155,11 @@ export function connectNode(o: ConnectNodeOpts): NodeHandle {
   const reconnect = o.reconnect !== false;
   const onNotify = o.onNotify ?? defaultNotify;
   rootsGlobal = o.roots.map((r) => path.resolve(r));
+  const sandboxWant = path.resolve(
+    (o.sandbox ?? `${process.env.HOME ?? '~'}${path.sep}alfred-sandbox`).replace(/^~(?=\/|$)/, process.env.HOME ?? '~'),
+  );
+  // The sandbox must live inside the node's roots; if it doesn't, fall back to the first root.
+  const sandbox = guardRoot(rootsGlobal, sandboxWant) ? sandboxWant : path.join(rootsGlobal[0] ?? process.cwd(), 'alfred-sandbox');
 
   let ws: WebSocket | null = null;
   let closedByUs = false;
@@ -178,7 +185,7 @@ export function connectNode(o: ConnectNodeOpts): NodeHandle {
     ws.on('open', () => {
       open = true;
       backoffMs = 1_000;
-      const hello = { type: 'hello', name: o.name, roots: rootsGlobal, caps, version: PROTOCOL_VERSION };
+      const hello = { type: 'hello', name: o.name, roots: rootsGlobal, caps, version: PROTOCOL_VERSION, sandbox };
       ws!.send(encode(hello as NodeMsg));
     });
     ws.on('message', (data: any) => {
