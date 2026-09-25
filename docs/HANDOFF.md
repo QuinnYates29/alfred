@@ -40,7 +40,7 @@ context economy, and workspaces on the Spark or the Mac (via `alfred-node`), git
 Planned order: P3a/P4a/P7 (running) → P3b, P11, P8 → P4b → P9, P10 → P5 → P6.
 
 ## Open items / decisions pending with Quinn
-- **Qwen decode speed investigation** (Sonnet subagent, read-only; report goes to `docs/qwen/SPEED-INVESTIGATION.md`). Quinn says the same UD-Q4_K_XL quant with 6 full-context slots should hit 10–30 tok/s.
+- **Qwen decode speed**: investigation done → docs/qwen/SPEED-INVESTIGATION.md. Finding: decode is sync-bound. `-ncmoe 26` forces ~26 GPU↔CPU round trips per token (attention on GPU, experts on CPU, layers sequential). Per-slot rate is flat at 2.4–2.5 tok/s whether 1 or 4 slots are active; GPU ~25% and CPU ~25% busy. Experiments queued for the next wave boundary: (1) pin 10 threads to the X925 cores, (2) np 3 + ncmoe 14, (3) np 2 + ncmoe 8, (4) -ot per_layer_token_embd=CPU + low ncmoe, (5) -v load placement capture, (6) rebuild with GGML_CPU_KLEIDIAI=ON. Also: the qwenctl presets `fast`/`balanced` are stale (would NVRM at np 6), and --cache-ram 8 GiB is thrashing.
   We see ~2.3 tok/s per agent with 3 agents and a GPU at ~24% util / 25 W → suspect tensor placement (`-ncmoe 26`, mmap), threads, build flags or fork kernels.
   **Experiments need a qwen-server restart → do them between waves** (a restart kills in-flight DSH agents; their WIP survives, costing an attempt).
 - Control-side UX (dashboard/CLI/phone/Slack): Quinn will refine. Keep the core API-first (`/api/v1`, docs/API.md from P11).
