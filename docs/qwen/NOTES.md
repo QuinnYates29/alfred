@@ -30,6 +30,7 @@ loop until the acceptance command passes, ≤ 4 attempts, 45–75 min each). Eve
 ## Harness lessons (not the model's fault)
 - A shared editable-install `.venv` imported the main checkout instead of the worktree. The model's correct work looked "failing" (P2d). Fix: `PYTHONPATH=.`.
 - Tests that load real personas with only built-in tools broke once personas listed executor tools. Fixed in the tests.
+- `vitest run test/acceptance/p1` also matches `p10`/`p11` (prefix filter). P2e had actually passed (41/41) but was marked failing. Fix: trailing slashes.
 - Restoring protected files from a moving `master` copied newer files into running worktrees. Fixed: restore from the fork point.
 
 ## Tuning ideas to try after the build
