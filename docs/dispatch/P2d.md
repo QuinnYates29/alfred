@@ -11,4 +11,6 @@ Implement:
 4. Also persist it: wherever state.json is written at the end of the run, include `"post_merge_verify": {"ok":..., "skipped":..., "exit_code":...}` if you can do so without restructuring (optional; don't break state tests).
 5. Add a short note under Finding 2 in pipeline/SCOPE_LESSONS.md: "Mitigated: post-merge verify re-runs verify in the real repo (see cli.post_merge_verify)".
 
-Verify: `.venv/bin/pytest -q tests` — ALL tests must pass (there were 439 passing before plus the new file). Reply with a short summary.
+IMPORTANT: the shared .venv has `pipeline` installed in editable mode from ANOTHER checkout, so always run tests as `PYTHONPATH=. .venv/bin/pytest -q tests` or your changes will not be imported.
+
+Verify: `PYTHONPATH=. .venv/bin/pytest -q tests` — ALL tests must pass (there were 439 passing before plus the new file). Reply with a short summary.
