@@ -11,6 +11,7 @@
     "test:p3": "vitest run test/acceptance/p3",
     "test:p4": "vitest run test/acceptance/p4",
     "test:p5": "vitest run test/acceptance/p5",
+    "build:web": "npm --prefix web install && npm --prefix web run build",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

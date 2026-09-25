@@ -8,3 +8,6 @@ config/mcp.json
 .dispatch/
 sidecar/.venv
 __pycache__/
+.npm-cache/
+web/node_modules/
+web/dist/

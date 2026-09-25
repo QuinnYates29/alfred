@@ -173,9 +173,21 @@ function buildRouter(d: AppDeps): express.Router {
     res.json({ ok: true });
   });
 
-  // Approvals: the door lands with P3b; the shape is stable already.
-  r.get('/approvals', (_req, res) => res.json([]));
-  r.post('/approvals/:id', (_req, res) => send(res, 404, { error: 'no such approval' }));
+  // Approvals: the P3 door lands them in the store; the dashboard decides here.
+  r.get('/approvals', (req, res) => {
+    const status = req.query.status ? String(req.query.status) : undefined;
+    res.json(d.store.approvals(status ? { status: status as any } : {}));
+  });
+  r.post('/approvals/:id', (req, res) => {
+    const decision = String(req.body?.decision ?? '');
+    if (decision !== 'approved' && decision !== 'denied') return send(res, 400, { error: 'decision must be approved|denied' });
+    try {
+      res.json(d.store.decideApproval(req.params.id, decision, String(req.body?.by ?? 'dashboard')));
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      send(res, /no such approval/i.test(msg) ? 404 : 409, { error: msg });
+    }
+  });
 
   r.get('/automations', (_req, res) => res.json(d.automations?.list() ?? []));
   r.post('/automations', (req, res) => {
@@ -200,6 +212,9 @@ function buildRouter(d: AppDeps): express.Router {
       send(res, /no such/.test(msg) ? 404 : 400, { error: msg });
     }
   });
+
+  // P5 addendum: connected MCP nodes for the dashboard.
+  r.get('/nodes', (_req, res) => res.json(typeof (d.hub as any)?.list === 'function' ? (d.hub as any).list() : []));
 
   // P7 — model roles, live.
   r.get('/models', (_req, res) =>
