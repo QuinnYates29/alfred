@@ -11,7 +11,8 @@ import { guardCommand } from '../../../src/approvals.js';
 import { openStore } from '../../../src/store.js';
 import { NodeHub } from '../../../src/node/hub.js';
 import { connectNode } from '../../../src/node/client.js';
-import { ToolRegistry, builtinTools } from '../../../src/runtime/tools.js';
+import { ToolRegistry } from '../../../src/runtime/tools.js';
+import { allTools } from '../../../src/runtime/alltools.js';
 import { loadPersonas } from '../../../src/runtime/personas.js';
 import { runTask } from '../../../src/runtime/agent.js';
 import { scriptedLLM, call } from '../../../src/runtime/testing.js';
@@ -106,7 +107,7 @@ describe('workspace modes on the Spark', () => {
   it('a finished task is committed and pushed to the hub', async () => {
     const { store, hub, root } = setup();
     const reg = new ToolRegistry();
-    for (const x of builtinTools()) reg.register(x);
+    for (const x of allTools()) reg.register(x);
     const personas = loadPersonas('personas', reg);
     const g = store.createGoal({ title: 'Pushy', meta: { repo: 'proj', mode: 'sandbox' } });
     const t = store.createTask({ goalId: g.id, persona: 'coder', title: 'add b', acceptance: [{ name: 'b', cmd: 'test -f b.txt' }] });

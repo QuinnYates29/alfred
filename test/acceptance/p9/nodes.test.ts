@@ -10,7 +10,8 @@ import { NodeHub } from '../../../src/node/hub.js';
 import { connectNode } from '../../../src/node/client.js';
 import { resolveWorkspace } from '../../../src/workspace.js';
 import { openStore } from '../../../src/store.js';
-import { ToolRegistry, builtinTools } from '../../../src/runtime/tools.js';
+import { ToolRegistry } from '../../../src/runtime/tools.js';
+import { allTools } from '../../../src/runtime/alltools.js';
 import { loadPersonas } from '../../../src/runtime/personas.js';
 import { runTask } from '../../../src/runtime/agent.js';
 import { scriptedLLM, call } from '../../../src/runtime/testing.js';
@@ -87,7 +88,7 @@ describe('tasks on a node workspace', () => {
 
     const store = openStore(':memory:');
     const reg = new ToolRegistry();
-    for (const t of builtinTools()) reg.register(t);
+    for (const t of allTools()) reg.register(t);
     const personas = loadPersonas('personas', reg);
     const g = store.createGoal({ title: 'Laptop Goal', meta: { node: 'lap', repo } });
     const t = store.createTask({ goalId: g.id, persona: 'coder', title: 'NODE-TASK', spec: 's',
