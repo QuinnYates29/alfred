@@ -4,6 +4,7 @@ dist/
 *.db-*
 .env
 config/models.local.yaml
+config/mcp.json
 .dispatch/
 sidecar/.venv
 __pycache__/
