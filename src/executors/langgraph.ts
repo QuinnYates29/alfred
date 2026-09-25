@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
+import type { ModelRegistry } from '../models.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -17,11 +18,11 @@ export function langgraphTool(o?: {
   python?: string; /* <repo>/sidecar/.venv/bin/python */
   baseUrl?: string;
   model?: string;
+  /** P7: when present, the 'coder' role's endpoint is resolved per call. */
+  models?: ModelRegistry;
   defaultTimeoutMin?: number; /* 45 */
 }): Tool {
   const python = o?.python ?? join(REPO_ROOT, 'sidecar', '.venv', 'bin', 'python');
-  const baseUrl = o?.baseUrl ?? 'http://127.0.0.1:1110';
-  const model = o?.model ?? 'qwen3.8-flash-next';
   const defaultTimeoutMin = o?.defaultTimeoutMin ?? 45;
 
   return {
@@ -48,6 +49,9 @@ export function langgraphTool(o?: {
       if (cmds.length === 0) return Promise.resolve({ ok: false, output: 'no acceptance checks to test against' });
       const testCmd = cmds.join(' && ');
       const timeoutMs = defaultTimeoutMin * 60_000;
+      const spec = o?.models?.resolve('coder');
+      const baseUrl = spec?.baseUrl ?? o?.baseUrl ?? 'http://127.0.0.1:1110';
+      const model = spec?.model ?? o?.model ?? 'qwen3.8-flash-next';
 
       return new Promise<ToolResult>(resolve => {
         const child = spawn(
