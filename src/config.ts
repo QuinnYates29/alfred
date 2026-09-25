@@ -49,7 +49,8 @@ const DEFAULTS: AlfredConfigFile = {
   },
   models: 'config/models.yaml',
   mcp: 'config/mcp.json',
-  plugins: { enabled: ['builtin-executors', 'builtin-sinks', 'builtin-deck'] },
+  // No default `enabled`: unset means "load every plugin found". config/alfred.yaml lists them explicitly.
+  plugins: {},
 };
 
 /**

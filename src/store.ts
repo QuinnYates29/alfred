@@ -72,6 +72,8 @@ export interface Store {
   appendNote(taskId: string, text: string): void;
   appendEvent(goalId: string, taskId: string | null, kind: string, data: any): EventRow;
   events(goalId: string, opts?: EventsOpts): EventRow[];
+  /** P4 — ascending across all goals, for SSE replay. limit default 500. */
+  allEvents(opts?: { sinceId?: number; limit?: number }): EventRow[];
   onEvent(cb: (e: EventRow) => void): () => void;
   close(): void;
   /** Internal: only the done-gate may call this. */
@@ -332,6 +334,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     eventsByGoalSince: db.prepare(
       `SELECT * FROM events WHERE goalId = ? AND id > ? ORDER BY id ASC`,
     ),
+    allEvents: db.prepare(`SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?`),
   };
 
   function emit(goalId: string, taskId: string | null, kind: string, data: any): EventRow {
@@ -628,6 +631,11 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     return rows.map(eventFromRow);
   }
 
+  function allEvents(opts?: { sinceId?: number; limit?: number }): EventRow[] {
+    const rows = stmts.allEvents.all(opts?.sinceId ?? 0, opts?.limit ?? 500) as EventRowRaw[];
+    return rows.map(eventFromRow);
+  }
+
   function onEvent(cb: (e: EventRow) => void): () => void {
     subscribers.add(cb);
     return () => subscribers.delete(cb);
@@ -672,8 +680,11 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     appendNote,
     appendEvent,
     events,
+    allEvents,
     onEvent,
     close,
     _markDone,
+    /** Internal: shared handle for Automations (same sqlite file). */
+    _db: db,
   };
 }
