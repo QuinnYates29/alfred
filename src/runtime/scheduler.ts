@@ -18,6 +18,8 @@ export class Scheduler {
   private readonly prefix: string;
   private readonly runningMap = new Map<string, Promise<void>>();
   private readonly aborts = new Map<string, AbortController>();
+  /** P12b: the worker id this scheduler runs each task with (for requeue ownership). */
+  private readonly workers = new Map<string, string>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
 
@@ -36,11 +38,30 @@ export class Scheduler {
     void this.tick().catch(() => {});
   }
 
-  async stop(): Promise<void> {
+  /**
+   * P12b — with `requeue: true` (service shutdown) every running task we own is handed back to
+   * the queue instead of being cancelled: note + `running → queued` (lease cleared by the
+   * transition), then the run is aborted. Because the lease is gone before the abort lands, the
+   * agent's P12 ownership gate keeps the run from writing anything else afterwards.
+   * Without the option we keep today's behavior: the run itself ends the task `stopped`.
+   */
+  async stop(o?: { requeue?: boolean }): Promise<void> {
     this.stopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    if (o?.requeue) {
+      for (const taskId of [...this.runningMap.keys()]) {
+        try {
+          const t = this.o.store.getTask(taskId);
+          if (!t || t.status !== 'running' || t.leaseOwner !== this.workers.get(taskId)) continue;
+          this.o.store.appendNote(taskId, 'service stopped/restarted: resuming on next start');
+          this.o.store.transition(taskId, 'queued', { reason: 'service restart', by: 'scheduler' });
+        } catch {
+          // The run finished or transitioned first; nothing to hand back.
+        }
+      }
     }
     for (const ac of this.aborts.values()) ac.abort();
     while (this.runningMap.size > 0) {
@@ -90,6 +111,7 @@ export class Scheduler {
   private spawn(taskId: string, workerId: string): void {
     const ac = new AbortController();
     this.aborts.set(taskId, ac);
+    this.workers.set(taskId, workerId);
     const done = runTask(taskId, {
       ...this.o,
       workerId,

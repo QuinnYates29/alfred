@@ -225,8 +225,16 @@ async function main(): Promise<void> {
       const { startAlfred, serveConfig } = await import('./main.js');
       const a = await startAlfred(serveConfig());
       console.log(`alfred listening on ${a.url}`);
+      // P12b: systemd sends SIGTERM on restart — stop Alfred (which requeues running tasks)
+      // and exit 0. Re-entrant signals are ignored so stop() runs exactly once.
+      let shuttingDown = false;
       const bye = () => {
-        void a.stop().then(() => process.exit(0));
+        if (shuttingDown) return;
+        shuttingDown = true;
+        void a
+          .stop()
+          .catch(() => {})
+          .then(() => process.exit(0));
       };
       process.on('SIGINT', bye);
       process.on('SIGTERM', bye);

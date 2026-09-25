@@ -298,6 +298,10 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
   /** Stops with a reason, keeping the last assistant words in notes. P12: no-op once the task is not ours. */
   const stopWith = (reason: string): StopOutcome => {
     if (ownershipLost()) return { kind: 'stopped', reason };
+    // P12b: a shutdown requeue (running → queued, lease cleared) can race this stop; the task
+    // reaching a terminal status first means the stop is moot — no second write.
+    const cur = o.store.getTask(taskId);
+    if (cur && (TERMINAL as readonly string[]).includes(cur.status)) return { kind: 'stopped', reason };
     if (lastText.trim()) o.store.appendNote(taskId, lastText);
     o.store.transition(taskId, 'stopped', { reason, by: o.workerId });
     return { kind: 'stopped', reason };
