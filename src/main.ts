@@ -349,7 +349,9 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
           /* ignore */
         }
       }
-      await scheduler.stop();
+      // P12b: a stop of the service hands running tasks back to the queue (note + queued, lease
+      // cleared) so the next process resumes them — it must not cancel them.
+      await scheduler.stop({ requeue: true });
       await pluginRt.teardownAll();
       await hub.close();
       await new Promise<void>((res) => server.close(() => res()));
