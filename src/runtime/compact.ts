@@ -15,9 +15,13 @@ export function estimateRequest(system: string, tools: ToolSchema[], messages: L
   );
 }
 
-/** Tokens left for the message JSON so that system + tools + messages fit in `budget`. */
+/**
+ * Tokens left for the message JSON so that system + tools + messages fit in `budget`.
+ * Tool schemas are reserved content-only (no outer `[]` framing).
+ */
 export function messageBudget(budget: number, system: string, tools: ToolSchema[]): number {
-  return Math.max(64, Math.floor(budget - estimateTokens(system) - estimateTokens(JSON.stringify(tools))));
+  const overhead = estimateTokens(system) + estimateTokens(JSON.stringify(tools).slice(1, -1));
+  return Math.max(64, Math.floor(budget - overhead));
 }
 
 export function nudgeMessage(pct: number): string {
@@ -109,7 +113,7 @@ export function compactMessages(
   isError: (id: string) => boolean = () => false,
 ): CompactionResult {
   const winBudget = messageBudget(budget, system, tools);
-  if (estimateTokens(JSON.stringify(messages)) <= winBudget) {
+  if (estimateRequest(system, tools, messages) <= budget) {
     return { messages, digest: '', dropped: 0 };
   }
 
@@ -118,15 +122,17 @@ export function compactMessages(
   const brief = messages[0];
   const briefEst = estimateTokens(JSON.stringify(brief));
   const digestCap = Math.max(1, Math.floor(0.25 * winBudget));
-  // Target: message JSON within 50 % of budget; hard feasibility (winBudget) wins if tighter.
-  const cap = Math.max(briefEst, Math.min(winBudget, Math.floor(0.5 * budget)));
+  // Soft target: the kept tail stays under 50 % of the request budget, while
+  // brief + digest + tail must fit the message window (winBudget).
+  const tailCap = Math.floor(0.5 * budget);
 
   let keptStart = groups.length;
   let keptEst = 0;
   for (let i = groups.length - 1; i >= 0; i--) {
     const gEst = estimateTokens(JSON.stringify(groups[i]));
+    if (keptEst + gEst > tailCap) break;
     const digestEst = estimateTokens(JSON.stringify(buildDigest(groups.slice(0, i).flat(), isError, digestCap)));
-    if (briefEst + keptEst + gEst + digestEst > cap) break;
+    if (briefEst + keptEst + gEst + digestEst > winBudget) break;
     keptStart = i;
     keptEst += gEst;
   }
