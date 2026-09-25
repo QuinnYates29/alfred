@@ -3,7 +3,7 @@
 Last updated: 2026-09-24 22:55 by the orchestrator (Claude Code session). Read with GOAL.md, PLAN.md, docs/LESSONS.md, docs/qwen/NOTES.md.
 
 ## ⚠️ LIVE AGENTS (check before launching anything)
-As of 2026-09-24 22:47 the original session launched **P3a (P3a1 prompt, MCP hub), P3a2 (sinks), P4a (automations)**. Check `cat .dispatch/*/status.json`:
+As of 2026-09-24 22:47 the original session launched **P3a (P3a1 prompt, MCP hub), P4a (automations), P3b (approvals + door)**; P3a2 merged 22:58. Check `cat .dispatch/*/status.json`:
 `running` = leave it alone (verify + merge when `passed`); `failed`/`stopped` = relaunch per the table. Never launch a task whose status is `running`.
 
 ## What alfred is
