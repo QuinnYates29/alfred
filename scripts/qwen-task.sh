@@ -3,6 +3,12 @@
 # git worktree, looping until the acceptance command passes or attempts run out.
 # Usage: qwen-task.sh NAME BRANCH PROMPT_FILE "CHECK_CMD" [ATTEMPTS=4] [TIMEOUT_MIN=60]
 set -uo pipefail
+# Run from a private copy: bash reads scripts incrementally, so editing/overwriting this file
+# while a job runs would corrupt it (this killed P3a/P4a on 2026-09-24).
+if [ -z "${QWEN_TASK_PRIVATE:-}" ]; then
+  priv=$(mktemp "${TMPDIR:-/tmp}/qwen-task.XXXXXX.sh"); cp "$0" "$priv"
+  QWEN_TASK_PRIVATE=1 exec bash "$priv" "$@"
+fi
 NAME=$1 BRANCH=$2 PROMPT_FILE=$3 CHECK=$4 ATTEMPTS=${5:-4} TMIN=${6:-60}
 REPO=${REPO:-$HOME/repos/alfred}
 WT=${WT_ROOT:-$HOME/repos/alfred-wt}/$NAME
