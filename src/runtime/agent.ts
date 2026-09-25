@@ -130,6 +130,38 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
     throw new Error(`task ${taskId} is ${task.status}; only queued or self-leased running tasks can run`);
   }
 
+  // P12: run ownership. We own the task only while its row still carries the attempt we claimed
+  // and our lease — or it sits in `verifying` right after our own finish (the transition into
+  // verifying clears the lease by design). Losing ownership stops the run: abort in-flight work,
+  // no further writes to the task, resolve with the current row.
+  const claimedAttempt = task.attempt;
+  let lostOwnership = false;
+  const inFlightDisposers = new Set<() => void>();
+  const ownsTask = (): boolean => {
+    const t = o.store.getTask(taskId);
+    if (!t || t.attempt !== claimedAttempt) return false;
+    if (t.status === 'verifying') return true; // our gate; the lease is intentionally cleared here
+    return t.leaseOwner === o.workerId;
+  };
+  const declareLost = () => {
+    if (lostOwnership) return;
+    lostOwnership = true;
+    for (const dispose of [...inFlightDisposers]) {
+      try {
+        dispose();
+      } catch {
+        // best effort — aborting in-flight work
+      }
+    }
+  };
+  /** True when this run may no longer write to the task (and in-flight work has been aborted). */
+  const ownershipLost = (): boolean => {
+    if (lostOwnership) return true;
+    if (ownsTask()) return false;
+    declareLost();
+    return true;
+  };
+
   const personaOpt = o.personas.get(task.persona);
   if (!personaOpt) throw new Error(`no such persona: ${task.persona}`);
   const persona: Persona = personaOpt;
@@ -248,23 +280,38 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
 
   const record = (kind: string, data: any) => {
     lastEventAt = Date.now();
+    // P12: once ownership is lost we emit nothing more for this task.
+    if (lostOwnership) return;
     o.store.appendEvent(task!.goalId, taskId, kind, data);
   };
 
-  const heartbeat = () => {
+  /** Extend our lease; if it already expired (or the gate cleared it), re-acquire it. */
+  const heartbeat = (): boolean => {
     try {
-      o.store.heartbeat(taskId, o.workerId, leaseMs);
+      if (o.store.heartbeat(taskId, o.workerId, leaseMs)) return true;
+      return o.store.reacquire(taskId, o.workerId, claimedAttempt, leaseMs);
     } catch {
-      // Lease lost (e.g. reclaimed) — we keep running; tests observe status only.
+      return false;
     }
   };
 
-  /** Stops with a reason, keeping the last assistant words in notes. */
+  /** Stops with a reason, keeping the last assistant words in notes. P12: no-op once the task is not ours. */
   const stopWith = (reason: string): StopOutcome => {
+    if (ownershipLost()) return { kind: 'stopped', reason };
     if (lastText.trim()) o.store.appendNote(taskId, lastText);
     o.store.transition(taskId, 'stopped', { reason, by: o.workerId });
     return { kind: 'stopped', reason };
   };
+
+  // P12: heartbeat for the whole life of the run — a single LLM call or acceptance check longer
+  // than the lease used to let the scheduler reclaim the task mid-flight (soak S1 finding 1).
+  const heartbeatTimer = setInterval(() => {
+    if (lostOwnership) return;
+    if (heartbeat()) return;
+    // Heartbeat failed: a cleared lease during our own gate is fine (ownsTask still true);
+    // anything else means someone else has the task now.
+    if (!ownsTask()) declareLost();
+  }, Math.max(25, Math.min(leaseMs / 3, 60_000)));
 
   // Stall watchdog: no event for this task in wd.stallMs → abort the in-flight call.
   let stallAbort: (() => void) | null = null;
@@ -275,28 +322,30 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
   try {
     return await loop();
   } finally {
+    // P12: every timer dies with the run — park, give_up, lost ownership, all paths.
     clearInterval(watchdogTimer);
+    clearInterval(heartbeatTimer);
     // P10: one last best-effort publish on every exit path.
     await publishWork().catch(() => {});
   }
 
   async function loop(): Promise<Task> {
     for (;;) {
-      // Budget / abort checks, in precedence order.
-      if (o.signal?.aborted) {
-        stopWith('cancelled');
-        return o.store.getTask(taskId)!;
-      }
-      if (turns >= task!.budget.turns) {
-        stopWith(`turn budget exhausted (${turns})`);
-        return o.store.getTask(taskId)!;
-      }
-      if (tokensUsed >= task!.budget.tokens) {
-        stopWith('token budget exhausted');
-        return o.store.getTask(taskId)!;
-      }
-      if (Date.now() - startedAt >= task!.budget.wallClockMs) {
-        stopWith('wall clock exceeded');
+      // P12: a run that lost its task stops silently — no writes, no events, just the current row.
+      if (lostOwnership) return o.store.getTask(taskId) ?? task!;
+      // P12: budget / abort handling writes to the task, so it requires ownership too.
+      const needStop = o.signal?.aborted
+        ? 'cancelled'
+        : turns >= task!.budget.turns
+          ? `turn budget exhausted (${turns})`
+          : tokensUsed >= task!.budget.tokens
+            ? 'token budget exhausted'
+            : Date.now() - startedAt >= task!.budget.wallClockMs
+              ? 'wall clock exceeded'
+              : null;
+      if (needStop) {
+        if (ownershipLost()) return o.store.getTask(taskId) ?? task!;
+        stopWith(needStop);
         return o.store.getTask(taskId)!;
       }
 
@@ -309,7 +358,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         if (c.dropped > 0) {
           messages.length = 0;
           messages.push(...c.messages);
-          if (c.digest) o.store.appendNote(taskId, c.digest);
+          if (c.digest && !lostOwnership) o.store.appendNote(taskId, c.digest);
           est = estimateRequest(persona.system, schemas, messages);
           record('compacted', { before, after: est, dropped: c.dropped });
         }
@@ -319,7 +368,10 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         messages.push({ role: 'user', content: nudgeMessage(Math.round((est / budget) * 100)) });
       }
 
-      // One LLM call, abortable by o.signal / wall clock / stall watchdog.
+      // P12(a): we own the task before every LLM call.
+      if (ownershipLost()) return o.store.getTask(taskId) ?? task!;
+
+      // One LLM call, abortable by o.signal / wall clock / stall watchdog / lost ownership.
       let abortReason: string | null = null;
       const call = linkAbort(o.signal);
       if (o.signal?.aborted) abortReason = 'cancelled';
@@ -332,6 +384,11 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         abortReason = abortReason ?? 'wall clock exceeded';
         call.dispose();
       }, Math.max(0, remaining));
+      const disposeCall = () => {
+        clearTimeout(wallTimer);
+        call.dispose();
+      };
+      inFlightDisposers.add(disposeCall);
 
       let resp: LLMResponse | null = null;
       let lastError: unknown = null;
@@ -357,12 +414,17 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
       clearTimeout(wallTimer);
       stallAbort = null;
       call.dispose();
+      inFlightDisposers.delete(disposeCall);
+
+      // P12: the heartbeat may have noticed mid-call that the task was reclaimed — stop, no writes.
+      if (lostOwnership) return o.store.getTask(taskId) ?? task!;
 
       if (!resp) {
         if (abortReason) {
           stopWith(abortReason);
           return o.store.getTask(taskId)!;
         }
+        if (ownershipLost()) return o.store.getTask(taskId) ?? task!;
         const msg = `llm error: ${(lastError as Error)?.message ?? String(lastError)}`;
         if (lastText.trim()) o.store.appendNote(taskId, lastText);
         o.store.transition(taskId, 'failed', { reason: msg, by: o.workerId });
@@ -372,7 +434,8 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
       turns += 1;
       tokensUsed += resp.usage.promptTokens + resp.usage.completionTokens;
       if (resp.content) lastText = resp.content;
-      heartbeat();
+      // P12: heartbeat before the turn record; a failed reacquire means the task is gone.
+      if (!heartbeat() && ownershipLost()) return o.store.getTask(taskId) ?? task!;
       record('turn', {
         turn: turns,
         tools: resp.toolCalls.map((c) => c.name),
@@ -398,55 +461,66 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
       messages.push({ role: 'assistant', content: resp.content, toolCalls: calls });
 
       for (const c of calls) {
+        // P12: a run that lost the task stops before touching it again.
+        if (lostOwnership) return o.store.getTask(taskId) ?? task!;
         // Every tool call gets its own abort scope so `park` can outlive a signal.
         const scope = linkAbort(o.signal);
+        inFlightDisposers.add(scope.dispose);
         let result: ToolResult;
         let control:
           | { kind: 'return'; task: Task }
           | { kind: 'park'; status: 'blocked' | 'needs_claude'; reason: string }
           | null = null;
 
-        if (!toolSet.has(c.name)) {
-          result = { ok: false, output: `unknown tool: ${c.name}` };
-        } else if (c.name === 'finish') {
-          result = await doFinish(c);
-          if (result.ok) control = { kind: 'return', task: o.store.getTask(taskId)! };
-        } else if (c.name === 'give_up') {
-          const reason = String(c.args?.reason ?? 'no reason given');
-          o.store.transition(taskId, 'failed', { reason, by: o.workerId });
-          control = { kind: 'return', task: o.store.getTask(taskId)! };
-          result = { ok: true, output: '' };
-        } else if (c.name === 'ask_claude') {
-          const reason = String(c.args?.reason ?? 'asked Claude');
-          o.store.appendNote(taskId, `Question for Claude: ${String(c.args?.question ?? '')}`);
-          o.store.transition(taskId, 'needs_claude', { reason, by: o.workerId });
-          control = { kind: 'return', task: o.store.getTask(taskId)! };
-          result = { ok: true, output: '' };
-        } else if (c.name === 'spawn_subagent') {
-          result = doSpawn(c);
-        } else if (c.name === 'wait_subtasks') {
-          result = await doWait(scope.signal);
-        } else {
-          const tool = o.registry.get(c.name)!;
-          const ctx: ToolContext = {
-            taskId,
-            goalId: task!.goalId,
-            workspace,
-            persona: persona.name,
-            signal: scope.signal,
-            acceptance: task!.acceptance,
-            progress: (msg: string) => record('progress', { msg }),
-            ...(backend ? { backend } : {}),
-          };
-          try {
-            result = await tool.run(c.args ?? {}, ctx);
-          } catch (e: any) {
-            result = parkIfNodeOffline(e) ?? { ok: false, output: `error: ${e?.message ?? String(e)}` };
+        try {
+          if (!toolSet.has(c.name)) {
+            result = { ok: false, output: `unknown tool: ${c.name}` };
+          } else if (c.name === 'finish') {
+            result = await doFinish(c);
+            if (result.ok) control = { kind: 'return', task: o.store.getTask(taskId)! };
+          } else if (c.name === 'give_up') {
+            const reason = String(c.args?.reason ?? 'no reason given');
+            // P12(b): the transition below is ours to make only while we own the task.
+            if (ownershipLost()) return o.store.getTask(taskId) ?? task!;
+            o.store.transition(taskId, 'failed', { reason, by: o.workerId });
+            control = { kind: 'return', task: o.store.getTask(taskId)! };
+            result = { ok: true, output: '' };
+          } else if (c.name === 'ask_claude') {
+            const reason = String(c.args?.reason ?? 'asked Claude');
+            if (ownershipLost()) return o.store.getTask(taskId) ?? task!;
+            o.store.appendNote(taskId, `Question for Claude: ${String(c.args?.question ?? '')}`);
+            o.store.transition(taskId, 'needs_claude', { reason, by: o.workerId });
+            control = { kind: 'return', task: o.store.getTask(taskId)! };
+            result = { ok: true, output: '' };
+          } else if (c.name === 'spawn_subagent') {
+            result = doSpawn(c);
+          } else if (c.name === 'wait_subtasks') {
+            result = await doWait(scope.signal);
+          } else {
+            const tool = o.registry.get(c.name)!;
+            const ctx: ToolContext = {
+              taskId,
+              goalId: task!.goalId,
+              workspace,
+              persona: persona.name,
+              signal: scope.signal,
+              acceptance: task!.acceptance,
+              progress: (msg: string) => record('progress', { msg }),
+              ...(backend ? { backend } : {}),
+            };
+            try {
+              result = await tool.run(c.args ?? {}, ctx);
+            } catch (e: any) {
+              result = parkIfNodeOffline(e) ?? { ok: false, output: `error: ${e?.message ?? String(e)}` };
+            }
           }
+        } finally {
+          inFlightDisposers.delete(scope.dispose);
+          scope.dispose();
         }
 
-        scope.dispose();
         if (result.park && !control) {
+          if (ownershipLost()) return o.store.getTask(taskId) ?? task!;
           o.store.transition(taskId, result.park.status, { reason: result.park.reason, by: o.workerId });
           control = { kind: 'park', status: result.park.status, reason: result.park.reason };
         }
@@ -462,6 +536,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
           errStreak = key === lastErrKey ? errStreak + 1 : 1;
           lastErrKey = key;
           if (errStreak >= wd.maxRepeatedErrors) {
+            if (ownershipLost()) return o.store.getTask(taskId) ?? task!;
             o.store.transition(taskId, 'failed', {
               reason: `repeated error: ${c.name}: ${firstLine(result.output)}`,
               by: o.workerId,
@@ -478,6 +553,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
 
   /** Ends the loop after a park, keeping the task parked. */
   function parkedResult(reason: string): Task {
+    if (lostOwnership) return o.store.getTask(taskId) ?? task!;
     const cur = o.store.getTask(taskId)!;
     if (cur.status !== 'blocked' && cur.status !== 'needs_claude') {
       o.store.transition(taskId, 'stopped', { reason: `parked: ${reason}`, by: o.workerId });
@@ -523,9 +599,14 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
     if (v.ok) return { ok: true, output: 'done' };
     const after = o.store.getTask(taskId)!;
     if (after.status === 'failed') return { ok: true, output: '' };
-    // Gate put us back to 'running' with no live lease; re-establish ownership
-    // (a failed heartbeat just means the lease expired — we still own it logically).
-    heartbeat();
+    // Gate put us back to 'running' with no live lease; re-establish ownership.
+    // P12: heartbeat() now re-acquires an expired/cleared lease we still logically own
+    // (same attempt, no live lease by someone else). If that fails, the task is gone —
+    // return a non-ok result without any further writes.
+    if (!heartbeat()) {
+      lostOwnership = true;
+      return { ok: false, output: 'ownership lost: task was reclaimed' };
+    }
     const detail = v.results
       .filter((r) => !r.ok)
       .map((r) => `${r.name}: ${r.timedOut ? 'timed out' : `exit=${r.exitCode}`}\n${r.output.slice(-2000)}`)

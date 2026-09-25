@@ -128,6 +128,9 @@ export interface Store {
   claim(taskId: string, workerId: string, leaseMs: number): boolean;
   claimNext(workerId: string, opts: ClaimNextOpts): Task | null;
   heartbeat(taskId: string, workerId: string, leaseMs: number): boolean;
+  /** P12: re-establish a lease for the run that still logically owns the task (same attempt).
+   * Sets the lease only when status is `running` and no other worker holds a live (unexpired) lease. */
+  reacquire(taskId: string, workerId: string, attempt: number, leaseMs: number): boolean;
   reclaimExpired(): string[];
   transition(taskId: string, to: TaskStatus, opts?: TransitionOpts): Task;
   appendNote(taskId: string, text: string): void;
@@ -463,6 +466,10 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
       `UPDATE tasks SET leaseExpiresAt = ?, updatedAt = ? WHERE id = ?`,
     ),
 
+    reacquireLease: db.prepare(
+      `UPDATE tasks SET leaseOwner = ?, leaseExpiresAt = ?, updatedAt = ? WHERE id = ?`,
+    ),
+
     expiredRunning: db.prepare(
       `SELECT * FROM tasks WHERE status = 'running' AND leaseExpiresAt IS NOT NULL AND leaseExpiresAt <= ?`,
     ),
@@ -758,6 +765,22 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
 
   function heartbeat(taskId: string, workerId: string, leaseMs: number): boolean {
     return heartbeatTxn.immediate(taskId, workerId, leaseMs);
+  }
+
+  const reacquireTxn = db.transaction((taskId: string, workerId: string, attempt: number, leaseMs: number) => {
+    const row = getTaskRow(taskId);
+    if (!row) return false;
+    if (row.status !== 'running' || row.attempt !== attempt) return false;
+    const t = now();
+    const liveByOther =
+      row.leaseOwner !== null && row.leaseOwner !== workerId && row.leaseExpiresAt !== null && row.leaseExpiresAt > t;
+    if (liveByOther) return false;
+    stmts.reacquireLease.run(workerId, t + leaseMs, t, taskId);
+    return true;
+  });
+
+  function reacquire(taskId: string, workerId: string, attempt: number, leaseMs: number): boolean {
+    return reacquireTxn.immediate(taskId, workerId, attempt, leaseMs);
   }
 
   const reclaimTxn = db.transaction(() => {
@@ -1100,6 +1123,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     claim,
     claimNext,
     heartbeat,
+    reacquire,
     reclaimExpired,
     transition,
     appendNote,
