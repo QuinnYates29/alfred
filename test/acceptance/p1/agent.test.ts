@@ -4,7 +4,8 @@ import { mkdtempSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from '../../../src/store.js';
-import { ToolRegistry, builtinTools } from '../../../src/runtime/tools.js';
+import { ToolRegistry } from '../../../src/runtime/tools.js';
+import { allTools } from '../../../src/runtime/alltools.js';
 import { loadPersonas } from '../../../src/runtime/personas.js';
 import { runTask } from '../../../src/runtime/agent.js';
 import { Scheduler } from '../../../src/runtime/scheduler.js';
@@ -19,7 +20,7 @@ let ws: string;
 beforeEach(() => {
   store = openStore(':memory:');
   reg = new ToolRegistry();
-  for (const t of builtinTools()) reg.register(t);
+  for (const t of allTools()) reg.register(t);
   personas = loadPersonas('personas', reg);
   ws = mkdtempSync(join(tmpdir(), 'alfred-ws-'));
 });

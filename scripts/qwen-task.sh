@@ -7,7 +7,7 @@ NAME=$1 BRANCH=$2 PROMPT_FILE=$3 CHECK=$4 ATTEMPTS=${5:-4} TMIN=${6:-60}
 REPO=${REPO:-$HOME/repos/alfred}
 WT=${WT_ROOT:-$HOME/repos/alfred-wt}/$NAME
 LOGS=$HOME/repos/alfred/.dispatch/$NAME; mkdir -p "$LOGS"
-PROTECT=${PROTECT:-test/acceptance src/types.ts src/runtime/contract.ts src/runtime/testing.ts}
+PROTECT=${PROTECT:-test/acceptance test/fixtures src/types.ts src/runtime/contract.ts src/runtime/testing.ts}
 LINKS=${LINKS:-node_modules}
 BASE=${BASE:-master}
 

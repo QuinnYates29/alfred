@@ -6,7 +6,8 @@ import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { openStore } from '../../../src/store.js';
-import { ToolRegistry, builtinTools } from '../../../src/runtime/tools.js';
+import { ToolRegistry } from '../../../src/runtime/tools.js';
+import { allTools } from '../../../src/runtime/alltools.js';
 import { loadPersonas } from '../../../src/runtime/personas.js';
 import { runTask } from '../../../src/runtime/agent.js';
 import { scriptedLLM, call } from '../../../src/runtime/testing.js';
@@ -15,7 +16,7 @@ describe('approvals in the runtime', () => {
   it('a guarded shell command blocks the task until approved, then runs exactly once', async () => {
     const store = openStore(':memory:');
     const reg = new ToolRegistry();
-    for (const t of builtinTools()) reg.register(t);
+    for (const t of allTools()) reg.register(t);
     const personas = loadPersonas('personas', reg);
     const ws = mkdtempSync(join(tmpdir(), 'alfred-appr-'));
     const g = store.createGoal({ title: 'push goal' });

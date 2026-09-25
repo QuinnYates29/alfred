@@ -3,14 +3,15 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ToolRegistry, builtinTools } from '../../../src/runtime/tools.js';
+import { ToolRegistry } from '../../../src/runtime/tools.js';
+import { allTools } from '../../../src/runtime/alltools.js';
 import { loadPersonas, promptCost } from '../../../src/runtime/personas.js';
 import { estimateTokens } from '../../../src/runtime/tokens.js';
 import { PersonaBudgetError, PersonaConfigError} from '../../../src/runtime/contract.js';
 
 function registry() {
   const r = new ToolRegistry();
-  for (const t of builtinTools()) r.register(t);
+  for (const t of allTools()) r.register(t);
   return r;
 }
 
