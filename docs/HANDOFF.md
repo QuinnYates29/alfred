@@ -3,7 +3,7 @@
 Last updated: 2026-09-24 22:55 by the orchestrator (Claude Code session). Read with GOAL.md, PLAN.md, docs/LESSONS.md, docs/qwen/NOTES.md.
 
 ## ⚠️ LIVE AGENTS (check before launching anything)
-As of 2026-09-24 22:47 the original session running: **P11 (extension API)**; merged since handoff: P3a2, P3a, P4a, P3b, P8 (master 155 tests). Next: P4b once P11 merges (P9/P10/P5 depend on P4b). Check `cat .dispatch/*/status.json`:
+As of 2026-09-24 22:47 the original session running: **P4b (CLI/models routes/deploy), P9 (nodes + remote access), P5 (dashboard shell)**; merged since handoff: P3a2, P3a, P4a, P3b, P8, P11 (master 165 tests; P4 server core + e2e already pass). Then P10 after P9, then P6 soak.
 `running` = leave it alone (verify + merge when `passed`); `failed`/`stopped` = relaunch per the table. Never launch a task whose status is `running`.
 
 ## What alfred is
@@ -35,7 +35,7 @@ context economy, and workspaces on the Spark or the Mac (via `alfred-node`), git
 | P3a2 notification sinks | ✅ merged 22:58 (attempt 1, 11 min) |
 | P4a automations | ✅ merged 23:28 (was: relaunch: worktree `~/repos/alfred-wt/P4a` (branch p4a-automations) has store additions only (78 lines). Prompt docs/dispatch/P4a.md |
 | P3b approvals + Claude door (+ src/ops.ts); now also owns the guardCommand tests | ✅ merged 00:45 (attempt 2; ops/store conflicts with P4a resolved) |
-| P11 extension API (plugins, config/alfred.yaml, /api/v1) | ⏳ prompt ready, must land before P4b |
+| P11 extension API (plugins, config/alfred.yaml, /api/v1) | ✅ merged 01:40 (also built main.ts/app.ts; P4 server tests pass) |
 | P8 context economy | ✅ merged 01:08 (attempt 2) |
 | P4b server/main/CLI/deploy | ⏳ prompt ready (on top of P11) |
 | P9 nodes + remote access (Mac-first addendum) | ⏳ prompt ready |
