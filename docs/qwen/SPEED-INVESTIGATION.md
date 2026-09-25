@@ -101,7 +101,7 @@ tok/s, not a crash.
 
 **1. Pin threads off the efficiency cores (zero memory risk — do this first).**
 ```
-QWEN_EXTRA=--reasoning-budget 1536 -t 10 -Cr 0-9 --cpu-strict 1
+QWEN_EXTRA=--reasoning-budget 1536 -t 10 --cpu-mask 0xF83E0 --cpu-strict 1
 ```
 (Verify core numbering first with `lscpu -e` — this assumes cores 0-9 are the
 X925 performance cluster and 10-19 are A725, matching `lscpu`'s block order in
@@ -191,3 +191,7 @@ this exact quant should do 10-30 tok/s on this hardware. The fastest, lowest-ris
 path to test that is experiment 1 (thread pinning, zero risk) followed by
 experiment 2 (np=3/ncmoe=14, matches actual 3-agent concurrency and the project's
 own prior "try ncmoe 20-24 with np 3" note in NOTES.md).
+
+## Orchestrator correction (2026-09-24)
+`lscpu -e` shows the fast X925 cores (3900 MHz) are CPUs **5–9 and 15–19**. CPUs 0–4 and 10–14 are the 2808 MHz A725s. `-Cr 0-9` would pin to 5 slow + 5 fast cores.
+Use `-t 10 --cpu-mask 0xF83E0 --cpu-strict 1` (bits 5–9 and 15–19).
