@@ -35,8 +35,9 @@ $feedback
 Fix the failures. Read the failing test and the code before changing anything."
   fi
   echo "=== attempt $a $(date -Is)" >> "$LOGS/run.log"
+  t0=$(date +%s); start_iso=$(date -Is)
   timeout --kill-after=30 "${TMIN}m" dsh --profile headless "$prompt" >"$LOGS/attempt$a.out" 2>"$LOGS/attempt$a.err"
-  echo "dsh exit=$? $(date -Is)" >> "$LOGS/run.log"
+  dsh_rc=$?; echo "dsh exit=$dsh_rc $(date -Is)" >> "$LOGS/run.log"
 
   # Acceptance tests are the contract: restore them if the agent touched them.
   if ! git diff --quiet "$FORK" -- $PROTECT 2>/dev/null; then
@@ -47,6 +48,9 @@ Fix the failures. Read the failing test and the code before changing anything."
   out=$(bash -c "$CHECK" 2>&1); rc=$?
   echo "$out" | tail -60 > "$LOGS/check$a.txt"
   echo "check rc=$rc" >> "$LOGS/run.log"
+  tests=$(echo "$out" | grep -E "Tests |passed|failed" | tail -1 | sed 's/"/\\"/g' | tr -s ' ')
+  printf '{"name":"%s","attempt":%s,"start":"%s","wall_s":%s,"dsh_exit":%s,"check_rc":%s,"tests":"%s","timeout_min":%s}\n' \
+    "$NAME" "$a" "$start_iso" "$(( $(date +%s) - t0 ))" "$dsh_rc" "$rc" "$tests" "$TMIN" >> "$HOME/repos/alfred/docs/qwen/attempts.jsonl"
   if [ $rc -eq 0 ]; then
     git add -A && git commit -qm "$NAME: implemented by Qwen3.8-Flash-Next via DSH (attempt $a)" || true
     status passed "$a"; exit 0
