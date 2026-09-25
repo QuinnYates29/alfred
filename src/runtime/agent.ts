@@ -22,6 +22,8 @@ import {
 } from '../types.js';
 import type { ToolRegistry } from './tools.js';
 import type { ModelRegistry } from '../models.js';
+import { DEFAULT_CONTEXT_WINDOW } from '../models.js';
+import { compactMessages, estimateRequest, nudgeMessage } from './compact.js';
 
 export interface RunOpts {
   store: Store;
@@ -134,7 +136,26 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
   };
   const llmForCall = () => (o.models ? o.models.llm(modelRef()) : o.llm);
 
+  /** P8: per-call context budget — persona override, else 60 % of the model's window, capped at 24 k. */
+  const contextBudget = (): number => {
+    if (typeof persona.contextBudgetTokens === 'number' && persona.contextBudgetTokens > 0) {
+      return persona.contextBudgetTokens;
+    }
+    let cw = DEFAULT_CONTEXT_WINDOW;
+    if (o.models) {
+      try {
+        cw = o.models.resolve(modelRef()).contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+      } catch {
+        // Unknown model ref: fall back to the default window.
+      }
+    }
+    return Math.min(24000, Math.floor(0.6 * cw));
+  };
+
   const messages: LLMMessage[] = [{ role: 'user', content: buildFirstMessage(task) }];
+  /** P8: did a given tool call id fail? (for the compaction digest). */
+  const failedCalls = new Set<string>();
+  let nudged = false;
 
   const startedAt = Date.now();
   let turns = 0;
@@ -195,6 +216,25 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
       if (Date.now() - startedAt >= task!.budget.wallClockMs) {
         stopWith('wall clock exceeded');
         return o.store.getTask(taskId)!;
+      }
+
+      // P8: keep every request inside the context budget — compact, then nudge once past 50 %.
+      const budget = contextBudget();
+      let est = estimateRequest(persona.system, schemas, messages);
+      if (est > budget) {
+        const before = est;
+        const c = compactMessages(persona.system, schemas, messages, budget, (id) => failedCalls.has(id));
+        if (c.dropped > 0) {
+          messages.length = 0;
+          messages.push(...c.messages);
+          if (c.digest) o.store.appendNote(taskId, c.digest);
+          est = estimateRequest(persona.system, schemas, messages);
+          record('compacted', { before, after: est, dropped: c.dropped });
+        }
+      }
+      if (!nudged && persona.canSpawn.length > 0 && est > budget * 0.5) {
+        nudged = true;
+        messages.push({ role: 'user', content: nudgeMessage(Math.round((est / budget) * 100)) });
       }
 
       // One LLM call, abortable by o.signal / wall clock / stall watchdog.
@@ -327,6 +367,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         }
 
         scope.dispose();
+        if (!result.ok) failedCalls.add(c.id);
         record('tool', { name: c.name, ok: result.ok });
 
         if (control) return control.kind === 'park' ? parkedResult(control.reason) : control.task;
@@ -362,6 +403,8 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
   }
 
   async function doFinish(c: ToolCall): Promise<ToolResult> {
+    // P8: the compact result a parent sees via wait_subtasks.
+    o.store.setResult(taskId, String(c.args?.summary ?? '').trim().slice(0, 2000));
     o.store.transition(taskId, 'verifying', { by: o.workerId });
     const runner: CheckRunner = (check: AcceptanceCheck) =>
       (o.runner ?? defaultRunner)({ ...check, cwd: check.cwd ?? workspace });
@@ -410,11 +453,14 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
       if (signal.aborted) return { ok: false, output: 'wait aborted' };
       const kids = o.store.children(taskId);
       if (kids.every((k) => (TERMINAL as readonly string[]).includes(k.status) || (PARKED as readonly string[]).includes(k.status))) {
-        const lines = kids.map((k) => `${k.title}: ${k.status} — ${k.reason ?? ''}`.trimEnd());
-        for (const k of kids) {
-          if (k.notes.trim()) lines.push(`[${k.title}] notes tail:`, k.notes.slice(-1000));
-        }
-        return { ok: true, output: kids.length ? lines.join('\n') : 'no children' };
+        if (kids.length === 0) return { ok: true, output: 'no children' };
+        // P8: compact child results — title, status and result/reason only. Never notes or transcripts.
+        const lines = kids.map((k) => {
+          const detail = (k.result ?? k.reason ?? '').replace(/\s+/g, ' ').trim();
+          return `${k.title} [${k.status}] ${detail}`.trimEnd().slice(0, 600);
+        });
+        lines.push('(details: alfred_goal / task notes)');
+        return { ok: true, output: lines.join('\n') };
       }
       heartbeat();
       await sleep(pollMs);
