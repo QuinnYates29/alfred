@@ -2,4 +2,4 @@ You are a senior TypeScript engineer working on the `alfred` agent platform in t
 Phase doc: docs/phases/P3-connections.md, sections "3. Approvals" and "4. Claude door". Note: ToolResult.park already exists in contract.ts and the agent loop (src/runtime/agent.ts) already honours park.
 SCOPE: src/approvals.ts (guardCommand), store additions in src/store.ts (approvals table + requestApproval/decideApproval/approvals/consumeApproval, goal reactivation on createTask), guarded run_shell in src/runtime/tools.ts, src/ops.ts (createGoalWithRoot, retryTask, goalSummary — see docs/phases/P4-server-automations.md section 1; the door uses them), src/door/server.ts (McpServer over stdio from '@modelcontextprotocol/sdk/server/mcp.js' + StdioServerTransport), bin/alfred-door, and a README.md section on connecting Claude.
 The door opens the SQLite store at env ALFRED_DB and resolves workspaces with workspaceFor(store, task, {root: ALFRED_WORK_ROOT}).
-Test: npx vitest run test/acceptance/p3/approvals-door.test.ts test/acceptance/p0 test/acceptance/p1 test/unit
+Test: npx vitest run test/acceptance/p3/approvals-door.test.ts test/acceptance/p0/ test/acceptance/p1/ test/unit

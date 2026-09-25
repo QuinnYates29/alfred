@@ -5,7 +5,7 @@ Read first: CLAUDE.md, docs/phases/P1-agent-runtime.md (sections agent.ts and sc
 YOUR SCOPE: src/runtime/agent.ts (runTask, RunOpts) and src/runtime/scheduler.ts (Scheduler). Do not modify other src files unless a tiny fix is unavoidable; never edit test/acceptance/**, contract.ts, testing.ts, types.ts.
 
 Contract test: npx vitest run test/acceptance/p1/agent.test.ts
-Everything else must stay green: npx vitest run test/acceptance/p0 test/acceptance/p1 test/unit
+Everything else must stay green: npx vitest run test/acceptance/p0/ test/acceptance/p1/ test/unit
 
 Implementation notes:
 - Keep a message array: first user message built from the task (title, spec, acceptance `name: cmd` lines, and `## Notes from previous attempts` + notes when notes are non-empty). Append assistant messages (with toolCalls) and one `role:'tool'` message per call (toolCallId, name, content = result.output).
