@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadModels, ModelRegistry, ModelConfigError, type ModelSpec } from '../../../src/models.js';
 import { openStore } from '../../../src/store.js';
-import { ToolRegistry, builtinTools } from '../../../src/runtime/tools.js';
+import { ToolRegistry } from '../../../src/runtime/tools.js';
+import { allTools } from '../../../src/runtime/alltools.js';
 import { loadPersonas } from '../../../src/runtime/personas.js';
 import { runTask } from '../../../src/runtime/agent.js';
 import { call } from '../../../src/runtime/testing.js';
@@ -75,7 +76,7 @@ describe('model config', () => {
     const reg = new ModelRegistry(cfg);
     expect(reg.resolve().model).toBe('qwen3.8-flash-next');
     const tr = new ToolRegistry();
-    for (const t of builtinTools()) tr.register(t);
+    for (const t of allTools()) tr.register(t);
     for (const p of loadPersonas('personas', tr).values()) expect(() => reg.resolve(p.model), p.name).not.toThrow();
   });
 });
@@ -115,7 +116,7 @@ describe('runtime uses the registry', () => {
     const models = new ModelRegistry(loadModels(cfgFile()), { llmFactory: rec.factory });
     const store = openStore(':memory:');
     const tr = new ToolRegistry();
-    for (const t of builtinTools()) tr.register(t);
+    for (const t of allTools()) tr.register(t);
     const personas = loadPersonas('personas', tr);
     const ws = mkdtempSync(join(tmpdir(), 'alfred-m-'));
     const base = { store, personas, registry: tr, workerId: 'w', workspaceFor: () => ws, models,

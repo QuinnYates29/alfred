@@ -1,6 +1,0 @@
-You are a senior TypeScript engineer working on the `alfred` agent platform in the current directory (git worktree; Node 22, ESM, `.js` import suffixes, vitest). Read CLAUDE.md and the phase doc named below first, plus src/types.ts and src/runtime/contract.ts. NEVER edit test/acceptance/**, src/types.ts, src/runtime/contract.ts, src/runtime/testing.ts (if you truly need a contract change, stop and explain). Reply with a short summary and the final test output line.
-Phase doc: docs/phases/P3-connections.md, sections "1. MCP hub" and "2. notify/sinks". Reference (read-only): /home/quinna/repos/ai-task-dashboard/server/src/mcpclient.ts.
-SCOPE: src/connectors/mcp.ts (McpHub, loadMcpConfig), src/notify/sinks.ts, config/mcp.example.json, and add config/mcp.json to .gitignore.
-MCP SDK (@modelcontextprotocol/sdk v1.30, installed): Client from '@modelcontextprotocol/sdk/client/index.js', StdioClientTransport from '.../client/stdio.js', StreamableHTTPClientTransport from '.../client/streamableHttp.js'. Test fixture server: test/fixtures/fake-vault-mcp.ts.
-Wrap connect/listTools in a timeout so a dead server fails fast. Never throw from connectAll.
-Test: npx vitest run test/acceptance/p3/connections.test.ts

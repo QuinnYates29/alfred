@@ -49,9 +49,12 @@ A task finishes in exactly one of these states: `done` | `failed` | `blocked` | 
 | P7 | **Model registry** | `config/models.yaml`, named models + roles, per-persona/per-goal model, hot reload, executors take model from registry | swap a persona's model by editing yaml → next turn hits the new endpoint; unknown model → config error; API lists + switches |
 | P8 | **Context economy** | compaction at a context budget, compact child summaries, paged reads, per-task context/token accounting, delegation-first prompts | a long scripted run never sends a prompt over budget; `wait_subtasks` output ≤ 600 chars/child; accounting totals match LLM usage |
 | P9 | **Nodes + remote access** | `alfred-node` daemon (laptop workspaces over an outbound WebSocket), routed tools + gate, HTTP MCP door, tailscale serve, PWA | a task whose workspace is on a (test) node writes files there and passes the gate there; the node going away parks the task loudly; door reachable over HTTP with a token |
+| P10 | **Git hub + workspace modes** | bare hub repos on the Spark, `spark` remote in every workspace (Spark or Mac, over SSH), sandbox vs existing-repo (worktree or in-place) modes, repo registry, auto commit+push on done | see docs/phases/P10 |
+| P11 | **Extension API** | plugins (tools, personas, sinks, MCP, routes, static UIs, event hooks), built-ins as plugins, `config/alfred.yaml`, `/api/v1` contract + docs/API.md + docs/EXTENDING.md | see docs/phases/P11 |
 | P6 | **Soak** | real multi-hour goal + impossible goal | project Definition of Done in GOAL.md |
 
-Order after the current wave: P2d/P2e/P3a → P3b/P4a/P7 → P4b/P8 → P5/P9 → P6.
+Order (2026-09-24, revised: **core + extensibility first; control-side UX is refined by Quinn later**):
+wave 3 P2d/P2e/P3a → wave 4 P3b/P4a/P7 → wave 5 P11/P8 → wave 6 P4b (on top of P11) → wave 7 P9/P10 → wave 8 P5 (**functional shell only**: the acceptance views, no polish) → P6 soak.
 
 ## Ops prerequisites (Quinn)
 
