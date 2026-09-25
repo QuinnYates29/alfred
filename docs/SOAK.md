@@ -25,4 +25,9 @@ The guard caught a `sudo -n true` probe → task **blocked: approval needed** wi
 Denied via CLI → queued → it resumed with a "find another way" note. It then kept trying (143k tokens) until the **next service restart cancelled it forever**
 (`stopped: cancelled`). Shutdown must requeue, not cancel → **P12b**.
 
-### S1b mdconv (06:47→) — re-run on the P12-hardened runtime. In progress.
+### S5 crash recovery ✅ (07:02)
+With S1b's alfred mid-run, the service was **SIGKILLed** (simulated crash; the old code's graceful stop would still have cancelled). systemd restarted it on P12b code;
+S1b's lease expired and the new process **reclaimed and resumed the task at 07:06** with its notes. From now on a graceful restart (SIGTERM) requeues immediately (P12b).
+Also observed: a 14-minute gap between two alfred turns (10:42→10:56 UTC) with no reclaim or zombie, so the P12 run-long heartbeat works in production.
+
+### S1b mdconv (06:47→) — re-run on the hardened runtime. In progress.

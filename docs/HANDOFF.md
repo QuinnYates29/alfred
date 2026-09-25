@@ -3,7 +3,7 @@
 Last updated: 2026-09-24 22:55 by the orchestrator (Claude Code session). Read with GOAL.md, PLAN.md, docs/LESSONS.md, docs/qwen/NOTES.md.
 
 ## ⚠️ LIVE AGENTS (check before launching anything)
-As of 2026-09-24 22:47 the original session ALL build phases P0–P11 merged + P12 hardening (master 202 tests). Running: **P12b (shutdown requeues)** on Qwen, and **soak S1b** on the installed service (don't restart the service until P12b merges, or S1b's running tasks get cancelled).
+As of 2026-09-24 22:47 the original session ALL build phases P0–P11 merged + P12 hardening (master 202 tests). P12b merged (206 tests); graceful restarts now requeue. Running: **soak S1b** on the installed service (goal soak-s1b-mdconv). S5 crash recovery verified.
 `running` = leave it alone (verify + merge when `passed`); `failed`/`stopped` = relaunch per the table. Never launch a task whose status is `running`.
 
 ## What alfred is
@@ -41,7 +41,7 @@ context economy, and workspaces on the Spark or the Mac (via `alfred-node`), git
 | P9 nodes + remote access (Mac-first addendum) | ✅ merged 04:32 (attempt 3) |
 | P10 git hub + workspace modes | ✅ merged 05:47 (attempt 1) |
 | P12 runtime hardening (soak findings) | ✅ merged 06:40 |
-| P12b shutdown requeues | 🔄 Qwen |
+| P12b shutdown requeues | ✅ merged 07:02 |
 | P5 dashboard (**functional shell only**; control UX to be redesigned by Quinn) | ✅ merged 04:10 (attempt 2). Build: `npm run build:web` |
 | Live smoke on real Qwen (docs/SOAK.md) | ✅ 04:15: coder goal done, alfred→coder delegation done, impossible goal failed loudly with a precise reason |
 | Service | ✅ installed: `systemctl --user status alfred`, 127.0.0.1:8790, token in ~/.config/alfred.env, supervises Mission Deck on :8787 |
