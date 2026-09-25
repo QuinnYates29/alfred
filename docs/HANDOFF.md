@@ -3,7 +3,7 @@
 Last updated: 2026-09-24 22:55 by the orchestrator (Claude Code session). Read with GOAL.md, PLAN.md, docs/LESSONS.md, docs/qwen/NOTES.md.
 
 ## ⚠️ LIVE AGENTS (check before launching anything)
-As of 2026-09-24 22:47 the original session running: **P10 (git hub + workspace modes)**; merged since handoff: P3a2, P3a, P4a, P3b, P8, P11, P4b, P5, P9 (master 185 tests incl. Playwright; P4 server core + e2e already pass). Then P10 after P9, then P6 soak.
+As of 2026-09-24 22:47 the original session ALL build phases P0–P11 merged + P12 hardening (master 202 tests). Running: **P12b (shutdown requeues)** on Qwen, and **soak S1b** on the installed service (don't restart the service until P12b merges, or S1b's running tasks get cancelled).
 `running` = leave it alone (verify + merge when `passed`); `failed`/`stopped` = relaunch per the table. Never launch a task whose status is `running`.
 
 ## What alfred is
@@ -39,9 +39,12 @@ context economy, and workspaces on the Spark or the Mac (via `alfred-node`), git
 | P8 context economy | ✅ merged 01:08 (attempt 2) |
 | P4b server/main/CLI/deploy | ✅ merged 02:33 (attempt 1). `deploy/install.sh` not yet run |
 | P9 nodes + remote access (Mac-first addendum) | ✅ merged 04:32 (attempt 3) |
-| P10 git hub + workspace modes | ⏳ prompt ready |
+| P10 git hub + workspace modes | ✅ merged 05:47 (attempt 1) |
+| P12 runtime hardening (soak findings) | ✅ merged 06:40 |
+| P12b shutdown requeues | 🔄 Qwen |
 | P5 dashboard (**functional shell only**; control UX to be redesigned by Quinn) | ✅ merged 04:10 (attempt 2). Build: `npm run build:web` |
 | Live smoke on real Qwen (docs/SOAK.md) | ✅ 04:15: coder goal done, alfred→coder delegation done, impossible goal failed loudly with a precise reason |
+| Service | ✅ installed: `systemctl --user status alfred`, 127.0.0.1:8790, token in ~/.config/alfred.env, supervises Mission Deck on :8787 |
 | P6 soak (real multi-hour goal + impossible goal, hold-out tests in test/soak/) | ⏳ run by the orchestrator at the end |
 
 **Before relaunching P3a/P4a:** in each kept worktree run `git merge master` first (the P3 tests were split and the harness was hardened after they forked).
