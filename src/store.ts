@@ -52,6 +52,26 @@ export interface EventsOpts {
   sinceId?: number;
 }
 
+export interface AllEventsOpts extends EventsOpts {
+  /** Default 500. */
+  limit?: number;
+}
+
+/** Raw row of the automations table (P4). Templates ride as JSON text. */
+export interface AutomationRow {
+  id: string;
+  name: string;
+  cron: string;
+  enabled: number;
+  template: string;
+  lastRunAt: number | null;
+  lastGoalId: string | null;
+  lastStatus: string | null;
+  lastNote: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Store {
   createGoal(input: CreateGoalInput): Goal;
   getGoal(id: string): Goal | undefined;
@@ -72,6 +92,11 @@ export interface Store {
   appendNote(taskId: string, text: string): void;
   appendEvent(goalId: string, taskId: string | null, kind: string, data: any): EventRow;
   events(goalId: string, opts?: EventsOpts): EventRow[];
+  /** Ascending across all goals, for SSE replay. limit defaults to 500. */
+  allEvents(opts?: AllEventsOpts): EventRow[];
+  listAutomationRows(): AutomationRow[];
+  putAutomationRow(row: AutomationRow): void;
+  deleteAutomationRow(id: string): boolean;
   onEvent(cb: (e: EventRow) => void): () => void;
   close(): void;
   /** Internal: only the done-gate may call this. */
@@ -260,6 +285,20 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     CREATE INDEX IF NOT EXISTS idx_tasks_goal ON tasks(goalId);
     CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parentTaskId);
     CREATE INDEX IF NOT EXISTS idx_events_goal ON events(goalId, id);
+
+    CREATE TABLE IF NOT EXISTS automations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      cron TEXT NOT NULL,
+      enabled INTEGER NOT NULL,
+      template TEXT NOT NULL,
+      lastRunAt INTEGER,
+      lastGoalId TEXT,
+      lastStatus TEXT,
+      lastNote TEXT,
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL
+    );
   `);
 
   // Migration-safe: older DBs may predate the goals.meta column.
@@ -332,6 +371,19 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     eventsByGoalSince: db.prepare(
       `SELECT * FROM events WHERE goalId = ? AND id > ? ORDER BY id ASC`,
     ),
+    allEventsSince: db.prepare(
+      `SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?`,
+    ),
+    allEventsAll: db.prepare(`SELECT * FROM events ORDER BY id ASC LIMIT ?`),
+
+    listAutomations: db.prepare(`SELECT * FROM automations ORDER BY createdAt ASC, id ASC`),
+    putAutomation: db.prepare(
+      `INSERT INTO automations (id, name, cron, enabled, template, lastRunAt, lastGoalId, lastStatus, lastNote, createdAt, updatedAt)
+       VALUES (@id, @name, @cron, @enabled, @template, @lastRunAt, @lastGoalId, @lastStatus, @lastNote, @createdAt, @updatedAt)
+       ON CONFLICT(id) DO UPDATE SET name=@name, cron=@cron, enabled=@enabled, template=@template,
+         lastRunAt=@lastRunAt, lastGoalId=@lastGoalId, lastStatus=@lastStatus, lastNote=@lastNote, updatedAt=@updatedAt`,
+    ),
+    deleteAutomation: db.prepare(`DELETE FROM automations WHERE id = ?`),
   };
 
   function emit(goalId: string, taskId: string | null, kind: string, data: any): EventRow {
@@ -628,6 +680,28 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     return rows.map(eventFromRow);
   }
 
+  function allEvents(opts?: AllEventsOpts): EventRow[] {
+    const limit = opts?.limit ?? 500;
+    const rows = (
+      opts?.sinceId != null
+        ? stmts.allEventsSince.all(opts.sinceId, limit)
+        : stmts.allEventsAll.all(limit)
+    ) as EventRowRaw[];
+    return rows.map(eventFromRow);
+  }
+
+  function listAutomationRows(): AutomationRow[] {
+    return stmts.listAutomations.all() as AutomationRow[];
+  }
+
+  function putAutomationRow(row: AutomationRow): void {
+    stmts.putAutomation.run(row);
+  }
+
+  function deleteAutomationRow(id: string): boolean {
+    return stmts.deleteAutomation.run(id).changes > 0;
+  }
+
   function onEvent(cb: (e: EventRow) => void): () => void {
     subscribers.add(cb);
     return () => subscribers.delete(cb);
@@ -672,6 +746,10 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     appendNote,
     appendEvent,
     events,
+    allEvents,
+    listAutomationRows,
+    putAutomationRow,
+    deleteAutomationRow,
     onEvent,
     close,
     _markDone,
