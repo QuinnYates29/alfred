@@ -170,9 +170,13 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     model: c.model ?? 'qwen3.8-flash-next',
     apiKey: env.ALFRED_LLM_API_KEY ?? env.OPENAI_API_KEY,
   });
+  // The registry is ALWAYS built (P8 addendum: /api/v1/models + roles are live
+  // even in tests where c.llm overrides the runtime LLM). c.llm only overrides
+  // what the Scheduler/executors run — it never hides the registry.
   let llm: LLM | undefined = c.llm;
-  if (!llm) {
-    const modelsPath = file?.models ?? 'config/models.yaml';
+  {
+    const relModels = file?.models ?? 'config/models.yaml';
+    const modelsPath = relModels.startsWith('/') ? relModels : resolve(REPO_ROOT, relModels);
     const localPath = modelsPath.replace(/\.ya?ml$/, '.local.yaml');
     const cfgPath = existsSync(localPath) ? localPath : modelsPath;
     try {
