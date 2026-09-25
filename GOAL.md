@@ -45,3 +45,4 @@ reasonable point and fail loudly.**
 - 2026-09-24 17:06: Wave 2 dispatched: P1c agent loop+scheduler, P2b dsh/pipeline executors, P2c LangGraph sidecar.
 - 2026-09-24 17:20: Quinn added context economy, swappable models, and Spark-compute/laptop-workspace topology → phases P7 (models), P8 (context), P9 (nodes + remote access).
 - 2026-09-24 19:31: Wave 2 passed on attempt 2 (P1c agent loop+scheduler 74 tests, P2b dsh/pipeline, P2c LangGraph sidecar); merged, 88 tests green. Wave 3 dispatched: P2d orchestrator post-merge verify, P2e wiring, P3a MCP hub + sinks.
+- 2026-09-24 20:20: P2d merged into ~/tools/orchestrator main (post-merge verify; 443 tests). Harness bugs found+fixed: editable-install import trap (PYTHONPATH), persona tests needed allTools. Added P10 (git hub + workspace modes) and P11 (extension API); control-side UX deferred to Quinn, P5 reduced to a functional shell.
