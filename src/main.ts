@@ -194,8 +194,12 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     apiKey: env.ALFRED_LLM_API_KEY ?? env.OPENAI_API_KEY,
   });
   let llm: LLM | undefined = c.llm;
-  if (!llm) {
-    const modelsPath = file?.models ?? 'config/models.yaml';
+  // The registry is ALWAYS built (P8 addendum: /api/v1/models + roles are live
+  // even in tests where c.llm overrides the runtime LLM). c.llm only overrides
+  // what the Scheduler/executors run — it never hides the registry.
+  {
+    const relModels = file?.models ?? 'config/models.yaml';
+    const modelsPath = relModels.startsWith('/') ? relModels : resolve(REPO_ROOT, relModels);
     const localPath = modelsPath.replace(/\.ya?ml$/, '.local.yaml');
     const cfgPath = existsSync(localPath) ? localPath : modelsPath;
     try {
@@ -298,7 +302,9 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     hub,
     personas,
     registry,
-    ...(c.token ? { token: c.token } : {}),
+    // P9: the resolved token (config OR ALFRED_TOKEN) guards /api and the /mcp door.
+    ...(token ? { token } : {}),
+    door: () => buildDoor(store, workRoot),
     ...(c.staticDir ? { staticDir: c.staticDir } : {}),
     ...(deckState.url ? { deckUrl: deckState.url } : {}),
     plugins: { loaded: pluginRt.loaded, failed: pluginRt.failed },
@@ -309,6 +315,8 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
   const server: Server = await new Promise((res) => {
     const s = app.listen(port, host, () => res(s));
   });
+  // P9: node dial-outs attach to the same HTTP server (GET /api/nodes/connect upgrade).
+  nodeHub.attach(server);
   const addr = server.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : port;
 
@@ -322,6 +330,12 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     async stop() {
       clearInterval(reconnectTimer);
       clearInterval(autoTimer);
+      try {
+        nodeWatcherUnsub();
+      } catch {
+        /* ignore */
+      }
+      nodeHub.close();
       for (const t of pendingMirrors.values()) clearTimeout(t);
       pendingMirrors.clear();
       mirrorUnsub();

@@ -33,3 +33,44 @@ Tools Claude sees (every result is JSON text; errors come back as MCP errors, th
 | `alfred_approve` | decide a pending approval (blocked tasks go back to queued) |
 
 Terminal tasks (`done`/`failed`/`stopped`) cannot be claimed — `alfred_retry` first.
+
+## Using Alfred from the laptop and phone
+
+All compute runs on the Spark (`gx10-de9a`). The Mac (and phone) are clients.
+
+**One-time on the Spark** — export `ALFRED_TOKEN` (systemd unit) and expose the
+server on the tailnet only:
+
+```bash
+deploy/tailscale-serve.sh    # https://gx10-de9a.tail542084.ts.net:8443 → 127.0.0.1:8790
+```
+
+`startAlfred` refuses a non-loopback bind without a token; with tailscale serve
+it binds `127.0.0.1` and tailscale terminates TLS.
+
+**The Mac as a workspace (node):** it dials *out*, so no open ports; sleeping
+just means "node offline" (tasks park `blocked: node <name> offline` and are
+re-queued automatically when it returns).
+
+```bash
+cd ~/alfred && npm ci
+deploy/node-install-macos.sh --server wss://gx10-de9a.tail542084.ts.net:8443 \
+  --token $ALFRED_TOKEN --name macbook --root ~/code --with-dsh
+```
+
+That installs a KeepAlive LaunchAgent (`com.alfred.node`), an `alfred` CLI shim,
+and (with `--with-dsh`) the headless DSH overlay pointed at the Spark's Qwen.
+Foreground/debug: `bin/alfred-node --server … --name … --root …`.
+Give a goal `meta.node = "macbook"` and `meta.repo = "<path on the Mac>"` and
+tools, the acceptance gate and the mirror (`ALFRED_MIRROR=node:macbook:/abs/path`)
+run there. Desktop notifications reach the Mac (cap `notify`).
+
+**Claude Code on the Mac** — the door is also HTTP MCP:
+
+```bash
+claude mcp add --transport http alfred https://gx10-de9a.tail542084.ts.net:8443/mcp \
+  --header "Authorization: Bearer $ALFRED_TOKEN"
+```
+
+**CLI from anywhere:** `ALFRED_URL=https://gx10-de9a.tail542084.ts.net:8443 ALFRED_TOKEN=… alfred status`.
+**Phone:** the dashboard over the tailnet HTTPS URL — same token.

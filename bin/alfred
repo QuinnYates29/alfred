@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# alfred CLI launcher: runs src/cli.ts with tsx from the repo, from anywhere.
+set -euo pipefail
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec npx --prefix "$REPO" tsx "$REPO/src/cli.ts" "$@"

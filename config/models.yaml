@@ -1,18 +1,12 @@
-# Swappable models (P7). A gitignored copy at config/models.local.yaml wins if present.
-# Personas/goals/executors refer to a model NAME or a ROLE below — never to an endpoint.
 models:
   - name: qwen-local
-    baseUrl: http://127.0.0.1:1110        # OpenAI-compatible; '/v1' is appended by the client
+    baseUrl: http://127.0.0.1:1110
     model: qwen3.8-flash-next
-    slots: 3                              # concurrent calls allowed to THIS endpoint (shared by every model on the same baseUrl)
+    slots: 3
     contextWindow: 262144
     maxTokens: 8192
-  # - name: openrouter-x
-  #   baseUrl: https://openrouter.ai/api
-  #   model: some/model
-  #   apiKeyEnv: OPENROUTER_API_KEY
 roles:
-  default: qwen-local      # used when nothing else is specified
-  planner: qwen-local      # alfred
+  default: qwen-local
+  planner: qwen-local
   coder: qwen-local
   fast: qwen-local

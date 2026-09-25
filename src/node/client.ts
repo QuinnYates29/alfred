@@ -27,7 +27,7 @@ export interface NodeHandle {
 
 type RunningChild = ReturnType<typeof spawn>;
 
-function defaultNotify(n: { level: string; title: string; body: string }): void {
+function defaultNotify(n: { level: string; title: string; body: string; url?: string }): void {
   try {
     if (process.platform === 'darwin') {
       const title = `${n.title}`.replace(/"/g, "'");
@@ -249,3 +249,44 @@ export function connectNode(o: ConnectNodeOpts): NodeHandle {
     connected: () => open,
   };
 }
+
+// ---- CLI: alfred-node --server ws://host:port --token T --name macbook --root ~/code [--root …] [--dsh]
+/* istanbul ignore next — daemon entry, exercised manually on the Mac */
+function cliMain(argv: string[]): void {
+  const o: { url?: string; token?: string; name?: string; roots: string[]; caps: string[] } = {
+    roots: [],
+    caps: ['fs', 'shell', 'git'],
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const next = () => argv[++i] ?? '';
+    if (a === '--server') o.url = next();
+    else if (a === '--token') o.token = next();
+    else if (a === '--name') o.name = next();
+    else if (a === '--root') o.roots.push(path.resolve(next().replace(/^~(?=\/|$)/, process.env.HOME ?? '~')));
+    else if (a === '--dsh') o.caps.push('dsh', 'notify');
+    else if (a === '--notify') { if (!o.caps.includes('notify')) o.caps.push('notify'); }
+    else if (a === '--help' || a === '-h') {
+      console.log('usage: alfred-node --server ws(s)://host:port --token $ALFRED_TOKEN --name <name> --root <abs> [--root …] [--dsh]');
+      process.exit(0);
+    }
+  }
+  if (!o.url || !o.name || o.roots.length === 0) {
+    console.error('usage: alfred-node --server ws(s)://host:port --token $ALFRED_TOKEN --name <name> --root <abs> [--root …] [--dsh]');
+    process.exit(2);
+  }
+  const token = o.token ?? process.env.ALFRED_TOKEN;
+  const handle = connectNode({
+    url: o.url,
+    ...(token ? { token } : {}),
+    name: o.name,
+    roots: o.roots,
+    caps: o.caps,
+  });
+  console.log(`alfred-node "${o.name}" → ${o.url} roots=${o.roots.join(',')} caps=${o.caps.join(',')}`);
+  const bye = () => { handle.close(); process.exit(0); };
+  process.on('SIGINT', bye);
+  process.on('SIGTERM', bye);
+}
+
+if (process.argv[1] && /(^|[\\/])(client|alfred-node)[.]tsx?$/.test(process.argv[1])) cliMain(process.argv.slice(2));
