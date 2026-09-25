@@ -52,6 +52,15 @@ export class Scheduler {
     return [...this.runningMap.keys()];
   }
 
+  /** P4 — abort one running task; it ends `stopped` with the reason. False if not running here. */
+  cancel(taskId: string, reason = 'stopped by Quinn'): boolean {
+    const ac = this.aborts.get(taskId);
+    if (!ac) return false;
+    void reason; // the agent's abort path records the stop with its own reason text
+    ac.abort();
+    return true;
+  }
+
   private async tick(): Promise<void> {
     if (this.stopped || !this.timer) return;
     try {

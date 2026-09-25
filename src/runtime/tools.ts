@@ -30,6 +30,11 @@ export class ToolRegistry {
     return this.tools.get(name);
   }
 
+  /** P11 — every registered tool (for GET /api/v1/tools). */
+  all(): Tool[] {
+    return [...this.tools.values()];
+  }
+
   schemasFor(names: string[]): ToolSchema[] {
     return names.map((name) => {
       const tool = this.tools.get(name);

@@ -7,8 +7,13 @@ export class Notifier {
   private readonly timeoutMs: number;
 
   constructor(sinks: Sink[], opts?: { timeoutMs?: number }) {
-    this.sinks = sinks;
+    this.sinks = [...sinks];
     this.timeoutMs = opts?.timeoutMs ?? 10_000;
+  }
+
+  /** P11: plugins join the fan-out at runtime (unique by name). */
+  addSink(sink: Sink): void {
+    if (!this.sinks.some((s) => s.name === sink.name)) this.sinks.push(sink);
   }
 
   async notify(n: Notice): Promise<{ sink: string; ok: boolean; error?: string }[]> {

@@ -13,6 +13,8 @@ export interface CreateGoalWithRootInput {
   /** Absolute path of the git repo the goal works on; lands in goal.meta.repo. */
   repo?: string;
   budget?: Partial<Budget>;
+  /** P7: model name or role for every task of this goal (goal.meta.model). */
+  model?: string;
 }
 
 /** Create a goal plus its single root task in one call. */
@@ -28,7 +30,7 @@ export function createGoalWithRoot(
     body,
     acceptance,
     budget: input.budget,
-    meta: input.repo ? { repo: input.repo } : {},
+    meta: { ...(input.repo ? { repo: input.repo } : {}), ...(input.model ? { model: input.model } : {}) },
   });
   const task = store.createTask({
     goalId: goal.id,

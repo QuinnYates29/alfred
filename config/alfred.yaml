@@ -1,0 +1,14 @@
+# alfred — one config file. Copy-free defaults live in src/config.ts.
+# A gitignored config/alfred.local.yaml is merged over this, then ALFRED_* env vars over that.
+# Tokens (ALFRED_TOKEN) come from the environment, NEVER from this file.
+server: { port: 8790, host: 127.0.0.1 }
+paths: { db: ~/.alfred/alfred.db, work: ~/.alfred/work, gitHub: ~/.alfred/git, mirror: "local:~/vaults/alfred" }
+models: config/models.yaml
+mcp: config/mcp.json
+plugins:
+  # Unset `enabled` = load every plugin found (built-ins + <repo>/plugins + ~/.alfred/plugins).
+  # List names here (built-ins included) to pin an explicit set.
+  enabled: [builtin-executors, builtin-sinks, builtin-deck]
+  builtin-deck: { dir: ~/mission-deck/server, port: 8787 }
+  # Per-plugin config goes under plugins.<name>, e.g.:
+  # hello: { greeting: howdy }
