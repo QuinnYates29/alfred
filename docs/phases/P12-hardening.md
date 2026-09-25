@@ -13,3 +13,10 @@ Soak S1 (2026-09-25, docs/SOAK.md) showed three reliability bugs in `src/runtime
    method `reacquire(taskId, workerId, attempt, leaseMs)` that sets the lease only if status is `running` and there is no live lease by someone else).
 3. **Timers outliving the run.** Every interval/timeout (stall watchdog, heartbeat, wall clock) is cleared in a `finally` on every exit path, including park, give_up and lost ownership.
 Keep the `doWait` child-liveness mirroring already in agent.ts.
+
+## P12b — shutdown requeues (soak finding: a service restart cancelled S2's running task forever)
+- `Scheduler.stop(o?: { requeue?: boolean })`. With `requeue: true`, every running task is aborted and handed back: `appendNote("service stopped/restarted: resuming …")`,
+  then transition `running → queued` (reason `service restart`), lease cleared, **not** stopped. The run must not write anything else afterwards (P12 ownership rules).
+  Without the option (tests, explicit cancels) it keeps today's `stopped: cancelled` behavior.
+- `startAlfred(...).stop()` uses `requeue: true`. `alfred serve` installs SIGTERM/SIGINT handlers that call `stop()` and then exit 0 (systemd sends SIGTERM on restart).
+- An explicit `POST /api/v1/tasks/:id/stop` still ends the task `stopped`.
