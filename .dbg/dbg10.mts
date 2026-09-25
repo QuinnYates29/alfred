@@ -1,0 +1,22 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execSync } from 'node:child_process';
+import { RepoHub } from '../src/git/hub.js';
+import { openStore } from '../src/store.js';
+import { resolveWorkspace } from '../src/workspace.js';
+
+const tmp = (p: string) => mkdtempSync(join(tmpdir(), `alfred-${p}-`));
+const src = tmp('src');
+execSync('git init -q -b main && echo one > a.txt && git add . && git -c user.email=a@b -c user.name=t commit -q -m init', { cwd: src });
+const hub = new RepoHub({ root: tmp('hub') });
+const store = openStore(':memory:');
+store.upsertRepo({ name: 'proj', paths: { local: src } });
+console.log('repo:', JSON.stringify(store.getRepo('proj')));
+const bare = await hub.ensure('proj', store.getRepo('proj')!.paths.local);
+console.log('bare:', bare);
+console.log('branches:', await hub.branches('proj'));
+const g = store.createGoal({ title: 'Sandboxed', meta: { repo: 'proj', mode: 'sandbox' } });
+const t = store.createTask({ goalId: g.id, persona: 'coder', title: 't' });
+const ws = await resolveWorkspace(store, t, { root: tmp('work'), hub } as any);
+console.log('ws:', ws.path, ws.branch, ws.remote);

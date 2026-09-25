@@ -103,6 +103,16 @@ export interface Approval {
   decidedBy: string | null;
 }
 
+/** P10 §2 — a repo registered in the hub: where its checkouts live per machine. */
+export interface Repo {
+  name: string;
+  /** 'local' = the Spark; any other key = a node name. Values are absolute paths. */
+  paths: Record<string, string>;
+  defaultBranch?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Store {
   createGoal(input: CreateGoalInput): Goal;
   getGoal(id: string): Goal | undefined;
@@ -141,6 +151,10 @@ export interface Store {
   approvals(opts?: { status?: ApprovalStatus; taskId?: string }): Approval[];
   /** P3: true once for an approved match, then the approval is spent. */
   consumeApproval(taskId: string, detail: string): boolean;
+  /** P10: register/merge a repo row (paths are merged per machine). */
+  upsertRepo(input: { name: string; paths: Record<string, string>; defaultBranch?: string | null }): Repo;
+  getRepo(name: string): Repo | undefined;
+  listRepos(): Repo[];
   onEvent(cb: (e: EventRow) => void): () => void;
   close(): void;
   /** Internal: only the done-gate may call this. */
@@ -387,6 +401,14 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
 
     CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
     CREATE INDEX IF NOT EXISTS idx_approvals_task ON approvals(taskId);
+
+    CREATE TABLE IF NOT EXISTS repos (
+      name TEXT PRIMARY KEY,
+      paths TEXT NOT NULL,
+      defaultBranch TEXT,
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL
+    );
   `);
 
   // Migration-safe: older DBs may predate the goals.meta column.
@@ -494,6 +516,14 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     ),
     decidedBy: db.prepare(`UPDATE approvals SET status = ?, decidedAt = ?, decidedBy = ? WHERE id = ?`),
     deleteApproval: db.prepare(`DELETE FROM approvals WHERE id = ?`),
+
+    getRepo: db.prepare(`SELECT * FROM repos WHERE name = ?`),
+    listRepos: db.prepare(`SELECT * FROM repos ORDER BY name ASC`),
+    insertRepo: db.prepare(
+      `INSERT INTO repos (name, paths, defaultBranch, createdAt, updatedAt)
+       VALUES (@name, @paths, @defaultBranch, @createdAt, @updatedAt)`,
+    ),
+    updateRepo: db.prepare(`UPDATE repos SET paths = ?, defaultBranch = ?, updatedAt = ? WHERE name = ?`),
   };
 
   /** Every approvals query, filtered in SQL by status and/or task. */
@@ -990,6 +1020,51 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     return consumeApprovalTxn.immediate(taskId, detail);
   }
 
+  // ---- P10 repo registry ----
+
+  interface RepoRow {
+    name: string;
+    paths: string;
+    defaultBranch: string | null;
+    createdAt: number;
+    updatedAt: number;
+  }
+  function repoFromRow(r: RepoRow): Repo {
+    let paths: Record<string, string> = {};
+    try {
+      paths = JSON.parse(r.paths) ?? {};
+    } catch {
+      /* corrupted paths JSON reads as empty */
+    }
+    return { name: r.name, paths, defaultBranch: r.defaultBranch ?? null, createdAt: r.createdAt, updatedAt: r.updatedAt };
+  }
+  function getRepo(name: string): Repo | undefined {
+    const r = stmts.getRepo.get(name) as RepoRow | undefined;
+    return r ? repoFromRow(r) : undefined;
+  }
+  function listRepos(): Repo[] {
+    return (stmts.listRepos.all() as RepoRow[]).map(repoFromRow);
+  }
+  function upsertRepo(input: { name: string; paths: Record<string, string>; defaultBranch?: string | null }): Repo {
+    const t = now();
+    const name = String(input.name);
+    const existing = stmts.getRepo.get(name) as RepoRow | undefined;
+    if (existing) {
+      const merged = { ...repoFromRow(existing).paths, ...(input.paths ?? {}) };
+      const db_ = input.defaultBranch ?? existing.defaultBranch ?? null;
+      stmts.updateRepo.run(JSON.stringify(merged), db_, t, name);
+    } else {
+      stmts.insertRepo.run({
+        name,
+        paths: JSON.stringify(input.paths ?? {}),
+        defaultBranch: input.defaultBranch ?? null,
+        createdAt: t,
+        updatedAt: t,
+      });
+    }
+    return getRepo(name)!;
+  }
+
   function close(): void {
     unregisterApprovalStore(api);
     db.close();
@@ -1041,6 +1116,9 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     decideApproval,
     approvals,
     consumeApproval,
+    upsertRepo,
+    getRepo,
+    listRepos,
     onEvent,
     close,
     _markDone,
