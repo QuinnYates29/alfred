@@ -41,6 +41,7 @@ context economy, and workspaces on the Spark or the Mac (via `alfred-node`), git
 | P9 nodes + remote access (Mac-first addendum) | ⏳ prompt ready |
 | P10 git hub + workspace modes | ⏳ prompt ready |
 | P5 dashboard (**functional shell only**; control UX to be redesigned by Quinn) | ✅ merged 04:10 (attempt 2). Build: `npm run build:web` |
+| Live smoke on real Qwen (docs/SOAK.md) | ✅ 04:15: coder goal done, alfred→coder delegation done, impossible goal failed loudly with a precise reason |
 | P6 soak (real multi-hour goal + impossible goal, hold-out tests in test/soak/) | ⏳ run by the orchestrator at the end |
 
 **Before relaunching P3a/P4a:** in each kept worktree run `git merge master` first (the P3 tests were split and the harness was hardened after they forked).
