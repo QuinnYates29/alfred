@@ -106,13 +106,17 @@ export function useResource(path, { on, interval, deps = [] } = {}) {
   const [loading, setLoading] = useState(path != null);
   const seq = useRef(0);
   const debounce = useRef(null);
+  // The current path: a reload captured before a route change (e.g. a debounced live refetch)
+  // must not overwrite the new resource with the old one.
+  const current = useRef(path);
+  current.current = path;
 
   const reload = useCallback(() => {
-    if (path == null) return Promise.resolve();
+    if (path == null || path !== current.current) return Promise.resolve();
     const my = ++seq.current;
     return api(path)
       .then((d) => {
-        if (my !== seq.current) return;
+        if (my !== seq.current || path !== current.current) return;
         setData(d);
         setError(null);
       })
@@ -121,7 +125,10 @@ export function useResource(path, { on, interval, deps = [] } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, ...deps]);
 
+  const shown = useRef(path);
   useEffect(() => {
+    clearTimeout(debounce.current);
+    if (shown.current !== path) { shown.current = path; setData(null); setError(null); }
     setLoading(path != null);
     reload();
   }, [reload]);
