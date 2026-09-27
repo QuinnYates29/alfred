@@ -45,7 +45,7 @@ export function chatRouter(engine: ChatEngine, cs: ChatStore): Router {
   r.post('/chat/threads/:id/messages', async_(async (req, res) => {
     const t = text(req);
     if (!t) return void res.status(400).json({ error: 'text is required' });
-    const thread = engine.getThread(req.params.id);
+    const thread = engine.getThread(String(req.params.id));
     if (!thread) return void res.status(404).json({ error: `no such thread: ${req.params.id}` });
     if (engine.busy(thread.id)) {
       return void res.status(409).json({ error: `chat thread is busy: ${thread.id}` });
