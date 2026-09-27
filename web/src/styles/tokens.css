@@ -4,6 +4,7 @@
   color-scheme: dark;
   --font-sans: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-display: var(--font-sans);
 
   --bg: #05080f;
   --bg-elev: #0a101c;

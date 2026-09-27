@@ -33,6 +33,9 @@ const NAV = [
   ['/system', 'System', 'server'],
   ['/deck', 'Deck', 'deck'],
 ];
+/** Skins (styles/themes.css). 'classic' = the plain token theme, which also has a light mode. */
+export const SKINS = [['jarvis', 'JARVIS'], ['mark42', 'Mark 42'], ['friday', 'FRIDAY'], ['classic', 'Classic']];
+
 const TABS = [['/', 'Home', 'home'], ['/inbox', 'Inbox', 'inbox'], ['/board', 'Board', 'board'], ['/goals', 'Goals', 'goal'], ['/chat', 'Chat', 'chat']];
 
 /** Route → view. Legacy hashes from the P5 shell keep working. */
@@ -85,6 +88,15 @@ function Shell() {
     try { return localStorage.getItem('alfred.theme') || ''; } catch { return ''; }
   });
 
+  const [skin, setSkin] = useState(() => {
+    try { return localStorage.getItem('alfred.skin') ?? 'jarvis'; } catch { return 'jarvis'; }
+  });
+  useEffect(() => {
+    if (skin && skin !== 'classic') document.documentElement.dataset.skin = skin;
+    else delete document.documentElement.dataset.skin;
+    try { localStorage.setItem('alfred.skin', skin); } catch { /* private mode */ }
+  }, [skin]);
+
   useEffect(() => {
     if (theme) document.documentElement.dataset.theme = theme;
     else delete document.documentElement.dataset.theme;
@@ -120,6 +132,7 @@ function Shell() {
   const actions = [
     { label: 'New goal', icon: 'goal', run: () => newGoal() },
     { label: 'New board item', icon: 'plus', run: () => newItem() },
+    ...SKINS.map(([id, name]) => ({ label: `Theme: ${name}`, icon: 'sparkles', run: () => setSkin(id) })),
     { label: theme === 'light' ? 'Dark theme' : 'Light theme', icon: theme === 'light' ? 'moon' : 'sun', run: () => setTheme(theme === 'light' ? 'dark' : 'light') },
   ];
   const firstAttention = attention.goals[0];
@@ -143,6 +156,9 @@ function Shell() {
                 <Icon name={theme === 'light' ? 'moon' : 'sun'} size={14} />
               </button>
             </div>
+            <select className="select" aria-label="Theme" value={skin} onChange={(e) => setSkin(e.target.value)} style={{ height: 30, padding: '2px 8px', fontSize: 'var(--t-sm)' }}>
+              {SKINS.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
             <div className="xs faint"><span className="kbd">⌘K</span> search · <span className="kbd">c</span> new item · <span className="kbd">g</span> new goal</div>
           </div>
         </nav>

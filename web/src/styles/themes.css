@@ -1,0 +1,209 @@
+/* alfred skins — Stark-lab HUD themes. Selected with <html data-skin="jarvis|mark42|friday">; "classic" = no skin.
+   A skin redefines the design tokens (tokens.css) and switches on the glass layer below. Skins are dark by design. */
+
+/* ---------- JARVIS: arc-reactor blue, cold glass, hairline cyan ---------- */
+:root[data-skin='jarvis'] {
+  color-scheme: dark;
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-display: 'Chakra Petch', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --bg: #03070d;
+  --bg-elev: #07111c;
+  --surface: #0a1826;
+  --surface-2: #0e2031;
+  --surface-3: #15304a;
+  --hover: rgba(94, 234, 255, 0.07);
+  --active: rgba(94, 234, 255, 0.13);
+  --line: rgba(94, 234, 255, 0.14);
+  --line-strong: rgba(94, 234, 255, 0.3);
+  --fg: #e3f6ff;
+  --fg-2: #8fb3c8;
+  --fg-3: #52708a;
+  --fg-on-accent: #01141c;
+  --accent: #5eeaff;
+  --accent-2: #2cc7e8;
+  --accent-soft: rgba(94, 234, 255, 0.12);
+  --accent-line: rgba(94, 234, 255, 0.5);
+  --ok: #4ef0b0; --ok-soft: rgba(78, 240, 176, 0.13);
+  --warn: #ffc857; --warn-soft: rgba(255, 200, 87, 0.14);
+  --bad: #ff5c7a; --bad-soft: rgba(255, 92, 122, 0.15);
+  --info: #7aa2ff; --info-soft: rgba(122, 162, 255, 0.15);
+  --violet: #b59bff; --violet-soft: rgba(181, 155, 255, 0.15);
+  --glass-bg: linear-gradient(160deg, rgba(20, 52, 78, 0.5), rgba(8, 22, 36, 0.62));
+  --glass-solid: rgba(8, 20, 33, 0.9);
+  --glass-border: rgba(94, 234, 255, 0.18);
+  --glass-hi: inset 0 1px 0 rgba(160, 245, 255, 0.12);
+  --glass-filter: blur(18px) saturate(150%);
+  --glow: 0 0 18px rgba(94, 234, 255, 0.35);
+  --glow-text: 0 0 12px rgba(94, 234, 255, 0.55);
+  --hud: rgba(94, 234, 255, 0.7);
+  --bg-image:
+    radial-gradient(900px 600px at 12% -10%, rgba(40, 180, 255, 0.16), transparent 60%),
+    radial-gradient(700px 520px at 95% 10%, rgba(60, 120, 255, 0.12), transparent 62%),
+    radial-gradient(600px 600px at 60% 120%, rgba(0, 230, 255, 0.08), transparent 60%),
+    linear-gradient(rgba(94, 234, 255, 0.035) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(90deg, rgba(94, 234, 255, 0.035) 1px, transparent 1px) 0 0 / 44px 44px;
+  --r: 8px; --r-lg: 12px; --r-sm: 5px;
+}
+
+/* ---------- MARK 42: hot-rod red and gold, warm smoked glass ---------- */
+:root[data-skin='mark42'] {
+  color-scheme: dark;
+  --font-sans: 'Figtree', system-ui, sans-serif;
+  --font-display: 'Saira Semi Condensed', 'Figtree', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --bg: #0a0605;
+  --bg-elev: #140c09;
+  --surface: #1b100c;
+  --surface-2: #241611;
+  --surface-3: #33201a;
+  --hover: rgba(255, 190, 90, 0.07);
+  --active: rgba(255, 190, 90, 0.13);
+  --line: rgba(255, 176, 92, 0.14);
+  --line-strong: rgba(255, 176, 92, 0.3);
+  --fg: #fbeee2;
+  --fg-2: #c9a893;
+  --fg-3: #82665a;
+  --fg-on-accent: #1d0d00;
+  --accent: #ffc35c;
+  --accent-2: #f2a531;
+  --accent-soft: rgba(255, 195, 92, 0.13);
+  --accent-line: rgba(255, 195, 92, 0.5);
+  --ok: #7fe0a0; --ok-soft: rgba(127, 224, 160, 0.13);
+  --warn: #ffc35c; --warn-soft: rgba(255, 195, 92, 0.14);
+  --bad: #ff4f3a; --bad-soft: rgba(255, 79, 58, 0.16);
+  --info: #ff8a5c; --info-soft: rgba(255, 138, 92, 0.15);
+  --violet: #ff7a8a; --violet-soft: rgba(255, 122, 138, 0.15);
+  --glass-bg: linear-gradient(160deg, rgba(92, 34, 20, 0.42), rgba(30, 14, 10, 0.66));
+  --glass-solid: rgba(26, 13, 9, 0.92);
+  --glass-border: rgba(255, 170, 90, 0.2);
+  --glass-hi: inset 0 1px 0 rgba(255, 214, 160, 0.12);
+  --glass-filter: blur(16px) saturate(140%);
+  --glow: 0 0 18px rgba(255, 150, 60, 0.35);
+  --glow-text: 0 0 12px rgba(255, 190, 90, 0.5);
+  --hud: rgba(255, 195, 92, 0.75);
+  --bg-image:
+    radial-gradient(900px 620px at 0% 0%, rgba(200, 40, 20, 0.22), transparent 58%),
+    radial-gradient(700px 500px at 100% 20%, rgba(255, 150, 40, 0.12), transparent 60%),
+    radial-gradient(900px 500px at 50% 130%, rgba(160, 30, 10, 0.18), transparent 60%),
+    repeating-linear-gradient(115deg, rgba(255, 190, 110, 0.025) 0 1px, transparent 1px 22px);
+  --r: 4px; --r-lg: 6px; --r-sm: 3px;
+}
+
+/* ---------- FRIDAY: holographic violet → teal, frosted bright glass ---------- */
+:root[data-skin='friday'] {
+  color-scheme: dark;
+  --font-sans: 'Sora', system-ui, sans-serif;
+  --font-display: 'Oxanium', 'Sora', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --bg: #07061a;
+  --bg-elev: #0e0c28;
+  --surface: #141136;
+  --surface-2: #1b1844;
+  --surface-3: #262258;
+  --hover: rgba(180, 160, 255, 0.08);
+  --active: rgba(180, 160, 255, 0.14);
+  --line: rgba(190, 175, 255, 0.14);
+  --line-strong: rgba(190, 175, 255, 0.3);
+  --fg: #f1efff;
+  --fg-2: #aaa4d6;
+  --fg-3: #6d679b;
+  --fg-on-accent: #0b0721;
+  --accent: #a891ff;
+  --accent-2: #8a6dff;
+  --accent-soft: rgba(168, 145, 255, 0.14);
+  --accent-line: rgba(168, 145, 255, 0.55);
+  --accent-grad: linear-gradient(100deg, #a891ff, #64e8d8);
+  --ok: #64e8d8; --ok-soft: rgba(100, 232, 216, 0.13);
+  --warn: #ffd27a; --warn-soft: rgba(255, 210, 122, 0.14);
+  --bad: #ff6fa8; --bad-soft: rgba(255, 111, 168, 0.15);
+  --info: #7cc4ff; --info-soft: rgba(124, 196, 255, 0.15);
+  --violet: #d49bff; --violet-soft: rgba(212, 155, 255, 0.15);
+  --glass-bg: linear-gradient(150deg, rgba(255, 255, 255, 0.09), rgba(160, 140, 255, 0.04) 45%, rgba(100, 232, 216, 0.04));
+  --glass-solid: rgba(18, 15, 48, 0.92);
+  --glass-border: rgba(210, 200, 255, 0.2);
+  --glass-hi: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  --glass-filter: blur(22px) saturate(160%);
+  --glow: 0 0 20px rgba(168, 145, 255, 0.35);
+  --glow-text: 0 0 14px rgba(168, 145, 255, 0.55);
+  --hud: rgba(160, 240, 230, 0.7);
+  --bg-image:
+    radial-gradient(800px 600px at 10% 0%, rgba(140, 100, 255, 0.28), transparent 60%),
+    radial-gradient(700px 600px at 100% 30%, rgba(60, 220, 210, 0.16), transparent 60%),
+    radial-gradient(800px 500px at 40% 120%, rgba(255, 100, 190, 0.14), transparent 60%);
+  --r: 14px; --r-lg: 20px; --r-sm: 9px;
+}
+
+/* ---------- the glass layer (every skin) ---------- */
+:root[data-skin] body {
+  background: var(--bg-image), var(--bg);
+  background-attachment: fixed;
+}
+:root[data-skin] h1, :root[data-skin] h2, :root[data-skin] .stat .v, :root[data-skin] .brand {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+:root[data-skin] h1 { font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; font-size: 22px; }
+:root[data-skin] .stat .k, :root[data-skin] .table th, :root[data-skin] .field > label, :root[data-skin] .card-head h2, :root[data-skin] .card-head h3 {
+  font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.12em; font-size: 11.5px; font-weight: 600;
+}
+:root[data-skin] .card, :root[data-skin] .sidebar, :root[data-skin] .topbar, :root[data-skin] .menu,
+:root[data-skin] .modal, :root[data-skin] .drawer, :root[data-skin] .palette, :root[data-skin] .toast {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-hi), 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+:root[data-skin] .sidebar { box-shadow: var(--glass-hi); border-right: 1px solid var(--glass-border); }
+:root[data-skin] .topbar { box-shadow: none; border-bottom: 1px solid var(--glass-border); }
+:root[data-skin] .modal, :root[data-skin] .drawer, :root[data-skin] .menu, :root[data-skin] .palette { background: var(--glass-solid); }
+:root[data-skin] .overlay { background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(4px); }
+:root[data-skin] .card.alert { background: linear-gradient(0deg, var(--bad-soft), var(--bad-soft)), var(--glass-bg); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+:root[data-skin] .card.amber { background: linear-gradient(0deg, var(--warn-soft), var(--warn-soft)), var(--glass-bg); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+
+/* HUD corner brackets on panels */
+:root[data-skin] .card { position: relative; }
+:root[data-skin] .card::after {
+  content: ''; position: absolute; inset: -1px; pointer-events: none; border-radius: inherit;
+  background:
+    linear-gradient(var(--hud), var(--hud)) top left / 14px 1.5px no-repeat,
+    linear-gradient(var(--hud), var(--hud)) top left / 1.5px 14px no-repeat,
+    linear-gradient(var(--hud), var(--hud)) bottom right / 14px 1.5px no-repeat,
+    linear-gradient(var(--hud), var(--hud)) bottom right / 1.5px 14px no-repeat;
+  opacity: 0.55;
+}
+:root[data-skin='friday'] .card::after { opacity: 0; }
+:root[data-skin] .card.hover:hover::after, :root[data-skin] .list-item.link:hover { opacity: 1; }
+
+/* glow for the things that matter */
+:root[data-skin] .stat .v { text-shadow: var(--glow-text); font-weight: 500; }
+:root[data-skin] .btn.primary { box-shadow: var(--glow); }
+:root[data-skin='friday'] .btn.primary { background: var(--accent-grad); border-color: transparent; }
+:root[data-skin] .btn { border-color: var(--glass-border); background: rgba(255, 255, 255, 0.03); }
+:root[data-skin] .btn:hover { border-color: var(--accent-line); }
+:root[data-skin] .btn.primary { background: var(--accent); }
+:root[data-skin='friday'] .btn.primary { background: var(--accent-grad); }
+:root[data-skin] .nav-item.active { background: var(--active); box-shadow: inset 2px 0 0 var(--accent); color: var(--fg); }
+:root[data-skin] .nav-item.active .icon { color: var(--accent); filter: drop-shadow(0 0 6px var(--accent)); }
+:root[data-skin] .sidebar .brand .logo { box-shadow: var(--glow); }
+:root[data-skin] .chip { border: 1px solid currentColor; background: transparent; }
+:root[data-skin] .chip .dot { box-shadow: 0 0 6px currentColor; }
+:root[data-skin] .conn .dot.open { box-shadow: 0 0 0 3px var(--ok-soft), 0 0 10px var(--ok); }
+:root[data-skin] .meter { background: rgba(255, 255, 255, 0.06); }
+:root[data-skin] .meter > span { box-shadow: 0 0 10px var(--accent); }
+:root[data-skin] .spark path.line { filter: drop-shadow(0 0 4px var(--accent)); }
+:root[data-skin] .input, :root[data-skin] .textarea, :root[data-skin] .select { background: rgba(0, 0, 0, 0.25); border-color: var(--glass-border); }
+:root[data-skin] .tabs .tab.active { border-bottom-color: var(--accent); text-shadow: var(--glow-text); }
+:root[data-skin] .alert-banner { background: linear-gradient(90deg, var(--bad-soft), transparent); border-bottom-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+
+/* the sweep: one slow scan line across the page (JARVIS, Mark 42) */
+:root[data-skin='jarvis'] .content, :root[data-skin='mark42'] .content { position: relative; }
+:root[data-skin='jarvis'] .main::before, :root[data-skin='mark42'] .main::before {
+  content: ''; position: fixed; left: var(--sidebar-w); right: 0; top: 0; height: 120px; pointer-events: none; z-index: 1;
+  background: linear-gradient(180deg, transparent, var(--accent-soft) 50%, transparent);
+  opacity: 0.35; animation: sweep 9s linear infinite;
+}
+@keyframes sweep { from { transform: translateY(-140px); } to { transform: translateY(110vh); } }
+@media (max-width: 860px) { :root[data-skin] .main::before { left: 0; } }
+@media (prefers-reduced-motion: reduce) { :root[data-skin] .main::before { display: none; } }
