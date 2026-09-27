@@ -13,6 +13,8 @@ Plan (specs in docs/phases/, acceptance tests in test/acceptance/pNN/, dispatch 
 | P16 chat · P20 slack · P17b board UI | wave B (after P13) | queued |
 | P19 CLI v2 · P17c goals UI · P17d home/inbox/chat UI | wave C | queued |
 | P17e system UI · P18 macOS app (Electron, app/) | wave D | queued |
+| P21a platform/connectors/self-dev tools + capability card · P21b contacts/texting/calling (Mac node Messages or Twilio) | wave E (after P16; P21b after P21a) | queued (Quinn 2026-09-27: agents must know they control the platform) |
+| Skins | JARVIS (default) / Mark 42 (gunmetal) / FRIDAY / Classic — web/src/styles/themes.css; preview https://claude.ai/artifact/Tvy43VHxAbmGB9LLoU84Qf | ✅ master |
 Check commands: every phase runs its own suite + all ≤P12 suites + typecheck (see docs/dispatch/PNN.md). p17/p18 need `xvfb-run -a` for p18 only.
 Harness note: worktrees symlink `web/dist` (excluded via .git/info/exclude) — a master `npm run build:web` changes what the P5 test sees in every worktree.
 Quinn-only (sudo): `sudo tailscale serve --bg --https=8443 http://127.0.0.1:8790` (the website on the tailnet; `tailscale set --operator=quinna` once avoids sudo later).

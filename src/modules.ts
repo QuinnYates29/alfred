@@ -22,6 +22,7 @@ import type { RepoHub } from './git/hub.js';
 import type { Notifier } from './notify.js';
 import type { DeckState } from './plugins/builtin/deck.js';
 import type { Automations } from './automations.js';
+import type { McpHub } from './connectors/mcp.js';
 
 export interface ModuleDeps {
   store: Store;
@@ -35,6 +36,14 @@ export interface ModuleDeps {
   nodes: NodeHub;
   repoHub: RepoHub;
   deckState: DeckState;
+  /** P21: the MCP connector hub (reconfigure/servers/status). Assigned after factories run — read lazily. */
+  hub?: McpHub;
+  /** P21: this server's own base URL (http://127.0.0.1:<port>), for tools that call the API in-process. Assigned after listen. */
+  selfUrl?: string;
+  /** The API token (when set) — for in-process calls to selfUrl. */
+  token?: string;
+  /** P21: path of the MCP config file alfred loaded (config/mcp.json by default). */
+  mcpConfigPath?: string;
   /** Public base URL of the dashboard, when known (ALFRED_DASHBOARD_URL). Used for deep links. */
   dashboardUrl?: string;
   /** Test/extension injection point from AlfredConfig.extra (e.g. extra.exec for ops). */

@@ -32,6 +32,8 @@ import { createOpsModule } from './ops/index.js';
 import { createReviewModule } from './review/index.js';
 import { createChatModule } from './chat/index.js';
 import { createSlackModule } from './slack/index.js';
+import { createPowersModule } from './powers/index.js';
+import { createCommsModule } from './comms/index.js';
 
 /** P13+: feature modules, in build order (later ones may use earlier ones via deps.modules). */
 export const MODULES: ModuleFactory[] = [
@@ -40,6 +42,8 @@ export const MODULES: ModuleFactory[] = [
   createReviewModule,
   createChatModule,
   createSlackModule,
+  createPowersModule,
+  createCommsModule,
 ];
 import type { Persona } from './runtime/contract.js';
 
@@ -157,6 +161,7 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     deckState,
     ...(env.ALFRED_DASHBOARD_URL ? { dashboardUrl: env.ALFRED_DASHBOARD_URL } : {}),
     extra: c.extra ?? {},
+    ...(token ? { token } : {}),
     modules: {},
     personas,
   };
@@ -291,6 +296,8 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
   // ---- MCP hub: file config + plugin-registered servers; reconnect forever.
   const mcpFile = mcpConfigPath ? loadMcpConfig(mcpConfigPath, env) : { servers: {} };
   const hub = new McpHub({ servers: { ...(mcpFile.servers ?? {}), ...mcpExtra } });
+  moduleDeps.hub = hub;
+  moduleDeps.mcpConfigPath = mcpConfigPath ? resolve(mcpConfigPath) : join(REPO_ROOT, 'config', 'mcp.json');
   const syncHubTools = () => {
     for (const t of hub.tools()) if (!registry.get(t.schema.name)) registry.register(t);
   };
@@ -402,6 +409,7 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
   nodeHub.attach(server);
   const addr = server.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : port;
+  moduleDeps.selfUrl = `http://127.0.0.1:${actualPort}`;
 
   return {
     url: `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${actualPort}`,

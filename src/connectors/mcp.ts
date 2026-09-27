@@ -66,7 +66,7 @@ interface Conn {
 export class McpHub {
   private readonly conns = new Map<string, Conn>();
 
-  constructor(private readonly cfg: McpConfig, private readonly o?: { connectTimeoutMs?: number }) {}
+  constructor(private cfg: McpConfig, private readonly o?: { connectTimeoutMs?: number }) {}
 
   private get timeoutMs(): number {
     return this.o?.connectTimeoutMs ?? 15_000;
@@ -179,6 +179,29 @@ export class McpHub {
     const out: Tool[] = [];
     for (const conn of this.conns.values()) if (conn.ok) out.push(...conn.tools);
     return out;
+  }
+
+  /** P21: swap the server set live — closes removed/changed servers, connects new ones. Never rejects. */
+  async reconfigure(servers: Record<string, McpServerConfig>): Promise<void> {
+    const prev = this.cfg.servers ?? {};
+    for (const [name, conn] of [...this.conns.entries()]) {
+      const next = servers[name];
+      if (!next || JSON.stringify(next) !== JSON.stringify(prev[name]) || next.disabled) {
+        try {
+          await conn.client?.close();
+        } catch {
+          /* never throw */
+        }
+        this.conns.delete(name);
+      }
+    }
+    this.cfg = { ...this.cfg, servers };
+    await this.connectAll();
+  }
+
+  /** P21: the configured servers (after env substitution). */
+  servers(): Record<string, McpServerConfig> {
+    return { ...(this.cfg.servers ?? {}) };
   }
 
   async close(): Promise<void> {
