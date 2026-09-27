@@ -1,18 +1,42 @@
-// Placeholder until P17e: legacy personas/models/nodes as tabs.
-import Personas from '../legacy/Personas.jsx';
-import Models from '../legacy/Models.jsx';
-import Nodes from '../legacy/Nodes.jsx';
+// System: overview, services, qwen, logs, config, models, personas, nodes, repos, builds.
+// Legacy hashes #/personas, #/models, #/nodes land on those tabs (App.jsx maps them here).
+import { useRoute, href } from '../lib/router.js';
 import { Tabs } from '../ui/index.jsx';
-import { useTick } from '../lib/legacy.jsx';
+import Overview from './system/Overview.jsx';
+import Services from './system/Services.jsx';
+import QwenTab from './system/Qwen.jsx';
+import Logs from './system/Logs.jsx';
+import Config from './system/Config.jsx';
+import ModelsTab from './system/ModelsTab.jsx';
+import PersonasTab from './system/PersonasTab.jsx';
+import NodesTab from './system/NodesTab.jsx';
+import ReposTab from './system/ReposTab.jsx';
+import BuildsTab from './system/BuildsTab.jsx';
+import './System.css';
 
-export default function System({ tab = 'personas' }) {
-  const tick = useTick([]);
-  const View = { personas: Personas, models: Models, nodes: Nodes }[tab] ?? Personas;
+const TABS = [
+  ['overview', 'Overview'], ['services', 'Services'], ['qwen', 'Qwen'], ['logs', 'Logs'], ['config', 'Config'],
+  ['models', 'Models'], ['personas', 'Personas'], ['nodes', 'Nodes'], ['repos', 'Repos'], ['builds', 'Builds'],
+];
+const VIEWS = {
+  overview: Overview, services: Services, qwen: QwenTab, logs: Logs, config: Config,
+  models: ModelsTab, personas: PersonasTab, nodes: NodesTab, repos: ReposTab, builds: BuildsTab,
+};
+
+export default function System({ tab }) {
+  const { query } = useRoute();
+  const id = VIEWS[tab] ? tab : 'overview';
+  const View = VIEWS[id];
   return (
-    <div className="page legacy">
-      <h1>System</h1>
-      <Tabs value={tab} tabs={[['personas', 'Personas'], ['models', 'Models'], ['nodes', 'Nodes']]} hrefFor={(t) => `#/system/${t}`} />
-      <View tick={tick} />
+    <div className="page system-page">
+      <div className="page-head">
+        <h1>System</h1>
+        <span className="sub">the Spark, from wherever you are</span>
+      </div>
+      <div className="sys-tabs-wrap">
+        <Tabs value={id} tabs={TABS} hrefFor={(t) => href(`/system/${t}`)} />
+      </div>
+      <View file={query.file} />
     </div>
   );
 }
