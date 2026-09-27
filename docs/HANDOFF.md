@@ -2,8 +2,8 @@
 
 ## RESUME HERE (2026-09-27 18:40) — orchestrator state
 **Merged on master:** scaffold (src/modules.ts seam), P17a web shell + skins (JARVIS default / Mark 42 gunmetal / FRIDAY / Classic), P15 review, P14 ops, P13 board. 261+ tests green.
-**Running (Qwen via scripts/qwen-task.sh, check .dispatch/<NAME>/status.json):** P16 chat (attempt 2, only a TS error left), P17c goals UI (attempt 3, Files tab left), P17e system UI (attempt 2).
-**Queue, in order (≤3 at once; launch with the helper below):** P20 slack, P17b board UI, P17d home/inbox/chat UI (needs P16), P19 CLI (needs P16), P18 mac app, P21a powers (needs P16), P21b comms (needs P21a).
+**Running (Qwen via scripts/qwen-task.sh, check .dispatch/<NAME>/status.json):** P17c goals UI, P17e system UI, P20 slack (P16 chat MERGED 19:00).
+**Queue, in order (≤3 at once):** P17b board UI, P17d home/inbox/chat UI, P19 CLI, P21a powers, P18 mac app, P21b comms (needs P21a).
 Launch: `CHECK=$(grep '^Test: ' docs/dispatch/X.md | sed 's/^Test: //'); LINKS="node_modules sidecar/.venv web/node_modules web/dist" setsid nohup scripts/qwen-task.sh X <branch> $PWD/docs/dispatch/X.md "$CHECK" 4 75 >/dev/null 2>&1 </dev/null &`
   — for P17*/P18 use LINKS without `web/dist` (they build their own). Branches: p16-chat p17b-board p17c-goals p17d-home p17e-system p18-app p19-cli p20-slack p21a-platform p21b-comms.
 Verify+merge: diff vs `git merge-base HEAD master` (no edits to test/acceptance, types.ts, contract.ts, main.ts, app.ts unless allowed) → `git merge --no-ff` → run all suites ≤ merged phases + `npx tsc --noEmit -p tsconfig.src.json` → `git worktree remove --force ~/repos/alfred-wt/X && git branch -D <br> && rm -rf .dispatch/X`.
