@@ -113,7 +113,9 @@ function build(store: Store): Board {
   }
   function getBoard(idOrKey: string): BoardDef | undefined {
     if (!idOrKey) return undefined;
-    return rowToDef(db.prepare('SELECT * FROM boards WHERE id = ?').get(idOrKey) ?? db.prepare('SELECT * FROM boards WHERE key = ? COLLATE NOCASE').get(String(idOrKey)) ?? undefined as any);
+    const r = db.prepare('SELECT * FROM boards WHERE id = ?').get(idOrKey)
+      ?? db.prepare('SELECT * FROM boards WHERE key = ? COLLATE NOCASE').get(String(idOrKey));
+    return r ? rowToDef(r as any) : undefined;
   }
   function needBoard(idOrKey: string): BoardDef {
     const b = getBoard(idOrKey);

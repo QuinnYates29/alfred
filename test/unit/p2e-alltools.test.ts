@@ -3,9 +3,9 @@ import { allTools } from '../../src/runtime/alltools.js';
 import { ToolRegistry, builtinTools } from '../../src/runtime/tools.js';
 
 describe('allTools', () => {
-  it('is builtins plus the three executors', () => {
+  it('is builtins plus the three executors and the board tool', () => {
     const names = allTools().map((t) => t.schema.name);
-    expect(names).toEqual([...builtinTools().map((t) => t.schema.name), 'dsh_code', 'pipeline_run', 'langgraph_code']);
+    expect(names).toEqual([...builtinTools().map((t) => t.schema.name), 'dsh_code', 'pipeline_run', 'langgraph_code', 'board']);
     for (const n of ['dsh_code', 'pipeline_run', 'langgraph_code']) {
       expect(allTools().find((t) => t.schema.name === n)!.kind).toBe('exec');
     }
