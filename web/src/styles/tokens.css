@@ -1,0 +1,120 @@
+/* alfred design tokens. Every view uses these — never hard-code colors.
+   Dark is the default (Mission Deck heritage); light follows the OS or [data-theme="light"]. */
+:root {
+  color-scheme: dark;
+  --font-sans: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --bg: #05080f;
+  --bg-elev: #0a101c;
+  --surface: #0e1524;
+  --surface-2: #131c2e;
+  --surface-3: #1a2539;
+  --hover: rgba(120, 170, 255, 0.07);
+  --active: rgba(120, 170, 255, 0.12);
+  --line: rgba(120, 160, 220, 0.12);
+  --line-strong: rgba(120, 170, 240, 0.24);
+
+  --fg: #dde7f3;
+  --fg-2: #9aabc2;
+  --fg-3: #5d6f88;
+  --fg-on-accent: #031018;
+
+  --accent: #22d3ee;
+  --accent-2: #0ea5c6;
+  --accent-soft: rgba(34, 211, 238, 0.12);
+  --accent-line: rgba(34, 211, 238, 0.4);
+
+  --ok: #34d399;      --ok-soft: rgba(52, 211, 153, 0.13);
+  --warn: #fbbf24;    --warn-soft: rgba(251, 191, 36, 0.14);
+  --bad: #fb6f84;     --bad-soft: rgba(251, 111, 132, 0.14);
+  --info: #60a5fa;    --info-soft: rgba(96, 165, 250, 0.14);
+  --violet: #a78bfa;  --violet-soft: rgba(167, 139, 250, 0.15);
+  --muted-soft: rgba(154, 171, 194, 0.12);
+
+  /* priorities */
+  --p-urgent: #fb6f84;
+  --p-high: #fb923c;
+  --p-medium: #fbbf24;
+  --p-low: #60a5fa;
+  --p-none: #5d6f88;
+
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r: 10px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px;
+
+  --t-xs: 11px; --t-sm: 12.5px; --t-md: 14px; --t-lg: 16px; --t-xl: 20px; --t-2xl: 26px;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-line);
+
+  --sidebar-w: 232px;
+  --topbar-h: 52px;
+  --tabbar-h: 60px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --bg: #f5f7fb;
+    --bg-elev: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #f2f5fa;
+    --surface-3: #e8edf5;
+    --hover: rgba(30, 60, 120, 0.05);
+    --active: rgba(30, 60, 120, 0.09);
+    --line: rgba(20, 40, 80, 0.1);
+    --line-strong: rgba(20, 40, 80, 0.2);
+    --fg: #0f1a2b;
+    --fg-2: #4a5a72;
+    --fg-3: #8492a8;
+    --fg-on-accent: #ffffff;
+    --accent: #0891b2;
+    --accent-2: #0e7490;
+    --accent-soft: rgba(8, 145, 178, 0.1);
+    --accent-line: rgba(8, 145, 178, 0.45);
+    --ok: #059669;   --ok-soft: rgba(5, 150, 105, 0.1);
+    --warn: #b45309; --warn-soft: rgba(217, 119, 6, 0.12);
+    --bad: #e11d48;  --bad-soft: rgba(225, 29, 72, 0.09);
+    --info: #2563eb; --info-soft: rgba(37, 99, 235, 0.09);
+    --violet: #7c3aed; --violet-soft: rgba(124, 58, 237, 0.1);
+    --shadow-1: 0 1px 2px rgba(15, 26, 43, 0.08);
+    --shadow-2: 0 8px 24px rgba(15, 26, 43, 0.1), 0 2px 6px rgba(15, 26, 43, 0.06);
+    --shadow-3: 0 24px 64px rgba(15, 26, 43, 0.18);
+  }
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f5f7fb;
+  --bg-elev: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f2f5fa;
+  --surface-3: #e8edf5;
+  --hover: rgba(30, 60, 120, 0.05);
+  --active: rgba(30, 60, 120, 0.09);
+  --line: rgba(20, 40, 80, 0.1);
+  --line-strong: rgba(20, 40, 80, 0.2);
+  --fg: #0f1a2b;
+  --fg-2: #4a5a72;
+  --fg-3: #8492a8;
+  --fg-on-accent: #ffffff;
+  --accent: #0891b2;
+  --accent-2: #0e7490;
+  --accent-soft: rgba(8, 145, 178, 0.1);
+  --accent-line: rgba(8, 145, 178, 0.45);
+  --ok: #059669;   --ok-soft: rgba(5, 150, 105, 0.1);
+  --warn: #b45309; --warn-soft: rgba(217, 119, 6, 0.12);
+  --bad: #e11d48;  --bad-soft: rgba(225, 29, 72, 0.09);
+  --info: #2563eb; --info-soft: rgba(37, 99, 235, 0.09);
+  --violet: #7c3aed; --violet-soft: rgba(124, 58, 237, 0.1);
+  --shadow-1: 0 1px 2px rgba(15, 26, 43, 0.08);
+  --shadow-2: 0 8px 24px rgba(15, 26, 43, 0.1), 0 2px 6px rgba(15, 26, 43, 0.06);
+  --shadow-3: 0 24px 64px rgba(15, 26, 43, 0.18);
+}

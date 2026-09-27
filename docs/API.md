@@ -20,7 +20,7 @@ All bodies are JSON. When `ALFRED_TOKEN` is set, every `/api…` request needs
 | Route | Body → Response |
 |---|---|
 | `GET /api/v1/goals` | → `[goalSummary]` newest first; `goalSummary = {goal, counts:{<status>:n}}` |
-| `POST /api/v1/goals` | `{title, body?, persona?, spec?, acceptance?[{name,cmd,cwd?,timeoutMs?}], repo?, budget?, model?}` → `201 {goal, task}`; `400` missing title / unknown persona |
+| `POST /api/v1/goals` | `{title, body?, persona?, spec?, acceptance?[{name,cmd,cwd?,timeoutMs?}], repo?, budget?, model?, node?, mode?: 'sandbox'\|'repo', inPlace?}` → `201 {goal, task}`; `400` missing title / unknown persona |
 | `GET /api/v1/goals/:id` | id **or slug** → `{goal, tasks, events(last 200), usage?}`; `404` if unknown |
 | `POST /api/v1/tasks/:id/stop` | `{reason?}` → `{ok:true}` (running → cancelled via scheduler, else transition `stopped`); `409` illegal transition |
 | `POST /api/v1/tasks/:id/retry` | `{note?}` → `201 {task}` (clone, notes carry over) |

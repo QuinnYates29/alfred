@@ -143,6 +143,12 @@ function buildRouter(d: AppDeps): express.Router {
         budget: b.budget,
         model: b.model,
       });
+      // Where/how the workspace lives (P9/P10): node name, sandbox|repo mode, in-place checkout.
+      const meta: Record<string, any> = {};
+      if (typeof b.node === 'string' && b.node && b.node !== 'local') meta.node = b.node;
+      if (b.mode === 'sandbox' || b.mode === 'repo') meta.mode = b.mode;
+      if (b.inPlace === true) meta.inPlace = true;
+      if (Object.keys(meta).length) out.goal = d.store.setGoalMeta(out.goal.id, meta);
       res.status(201).json(out);
     } catch (e: any) {
       send(res, 400, { error: e?.message ?? String(e) });
