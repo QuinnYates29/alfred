@@ -86,6 +86,8 @@ describe('goals list and detail', () => {
     writeFileSync(join(ws, 'notes.txt'), 'remember the milk');
     const g = h.alfred.store.createGoal({ title: 'Files goal' });
     const t = h.alfred.store.createTask({ goalId: g.id, persona: 'coder', title: 'Files task' });
+    // The live scheduler runs the task and records its own workspace first; ours must be the latest.
+    await until(() => h.alfred.store.events(g.id).some((e: any) => e.kind === 'workspace'), 8000);
     h.alfred.store.appendEvent(g.id, t.id, 'workspace', { path: ws, node: 'local' });
     await page.goto(`${h.alfred.url}/#/goal/${g.id}/files`);
     await page.getByText('notes.txt').first().click({ timeout: 8000 });
