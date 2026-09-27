@@ -26,3 +26,6 @@
 
 .sys-log { max-height: 62vh; }
 .sys-diff-tail { max-height: 300px; overflow: auto; }
+
+.sys-table { overflow-x: auto; }
+.sys-role { font-family: var(--font-mono); font-size: var(--t-sm); min-width: 110px; color: var(--fg-2); }
