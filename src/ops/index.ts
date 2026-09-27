@@ -1,6 +1,7 @@
-// Stub (orchestrator scaffold) — replaced by its phase. Must keep this export name and signature.
+// P14 — Ops & stats API: services, Qwen server, logs, config files, dispatch, repos, stats.
 import type { AlfredModule, ModuleDeps } from '../modules.js';
+import { buildOpsRouter } from './routes.js';
 
-export function createOpsModule(_deps: ModuleDeps): AlfredModule {
-  return { name: 'ops' };
+export function createOpsModule(deps: ModuleDeps): AlfredModule {
+  return { name: 'ops', router: buildOpsRouter(deps) };
 }
