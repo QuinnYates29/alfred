@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { boot, idleLLM, until, type Harness } from './harness.js';
+import { RepoHub } from '../../../src/git/hub.js';
 
 const git = (cwd: string, ...a: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...a], { cwd, encoding: 'utf8' }).trim();
 
@@ -58,7 +59,8 @@ describe('goals list and detail', () => {
     writeFileSync(join(src, 'app.js'), 'console.log(1)\n');
     git(src, 'add', '-A');
     git(src, 'commit', '-qm', 'init');
-    await h.api('/api/ops/repos', { name: 'proj', paths: { local: src }, defaultBranch: 'main', confirm: true });
+    h.alfred.store.upsertRepo({ name: 'proj', paths: { local: src }, defaultBranch: 'main' });
+    await new RepoHub({ root: join(h.base, 'git') }).ensure('proj', src);
     const bare = join(h.base, 'git', 'proj.git');
     const wt = join(h.base, 'wt');
     git(h.base, 'clone', '-q', bare, wt);

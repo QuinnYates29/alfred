@@ -23,3 +23,5 @@
 {"name":"P12","attempt":1,"start":"2026-09-25T05:49:20-04:00","wall_s":2892,"dsh_exit":0,"check_rc":0,"tests":" Tests 139 passed (139)","timeout_min":60}
 {"name":"P12b","attempt":1,"start":"2026-09-25T06:39:30-04:00","wall_s":1317,"dsh_exit":0,"check_rc":0,"tests":" Tests 130 passed (130)","timeout_min":60}
 {"name":"P13","attempt":1,"start":"2026-09-27T14:28:56-04:00","wall_s":2539,"dsh_exit":1,"check_rc":1,"tests":" Tests 206 passed (206)","timeout_min":60}
+{"name":"P14","attempt":1,"start":"2026-09-27T14:28:56-04:00","wall_s":3609,"dsh_exit":124,"check_rc":1,"tests":" Tests 215 passed (215)","timeout_min":60}
+{"name":"P15","attempt":1,"start":"2026-09-27T14:28:56-04:00","wall_s":3611,"dsh_exit":124,"check_rc":1,"tests":" Tests 220 passed (220)","timeout_min":60}
