@@ -1,0 +1,18 @@
+{
+  "name": "alfred-app",
+  "productName": "Alfred",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Alfred for macOS: menubar + window for the alfred agent platform on the Spark",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "build:node": "node scripts/build-node.mjs",
+    "pack:mac": "node scripts/pack-mac.mjs",
+    "pack:linux": "electron-packager . Alfred --platform=linux --arch=arm64 --out=dist --overwrite"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.4.5"
+  }
+}

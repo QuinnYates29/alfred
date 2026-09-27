@@ -2,7 +2,7 @@
 // Views live in ./views/*.jsx and receive nothing but the route; they fetch their own data with useResource.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { LiveProvider, useLiveState, useResource } from './lib/live.jsx';
-import { useRoute, href, go } from './lib/router.js';
+import { useRoute, href, go, setQuery } from './lib/router.js';
 import { goalNeedsAttention } from './lib/format.js';
 import { Button, Icon, ToastProvider } from './ui/index.jsx';
 import NewGoalDialog from './components/NewGoalDialog.jsx';
@@ -91,6 +91,14 @@ function Shell() {
     try { localStorage.setItem('alfred.theme', theme); } catch { /* private mode */ }
   }, [theme]);
   useEffect(() => setNavOpen(false), [path]);
+  // Deep links from the Mac app / CLI: #/…?new=goal | ?new=item opens that dialog once.
+  const { query } = useRoute();
+  useEffect(() => {
+    if (query.new === 'goal') setDialog({ kind: 'goal' });
+    else if (query.new === 'item') setDialog({ kind: 'item' });
+    else return;
+    setQuery({ new: '' });
+  }, [query.new]);
 
   const newGoal = useCallback((prefill) => setDialog({ kind: 'goal', prefill }), []);
   const newItem = useCallback((prefill) => setDialog({ kind: 'item', prefill }), []);
