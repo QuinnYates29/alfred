@@ -1,6 +1,7 @@
-// Stub (orchestrator scaffold) — replaced by its phase. Must keep this export name and signature.
+// P15 — review module: land/discard goal branches, read transcripts, browse workspaces.
 import type { AlfredModule, ModuleDeps } from '../modules.js';
+import { reviewRouter } from './routes.js';
 
-export function createReviewModule(_deps: ModuleDeps): AlfredModule {
-  return { name: 'review' };
+export function createReviewModule(deps: ModuleDeps): AlfredModule {
+  return { name: 'review', router: reviewRouter(deps) };
 }
