@@ -5,6 +5,7 @@ import { builtinTools } from './tools.js';
 import { dshTool } from '../executors/dsh.js';
 import { pipelineTool } from '../executors/pipeline.js';
 import { langgraphTool } from '../executors/langgraph.js';
+import { boardTool } from '../board/tool.js';
 
 export function allTools(
   o: {
@@ -22,5 +23,6 @@ export function allTools(
     dshTool(o.dsh),
     pipelineTool({ ...o.pipeline, models: o.pipeline?.models ?? o.models }),
     langgraphTool({ ...o.langgraph, models: o.langgraph?.models ?? o.models }),
+    boardTool(),
   ];
 }
