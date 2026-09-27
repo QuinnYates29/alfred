@@ -1,5 +1,23 @@
 # HANDOFF: state of the alfred build (keep this current)
 
+## 2026-09-27 — Control-surface build (Quinn: "everything controllable from the Mac")
+Goal set by Quinn: build all of it now; he sets up Slack + the Mac node afterward. Native Mac app + quick CLI backup + a website on the tailnet
+(custom domain later) + a Jira/Notion-like board that agents can read/write and be sent items from. Qwen Flash on the Spark does the coding.
+
+Plan (specs in docs/phases/, acceptance tests in test/acceptance/pNN/, dispatch prompts in docs/dispatch/):
+| Phase | What | State |
+|---|---|---|
+| scaffold | src/modules.ts seam (modules add routers/tools without touching main/app), store.raw(), system events (goalId ''), /events/last, P12c fan-out fix, transcripts in turn/tool events, RepoHub wired into the scheduler (was never on), /nodes fixed, POST /goals node/mode | ✅ master (orchestrator) |
+| P17a | web v2 shell + design system (web/src/styles, ui/, lib/, App.jsx, NewGoal/NewItem dialogs, palette); legacy P5 views under web/src/legacy until replaced | ✅ master (orchestrator) |
+| P13 board · P14 ops/stats · P15 review/land | wave A (Qwen) | running |
+| P16 chat · P20 slack · P17b board UI | wave B (after P13) | queued |
+| P19 CLI v2 · P17c goals UI · P17d home/inbox/chat UI | wave C | queued |
+| P17e system UI · P18 macOS app (Electron, app/) | wave D | queued |
+Check commands: every phase runs its own suite + all ≤P12 suites + typecheck (see docs/dispatch/PNN.md). p17/p18 need `xvfb-run -a` for p18 only.
+Harness note: worktrees symlink `web/dist` (excluded via .git/info/exclude) — a master `npm run build:web` changes what the P5 test sees in every worktree.
+Quinn-only (sudo): `sudo tailscale serve --bg --https=8443 http://127.0.0.1:8790` (the website on the tailnet; `tailscale set --operator=quinna` once avoids sudo later).
+
+
 Last updated: 2026-09-24 22:55 by the orchestrator (Claude Code session). Read with GOAL.md, PLAN.md, docs/LESSONS.md, docs/qwen/NOTES.md.
 
 ## ⚠️ LIVE AGENTS (check before launching anything)
