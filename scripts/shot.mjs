@@ -7,7 +7,7 @@ import { mkdirSync } from 'node:fs';
 const [base, out, ...routes] = process.argv.slice(2);
 mkdirSync(out, { recursive: true });
 const EXE = join(homedir(), '.cache/ms-playwright/chromium_headless_shell-1228/chrome-linux/headless_shell');
-const browser = await chromium.launch({ executablePath: EXE });
+const browser = await chromium.launch({ executablePath: EXE, args: ['--disable-gpu'] }); // the GPU is full of Qwen: no NVRM noise
 const page = await browser.newPage({ viewport: { width: Number(process.env.SHOT_W ?? 1440), height: Number(process.env.SHOT_H ?? 900) }, colorScheme: process.env.SHOT_THEME === 'light' ? 'light' : 'dark' });
 page.on('pageerror', (e) => console.error('pageerror:', e.message));
 for (const r of routes.length ? routes : ['/', '/board', '/goals', '/inbox', '/system']) {

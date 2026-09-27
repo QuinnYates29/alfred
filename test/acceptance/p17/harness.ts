@@ -31,7 +31,7 @@ export async function boot(llm: LLM, o: { viewport?: { width: number; height: nu
     port: 0, host: '127.0.0.1', pollMs: 25, deck: null, env: { ALFRED_NOTIFY_DESKTOP: '0' }, llm, gitRoot: join(base, 'git'),
     extra: { llm, ...(o.extra ?? {}) },
   });
-  const browser = await chromium.launch({ executablePath: EXE });
+  const browser = await chromium.launch({ executablePath: EXE, args: ['--disable-gpu'] }); // the GPU is full of Qwen: no NVRM noise
   const page = await browser.newPage({ viewport: o.viewport ?? { width: 1400, height: 900 } });
   page.on('pageerror', (e) => console.error('pageerror:', e.message));
   const api = async (path: string, body?: any, method?: string) => {
