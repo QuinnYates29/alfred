@@ -1,5 +1,5 @@
 /* alfred skins — Stark-lab HUD themes. Selected with <html data-skin="jarvis|mark42|friday">; "classic" = no skin.
-   A skin redefines the design tokens (tokens.css) and switches on the glass layer below. Skins are dark by design. */
+   Default skin: JARVIS (Quinn's pick, 2026-09-27). A skin redefines the design tokens (tokens.css) and switches on the glass layer below. Skins are dark by design. */
 
 /* ---------- JARVIS: arc-reactor blue, cold glass, hairline cyan ---------- */
 :root[data-skin='jarvis'] {
@@ -46,47 +46,47 @@
   --r: 8px; --r-lg: 12px; --r-sm: 5px;
 }
 
-/* ---------- MARK 42: hot-rod red and gold, warm smoked glass ---------- */
+/* ---------- MARK 42: gunmetal armor greys, hot-rod red + gold as accents, smoked glass ---------- */
 :root[data-skin='mark42'] {
   color-scheme: dark;
   --font-sans: 'Figtree', system-ui, sans-serif;
   --font-display: 'Saira Semi Condensed', 'Figtree', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --bg: #0a0605;
-  --bg-elev: #140c09;
-  --surface: #1b100c;
-  --surface-2: #241611;
-  --surface-3: #33201a;
-  --hover: rgba(255, 190, 90, 0.07);
-  --active: rgba(255, 190, 90, 0.13);
-  --line: rgba(255, 176, 92, 0.14);
-  --line-strong: rgba(255, 176, 92, 0.3);
-  --fg: #fbeee2;
-  --fg-2: #c9a893;
-  --fg-3: #82665a;
+  --bg: #0b0c0e;
+  --bg-elev: #131518;
+  --surface: #181a1e;
+  --surface-2: #202328;
+  --surface-3: #2c3036;
+  --hover: rgba(220, 225, 232, 0.06);
+  --active: rgba(220, 225, 232, 0.1);
+  --line: rgba(200, 206, 214, 0.12);
+  --line-strong: rgba(200, 206, 214, 0.24);
+  --fg: #eceef1;
+  --fg-2: #a3a9b2;
+  --fg-3: #686f79;
   --fg-on-accent: #1d0d00;
   --accent: #ffc35c;
   --accent-2: #f2a531;
-  --accent-soft: rgba(255, 195, 92, 0.13);
+  --accent-soft: rgba(255, 195, 92, 0.12);
   --accent-line: rgba(255, 195, 92, 0.5);
-  --ok: #7fe0a0; --ok-soft: rgba(127, 224, 160, 0.13);
-  --warn: #ffc35c; --warn-soft: rgba(255, 195, 92, 0.14);
-  --bad: #ff4f3a; --bad-soft: rgba(255, 79, 58, 0.16);
-  --info: #ff8a5c; --info-soft: rgba(255, 138, 92, 0.15);
-  --violet: #ff7a8a; --violet-soft: rgba(255, 122, 138, 0.15);
-  --glass-bg: linear-gradient(160deg, rgba(92, 34, 20, 0.42), rgba(30, 14, 10, 0.66));
-  --glass-solid: rgba(26, 13, 9, 0.92);
-  --glass-border: rgba(255, 170, 90, 0.2);
-  --glass-hi: inset 0 1px 0 rgba(255, 214, 160, 0.12);
-  --glass-filter: blur(16px) saturate(140%);
-  --glow: 0 0 18px rgba(255, 150, 60, 0.35);
-  --glow-text: 0 0 12px rgba(255, 190, 90, 0.5);
-  --hud: rgba(255, 195, 92, 0.75);
+  --ok: #7fe0a0; --ok-soft: rgba(127, 224, 160, 0.12);
+  --warn: #ffc35c; --warn-soft: rgba(255, 195, 92, 0.13);
+  --bad: #ff4f3a; --bad-soft: rgba(255, 79, 58, 0.15);
+  --info: #9fb4c8; --info-soft: rgba(159, 180, 200, 0.14);
+  --violet: #ff7a6a; --violet-soft: rgba(255, 122, 106, 0.14);
+  --glass-bg: linear-gradient(160deg, rgba(62, 66, 74, 0.42), rgba(20, 22, 26, 0.7));
+  --glass-solid: rgba(22, 24, 28, 0.94);
+  --glass-border: rgba(200, 206, 214, 0.16);
+  --glass-hi: inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 -1px 0 rgba(180, 40, 20, 0.25);
+  --glass-filter: blur(16px) saturate(120%);
+  --glow: 0 0 18px rgba(255, 170, 70, 0.3);
+  --glow-text: 0 0 12px rgba(255, 190, 90, 0.4);
+  --hud: rgba(255, 195, 92, 0.7);
   --bg-image:
-    radial-gradient(900px 620px at 0% 0%, rgba(200, 40, 20, 0.22), transparent 58%),
-    radial-gradient(700px 500px at 100% 20%, rgba(255, 150, 40, 0.12), transparent 60%),
-    radial-gradient(900px 500px at 50% 130%, rgba(160, 30, 10, 0.18), transparent 60%),
-    repeating-linear-gradient(115deg, rgba(255, 190, 110, 0.025) 0 1px, transparent 1px 22px);
+    radial-gradient(900px 600px at 0% 0%, rgba(170, 30, 16, 0.18), transparent 58%),
+    radial-gradient(700px 500px at 100% 15%, rgba(255, 170, 60, 0.07), transparent 60%),
+    radial-gradient(1000px 600px at 50% 120%, rgba(120, 128, 140, 0.12), transparent 60%),
+    repeating-linear-gradient(115deg, rgba(210, 216, 224, 0.022) 0 1px, transparent 1px 22px);
   --r: 4px; --r-lg: 6px; --r-sm: 3px;
 }
 
