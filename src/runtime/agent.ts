@@ -65,6 +65,19 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Head of text plus a marker when cut (transcript events stay small). */
+function capText(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}… [${text.length - max} more chars]`;
+}
+
+function safeJson(v: unknown): string {
+  try {
+    return JSON.stringify(v ?? {});
+  } catch {
+    return String(v);
+  }
+}
+
 function firstLine(text: string): string {
   const line = text.split('\n', 1)[0] ?? '';
   return line.length > 200 ? `${line.slice(0, 200)}…` : line;
@@ -174,6 +187,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
   let wsRemote: string | undefined;
   if (o.workspaceFor) {
     workspace = o.workspaceFor(task);
+    o.store.appendEvent(task.goalId, taskId, 'workspace', { path: workspace, node: 'local' });
   } else {
     try {
       const { resolveWorkspace } = await import('../workspace.js');
@@ -186,6 +200,12 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
       backend = ws.backend;
       wsBranch = ws.branch;
       wsRemote = ws.remote;
+      // P15: where this run works, so review/file-browse can find it later.
+      o.store.appendEvent(task.goalId, taskId, 'workspace', {
+        path: ws.path,
+        node: ws.backend?.node ?? 'local',
+        ...(ws.branch ? { branch: ws.branch } : {}),
+      });
     } catch (e) {
       if (e instanceof NodeOfflineError) {
         o.store.transition(taskId, 'blocked', { reason: e.message, by: o.workerId });
@@ -444,6 +464,9 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         turn: turns,
         tools: resp.toolCalls.map((c) => c.name),
         usage: resp.usage,
+        // P15 transcript: what the model said and asked for (capped; never the full context).
+        text: capText(resp.content ?? '', 4000),
+        calls: resp.toolCalls.map((c) => ({ name: c.name, args: capText(safeJson(c.args), 2000) })),
       });
 
       const calls: ToolCall[] = resp.toolCalls;
@@ -529,7 +552,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
           control = { kind: 'park', status: result.park.status, reason: result.park.reason };
         }
         if (!result.ok) failedCalls.add(c.id);
-        record('tool', { name: c.name, ok: result.ok });
+        record('tool', { name: c.name, ok: result.ok, output: capText(result.output ?? '', 2000) });
 
         if (control) return control.kind === 'park' ? parkedResult(control.reason) : control.task;
 

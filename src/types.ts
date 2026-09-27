@@ -111,6 +111,10 @@ export interface Notice {
   taskId?: string;
   title: string;
   body: string;
+  /** P20: set when the notice is about a pending approval (sinks may render Approve/Deny). */
+  approvalId?: string;
+  /** P13+: deep link (dashboard URL) for the notice, when known. */
+  url?: string;
 }
 
 export interface Sink {

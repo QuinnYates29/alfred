@@ -32,6 +32,10 @@ export interface AppDeps {
   models?: ModelRegistry;
   /** P9: factory for the Claude door — served at /mcp over Streamable HTTP (stateless), behind the token. */
   door?: () => McpServer;
+  /** P13+: feature-module routers, mounted at /api/v1 and /api behind the token. */
+  routers?: express.Router[];
+  /** P9: connected alfred-nodes (GET /nodes). */
+  nodes?: { list(): { name: string; roots: string[]; caps: string[]; connectedAt: number }[] };
 }
 
 /** The UI contract: every event kind with a one-line meaning. */
@@ -47,7 +51,22 @@ export const EVENT_KINDS: { kind: string; meaning: string }[] = [
   { kind: 'verify', meaning: 'Acceptance checks ran (data: results[]).' },
   { kind: 'reclaimed', meaning: 'A task with an expired lease was reclaimed.' },
   { kind: 'automation_fired', meaning: 'An automation fired (data: automation, goalId).' },
-  { kind: 'approval_requested', meaning: 'A task is waiting for Quinn approval (data: task, question).' },
+  { kind: 'approval_requested', meaning: 'A task is waiting for Quinn approval (data: approvalId, action, detail).' },
+  { kind: 'approval_decided', meaning: 'An approval was decided (data: approvalId, decision, by).' },
+  { kind: 'workspace', meaning: 'A run resolved its workspace (data: path, node, branch?).' },
+  { kind: 'pushed', meaning: 'Finished work was pushed to the Spark hub (data: branch, sha).' },
+  { kind: 'compacted', meaning: 'A run compacted its context (data: before, after, dropped).' },
+  // System events (goalId ''): not about one goal.
+  { kind: 'item_created', meaning: "Board item created (goalId ''; data: boardId, key, by)." },
+  { kind: 'item_updated', meaning: "Board item changed (goalId ''; data: boardId, key, changes, by)." },
+  { kind: 'item_moved', meaning: "Board item changed column (goalId ''; data: boardId, key, from, to, by)." },
+  { kind: 'item_deleted', meaning: "Board item archived/deleted (goalId ''; data: boardId, key, by)." },
+  { kind: 'item_comment', meaning: "Comment on a board item (goalId ''; data: boardId, key, commentId, author)." },
+  { kind: 'board_updated', meaning: "Board columns/fields/name changed (goalId ''; data: boardId)." },
+  { kind: 'chat_message', meaning: "A chat message was stored (goalId ''; data: threadId, message)." },
+  { kind: 'ops', meaning: "An ops action ran (goalId ''; data: action, target, ok, by)." },
+  { kind: 'goal_merged', meaning: 'A goal branch was merged in the hub (data: branch, into, sha).' },
+  { kind: 'goal_discarded', meaning: 'A goal branch was discarded (data: branches).' },
 ];
 
 function getToken(req: Request): string {
@@ -217,8 +236,14 @@ function buildRouter(d: AppDeps): express.Router {
     }
   });
 
-  // P5 addendum: connected MCP nodes for the dashboard.
-  r.get('/nodes', (_req, res) => res.json(typeof (d.hub as any)?.list === 'function' ? (d.hub as any).list() : []));
+  // P9: connected alfred-nodes (the old code asked the MCP hub, which never has nodes).
+  r.get('/nodes', (_req, res) => res.json(d.nodes?.list() ?? []));
+
+  // Newest event id, so a fresh UI can subscribe with ?since=<last> instead of replaying history.
+  r.get('/events/last', (_req, res) => {
+    const row = d.store.raw().prepare('SELECT MAX(id) AS id FROM events').get() as { id: number | null };
+    res.json({ id: row?.id ?? 0 });
+  });
 
   // P7 — model roles, live.
   r.get('/models', (_req, res) =>
@@ -295,6 +320,10 @@ export function createApp(d: AppDeps): Express {
   const router = buildRouter(d);
   app.use('/api/v1', router);
   app.use('/api', router);
+  for (const mr of d.routers ?? []) {
+    app.use('/api/v1', express.json({ limit: '4mb' }), mr);
+    app.use('/api', express.json({ limit: '4mb' }), mr);
+  }
 
   // Plugin routes: /api/v1/plugins/<name><path> (the /api alias router sees them too).
   for (const pr of d.pluginRoutes ?? []) {

@@ -159,6 +159,9 @@ export interface Store {
   getRepo(name: string): Repo | undefined;
   listRepos(): Repo[];
   onEvent(cb: (e: EventRow) => void): () => void;
+  /** P13+: the underlying SQLite handle, for modules that keep their own tables (board, chat).
+   * Modules create tables with CREATE TABLE IF NOT EXISTS and never touch the core tables. */
+  raw(): Database.Database;
   close(): void;
   /** Internal: only the done-gate may call this. */
   _markDone(taskId: string, by?: string): Task;
@@ -450,6 +453,9 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     listTasksByGoal: db.prepare(`SELECT * FROM tasks WHERE goalId = ? ORDER BY seq ASC`),
     listChildren: db.prepare(`SELECT * FROM tasks WHERE parentTaskId = ? ORDER BY seq ASC`),
     countChildren: db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE parentTaskId = ?`),
+    countLiveChildren: db.prepare(
+      `SELECT COUNT(*) AS n FROM tasks WHERE parentTaskId = ? AND status NOT IN ('failed', 'stopped')`,
+    ),
 
     claimById: db.prepare(
       `UPDATE tasks SET status = 'running', attempt = attempt + 1, leaseOwner = ?, leaseExpiresAt = ?, updatedAt = ?
@@ -664,12 +670,19 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     }
 
     if (parentRow) {
-      const childCount = (stmts.countChildren.get(parentRow.id) as { n: number }).n;
+      // P12c: failed/stopped children don't hold a fan-out slot (a parent may re-delegate
+      // after a child dies — the S1b soak deadlocked on this), but the lifetime total is
+      // capped at 3x so a parent can't respawn forever.
+      const total = (stmts.countChildren.get(parentRow.id) as { n: number }).n;
+      const live = (stmts.countLiveChildren.get(parentRow.id) as { n: number }).n;
       const parentBudget = JSON.parse(parentRow.budget) as Budget;
-      if (childCount >= parentBudget.maxSubtasks) {
+      if (live >= parentBudget.maxSubtasks) {
         throw new BudgetError(
-          `parent task already has ${childCount} children (max ${parentBudget.maxSubtasks})`,
+          `parent task already has ${live} live or done children (max ${parentBudget.maxSubtasks}; failed/stopped ones don't count)`,
         );
+      }
+      if (total >= parentBudget.maxSubtasks * 3) {
+        throw new BudgetError(`parent task has spawned ${total} children in total (lifetime max ${parentBudget.maxSubtasks * 3})`);
       }
     }
 
@@ -1144,6 +1157,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     getRepo,
     listRepos,
     onEvent,
+    raw: () => db,
     close,
     _markDone,
   };

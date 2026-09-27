@@ -25,6 +25,22 @@ import { builtinExecutorsPlugin } from './plugins/builtin/executors.js';
 import { builtinSinksPlugin } from './plugins/builtin/sinks.js';
 import { builtinDeckPlugin, type DeckState } from './plugins/builtin/deck.js';
 import { createApp } from './server/app.js';
+import { RepoHub } from './git/hub.js';
+import type { AlfredModule, ModuleDeps, ModuleFactory } from './modules.js';
+import { createBoardModule } from './board/index.js';
+import { createOpsModule } from './ops/index.js';
+import { createReviewModule } from './review/index.js';
+import { createChatModule } from './chat/index.js';
+import { createSlackModule } from './slack/index.js';
+
+/** P13+: feature modules, in build order (later ones may use earlier ones via deps.modules). */
+export const MODULES: ModuleFactory[] = [
+  createBoardModule,
+  createOpsModule,
+  createReviewModule,
+  createChatModule,
+  createSlackModule,
+];
 import type { Persona } from './runtime/contract.js';
 
 export interface AlfredConfig {
@@ -52,6 +68,12 @@ export interface AlfredConfig {
   pluginConfig?: Record<string, any>;
   pluginsEnabled?: string[];
   builtins?: AlfredPlugin[];
+  /** P13+: replaces MODULES (tests). */
+  modules?: ModuleFactory[];
+  /** P13+: passed to modules as deps.extra (test injection: exec, fetch, clocks…). */
+  extra?: Record<string, any>;
+  /** P10: root of the bare-repo hub (default ~/.alfred/git). */
+  gitRoot?: string;
 }
 
 export interface Alfred {
@@ -61,10 +83,18 @@ export interface Alfred {
   automations: Automations;
   hub: McpHub;
   plugins: { loaded: string[]; failed: { name: string; error: string }[] };
+  /** P13+ feature modules by name. */
+  modules: Record<string, AlfredModule>;
+  nodes: NodeHub;
   stop(): Promise<void>;
 }
 
 const REPO_ROOT = resolve(dirname(new URL(import.meta.url).pathname), '..');
+
+function personasDirOf(c: AlfredConfig): string {
+  const d = c.personasDir ?? 'personas';
+  return d.startsWith('/') ? d : resolve(d);
+}
 
 function loadFileConfig(c: AlfredConfig, env: Record<string, string | undefined>): AlfredConfigFile | null {
   if (!c.configPath) return null;
@@ -110,6 +140,33 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
 
   // P9: the node network — alfred-nodes dial OUT to /api/nodes/connect (token-checked).
   const nodeHub = new NodeHub({ ...(token ? { token } : {}) });
+  // P10: the bare-repo hub on the Spark (every workspace gets a `spark` remote).
+  const repoHub = new RepoHub({ ...(c.gitRoot ? { root: c.gitRoot } : {}) });
+
+  // ---- P13+ feature modules: tools are registered before personas load.
+  const personas: Map<string, Persona> = new Map();
+  const moduleDeps: ModuleDeps = {
+    store,
+    registry,
+    env,
+    repoRoot: REPO_ROOT,
+    personasDir: resolve(personasDirOf(c)),
+    workRoot,
+    nodes: nodeHub,
+    repoHub,
+    deckState,
+    ...(env.ALFRED_DASHBOARD_URL ? { dashboardUrl: env.ALFRED_DASHBOARD_URL } : {}),
+    extra: c.extra ?? {},
+    modules: {},
+    personas,
+  };
+  const moduleList: AlfredModule[] = [];
+  for (const factory of c.modules ?? MODULES) {
+    const m = await factory(moduleDeps);
+    moduleList.push(m);
+    moduleDeps.modules[m.name] = m;
+    for (const t of m.tools ?? []) if (!registry.get(t.schema.name)) registry.register(t);
+  }
 
   // ---- plugins (P11): built-ins dogfood the same API as file plugins.
   const pluginCfgBase: Record<string, any> = { ...(file?.plugins ?? {}) };
@@ -178,17 +235,29 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
   });
 
   // ---- personas: built-ins first, plugin dirs after (budget rules apply).
-  const personas: Map<string, Persona> = new Map();
+  const loadErrors: string[] = [];
   const tryLoadPersonas = (dir: string) => {
     try {
       if (!existsSync(dir)) return;
       for (const [k, v] of loadPersonas(dir, registry)) personas.set(k, v);
     } catch (e: any) {
+      loadErrors.push(`${dir}: ${e?.message ?? e}`);
       console.error(`[personas] skipping ${dir}: ${e?.message ?? e}`);
     }
   };
   tryLoadPersonas(personasDir);
   for (const d of extraPersonaDirs) tryLoadPersonas(d);
+  /** P14: re-read every persona dir into the SAME map (running tasks keep their copy). Returns errors. */
+  moduleDeps.reloadPersonas = () => {
+    loadErrors.length = 0;
+    const before = new Map(personas);
+    personas.clear();
+    tryLoadPersonas(personasDir);
+    for (const d of extraPersonaDirs) tryLoadPersonas(d);
+    // A broken file must not delete personas that were loaded fine before.
+    for (const [k, v] of before) if (!personas.has(k)) personas.set(k, v);
+    return [...loadErrors];
+  };
 
   // ---- LLM: explicit override for tests; else the ModelRegistry (roles live).
   const fallback = openaiLLM({
@@ -241,16 +310,22 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     registry,
     maxWorkers: 12, // waiting parents hold a worker; LLM concurrency is limited separately by the model registry
     nodes: nodeHub, // P9: resolveWorkspace(store, task, { root: workRoot, nodes })
+    hub: repoHub, // P10: repo/sandbox-with-repo workspaces clone from and push to the Spark hub
     workRoot,
     ...(c.pollMs != null ? { pollMs: c.pollMs } : {}),
   } as any);
   scheduler.start();
+  moduleDeps.scheduler = scheduler;
+  if (modelsRegistry) moduleDeps.models = modelsRegistry;
+  moduleDeps.notifier = notifier;
+  moduleDeps.llm = runtimeLLM;
 
   // ---- notifier + loud failures + debounced markdown mirror
   wireLoudFailures(store, notifier);
   const pendingMirrors = new Map<string, ReturnType<typeof setTimeout>>();
   const mirrorUnsub = store.onEvent((e) => {
     if (isNodeMirror) return; // node mirrors are written by the node-markdown sink
+    if (!e.goalId) return; // system events (board, chat, ops) have no goal to mirror
     if (pendingMirrors.has(e.goalId)) return;
     const t = setTimeout(() => {
       pendingMirrors.delete(e.goalId);
@@ -297,8 +372,13 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
   }, c.tickMs ?? 30_000);
   autoTimer.unref?.();
 
+  moduleDeps.automations = automations;
+  for (const m of moduleList) await m.start?.();
+
   // ---- HTTP
   const app = createApp({
+    routers: moduleList.filter((m) => m.router).map((m) => m.router!),
+    nodes: nodeHub,
     store,
     scheduler,
     automations,
@@ -330,7 +410,16 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     automations,
     hub,
     plugins: { loaded: pluginRt.loaded, failed: pluginRt.failed },
+    modules: moduleDeps.modules,
+    nodes: nodeHub,
     async stop() {
+      for (const m of [...moduleList].reverse()) {
+        try {
+          await m.stop?.();
+        } catch {
+          /* a module must never block shutdown */
+        }
+      }
       clearInterval(reconnectTimer);
       clearInterval(autoTimer);
       try {
