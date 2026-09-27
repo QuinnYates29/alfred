@@ -1,0 +1,31 @@
+/* System view specifics — everything else comes from the design system. */
+.sys-tabs-wrap { overflow-x: auto; scrollbar-width: none; margin: calc(-1 * var(--s-2)) 0 0; }
+.sys-tabs-wrap::-webkit-scrollbar { display: none; }
+
+.sys-kv { display: grid; grid-template-columns: auto 1fr; gap: 4px var(--s-4); font-size: var(--t-sm); }
+.sys-kv dt { color: var(--fg-3); white-space: nowrap; }
+.sys-kv dd { margin: 0; font-family: var(--font-mono); font-size: var(--t-xs); word-break: break-all; }
+
+.sys-slot { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--line);
+  border-radius: var(--r-pill); font-size: var(--t-xs); font-family: var(--font-mono); }
+.sys-slot .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-3); }
+.sys-slot .dot.busy { background: var(--ok); animation: syspulse 1.2s var(--ease) infinite; }
+@keyframes syspulse { 50% { opacity: 0.35; } }
+
+.sys-meters { display: flex; flex-direction: column; gap: 3px; }
+.sys-meters .lbl { display: flex; justify-content: space-between; font-size: var(--t-xs); color: var(--fg-3); }
+
+.sys-cols { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: var(--s-4); align-items: start; }
+@media (max-width: 900px) { .sys-cols { grid-template-columns: 1fr; } }
+
+.sys-files { max-height: 60vh; overflow: auto; }
+.sys-files .group { font-size: var(--t-xs); color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.06em;
+  padding: var(--s-3) var(--s-4) 4px; }
+.sys-files .list-item { font-family: var(--font-mono); font-size: var(--t-sm); cursor: pointer; }
+.sys-files .list-item.sel { background: var(--accent-soft); color: var(--accent); }
+
+.sys-log { max-height: 62vh; }
+.sys-diff-tail { max-height: 300px; overflow: auto; }
+
+.sys-table { overflow-x: auto; }
+.sys-role { font-family: var(--font-mono); font-size: var(--t-sm); min-width: 110px; color: var(--fg-2); }
