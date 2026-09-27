@@ -1,9 +1,10 @@
 # HANDOFF: state of the alfred build (keep this current)
 
-## RESUME HERE (2026-09-27 18:40) — orchestrator state
-**Merged on master:** scaffold (src/modules.ts seam), P17a web shell + skins (JARVIS default / Mark 42 gunmetal / FRIDAY / Classic), P15 review, P14 ops, P13 board. 261+ tests green.
-**Running (Qwen via scripts/qwen-task.sh, check .dispatch/<NAME>/status.json):** P17c goals UI, P17e system UI, P20 slack (P16 chat MERGED 19:00).
-**Queue, in order (≤3 at once):** P17b board UI, P17d home/inbox/chat UI, P19 CLI, P21a powers, P18 mac app, P21b comms (needs P21a).
+## RESUME HERE (2026-09-27 19:15) — orchestrator state
+**Merged on master:** scaffold (src/modules.ts seam), P17a web shell + skins (JARVIS default / Mark 42 gunmetal / FRIDAY / Classic), P15 review, P14 ops, P13 board, P16 chat, P17c goals UI, P17e system UI (both finished by the orchestrator after Qwen stalled: a test race + a React render loop; also fixed a stale-route bug in useResource).
+**Running (Qwen via scripts/qwen-task.sh, check .dispatch/<NAME>/status.json):** P20 slack, P17b board UI, P17d home/inbox/chat UI.
+**Lesson:** when an attempt times out with only a few UI tests failing, debug it directly (pageerror log via a throwaway test writing to a file — vitest swallows console) instead of paying another 75-min attempt.
+**Queue, in order (≤3 at once):** P19 CLI, P21a powers, P18 mac app, P21b comms (needs P21a).
 Launch: `CHECK=$(grep '^Test: ' docs/dispatch/X.md | sed 's/^Test: //'); LINKS="node_modules sidecar/.venv web/node_modules web/dist" setsid nohup scripts/qwen-task.sh X <branch> $PWD/docs/dispatch/X.md "$CHECK" 4 75 >/dev/null 2>&1 </dev/null &`
   — for P17*/P18 use LINKS without `web/dist` (they build their own). Branches: p16-chat p17b-board p17c-goals p17d-home p17e-system p18-app p19-cli p20-slack p21a-platform p21b-comms.
 Verify+merge: diff vs `git merge-base HEAD master` (no edits to test/acceptance, types.ts, contract.ts, main.ts, app.ts unless allowed) → `git merge --no-ff` → run all suites ≤ merged phases + `npx tsc --noEmit -p tsconfig.src.json` → `git worktree remove --force ~/repos/alfred-wt/X && git branch -D <br> && rm -rf .dispatch/X`.
