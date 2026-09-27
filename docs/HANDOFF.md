@@ -1,5 +1,17 @@
 # HANDOFF: state of the alfred build (keep this current)
 
+## RESUME HERE (2026-09-27 18:40) — orchestrator state
+**Merged on master:** scaffold (src/modules.ts seam), P17a web shell + skins (JARVIS default / Mark 42 gunmetal / FRIDAY / Classic), P15 review, P14 ops, P13 board. 261+ tests green.
+**Running (Qwen via scripts/qwen-task.sh, check .dispatch/<NAME>/status.json):** P16 chat (attempt 2, only a TS error left), P17c goals UI (attempt 3, Files tab left), P17e system UI (attempt 2).
+**Queue, in order (≤3 at once; launch with the helper below):** P20 slack, P17b board UI, P17d home/inbox/chat UI (needs P16), P19 CLI (needs P16), P18 mac app, P21a powers (needs P16), P21b comms (needs P21a).
+Launch: `CHECK=$(grep '^Test: ' docs/dispatch/X.md | sed 's/^Test: //'); LINKS="node_modules sidecar/.venv web/node_modules web/dist" setsid nohup scripts/qwen-task.sh X <branch> $PWD/docs/dispatch/X.md "$CHECK" 4 75 >/dev/null 2>&1 </dev/null &`
+  — for P17*/P18 use LINKS without `web/dist` (they build their own). Branches: p16-chat p17b-board p17c-goals p17d-home p17e-system p18-app p19-cli p20-slack p21a-platform p21b-comms.
+Verify+merge: diff vs `git merge-base HEAD master` (no edits to test/acceptance, types.ts, contract.ts, main.ts, app.ts unless allowed) → `git merge --no-ff` → run all suites ≤ merged phases + `npx tsc --noEmit -p tsconfig.src.json` → `git worktree remove --force ~/repos/alfred-wt/X && git branch -D <br> && rm -rf .dispatch/X`.
+After P17 views merge: rebuild web (`npm run build:web`), screenshot with `node scripts/shot.mjs "<url>?token=…" <dir> <routes>` (SHOT_SKIN=jarvis), delete web/src/legacy + legacy.css once no view imports them.
+Final steps when all merged: restart the user service (`systemctl --user restart alfred`), build CLI bundle (`npm run build:cli`) + Mac app zip (`npm --prefix app run pack:mac`), update README/docs/API.md, report to Quinn.
+Quinn to do (sudo/accounts): `sudo tailscale set --operator=$USER` + `tailscale serve --bg --https=8443 http://127.0.0.1:8790`; Slack app (docs/REMOTE-ACCESS.md); Mac node/app install; optional Twilio; custom domain later (docs/REMOTE-ACCESS.md §2).
+Harness fixes today: DSH defaultMaxTokens 32768 (~/.dsh/settings.yaml); PREAMBLE says split files; checks use tsconfig.src.json.
+
 ## 2026-09-27 — Control-surface build (Quinn: "everything controllable from the Mac")
 Goal set by Quinn: build all of it now; he sets up Slack + the Mac node afterward. Native Mac app + quick CLI backup + a website on the tailnet
 (custom domain later) + a Jira/Notion-like board that agents can read/write and be sent items from. Qwen Flash on the Spark does the coding.

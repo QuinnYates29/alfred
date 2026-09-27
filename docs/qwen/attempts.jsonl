@@ -28,3 +28,7 @@
 {"name":"P14","attempt":1,"start":"2026-09-27T15:30:26-04:00","wall_s":3013,"dsh_exit":0,"check_rc":0,"tests":" Tests 232 passed (232)","timeout_min":75}
 {"name":"P13","attempt":1,"start":"2026-09-27T15:12:19-04:00","wall_s":4506,"dsh_exit":124,"check_rc":1,"tests":" Tests 7 failed | 206 passed (213)","timeout_min":75}
 {"name":"P17c","attempt":1,"start":"2026-09-27T15:30:26-04:00","wall_s":4500,"dsh_exit":124,"check_rc":1,"tests":"✗ Build failed in 295ms","timeout_min":75}
+{"name":"P13","attempt":2,"start":"2026-09-27T16:27:25-04:00","wall_s":3004,"dsh_exit":0,"check_rc":0,"tests":" Tests 221 passed (221)","timeout_min":75}
+{"name":"P17e","attempt":1,"start":"2026-09-27T16:27:01-04:00","wall_s":4500,"dsh_exit":124,"check_rc":1,"tests":"✗ Build failed in 309ms","timeout_min":75}
+{"name":"P17c","attempt":2,"start":"2026-09-27T16:45:26-04:00","wall_s":4513,"dsh_exit":124,"check_rc":1,"tests":" Tests 1 failed | 8 passed (9)","timeout_min":75}
+{"name":"P16","attempt":1,"start":"2026-09-27T17:18:12-04:00","wall_s":4508,"dsh_exit":124,"check_rc":1,"tests":" Tests 264 passed (264)","timeout_min":75}
