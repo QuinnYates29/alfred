@@ -14,7 +14,7 @@ export default function Services() {
   const [busy, setBusy] = useState(null); // `${name}:${action}`
   const [restartingAlfred, setRestartingAlfred] = useState(false);
 
-  if (live === 'open') setRestartingAlfred(false); // the stream is back — the restart landed
+  if (restartingAlfred && live === 'open') setRestartingAlfred(false); // the stream is back — the restart landed
 
   const act = async (svc, action) => {
     const label = cap(action);
