@@ -17,12 +17,19 @@ function err(res: Response, status: number, message: string): void {
 
 const msgOf = (e: any) => e?.message ?? String(e);
 
-/** express 5 does not catch async rejections for us. */
-function h(fn: (req: Request, res: Response) => Promise<void>) {
-  return (req: Request, res: Response) => {
-    fn(req, res).catch((e: any) => {
+/** express 5 does not catch async rejections for us. Handlers may return res.json(...) or nothing. */
+function h(fn: (req: Request, res: Response) => unknown) {
+  return (req: Request, res: Response): void => {
+    try {
+      const out = fn(req, res) as unknown;
+      if (out && typeof (out as Promise<unknown>).then === 'function') {
+        void (out as Promise<unknown>).catch((e: any) => {
+          if (!res.headersSent) err(res, e?.status ?? 500, msgOf(e));
+        });
+      }
+    } catch (e: any) {
       if (!res.headersSent) err(res, e?.status ?? 500, msgOf(e));
-    });
+    }
   };
 }
 

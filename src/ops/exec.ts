@@ -72,24 +72,23 @@ function defaultQwenUrl(deps: ModuleDeps): string {
       return undefined;
     }
   })();
-  return deps.env.QWEN_URL ?? fromModels ?? 'http://127.0.0.1:1110';
+  return deps.env?.QWEN_URL ?? fromModels ?? 'http://127.0.0.1:1110';
 }
 
 export function makeCtx(deps: ModuleDeps): OpsCtx {
   const home = process.env.HOME ?? '';
+  const extra: Record<string, any> = deps.extra ?? {};
+  const env: Record<string, string | undefined> = deps.env ?? {};
   return {
-    exec: (deps.extra.exec as ExecFn | undefined) ?? realExec,
-    spawnDetached: (deps.extra.spawnDetached as SpawnDetachedFn | undefined) ?? realSpawnDetached,
-    fetch: (deps.extra.fetch as typeof fetch | undefined) ?? globalThis.fetch,
+    exec: (extra.exec as ExecFn | undefined) ?? realExec,
+    spawnDetached: (extra.spawnDetached as SpawnDetachedFn | undefined) ?? realSpawnDetached,
+    fetch: (extra.fetch as typeof fetch | undefined) ?? globalThis.fetch,
     get qwenUrl() {
-      return (deps.extra.qwenUrl as string | undefined) ?? defaultQwenUrl(deps);
+      return (extra.qwenUrl as string | undefined) ?? defaultQwenUrl(deps);
     },
-    qwenEnvPath:
-      (deps.extra.qwenEnvPath as string | undefined) ??
-      deps.env.QWEN_ENV_FILE ??
-      `${home}/.config/qwen-server.env`,
-    dispatchDir: (deps.extra.dispatchDir as string | undefined) ?? `${deps.repoRoot}/.dispatch`,
-    backupDir: (deps.extra.backupDir as string | undefined) ?? `${deps.repoRoot}/.alfred-backup`,
+    qwenEnvPath: (extra.qwenEnvPath as string | undefined) ?? env.QWEN_ENV_FILE ?? `${home}/.config/qwen-server.env`,
+    dispatchDir: (extra.dispatchDir as string | undefined) ?? `${deps.repoRoot}/.dispatch`,
+    backupDir: (extra.backupDir as string | undefined) ?? `${deps.repoRoot}/.alfred-backup`,
     repoRoot: deps.repoRoot,
   };
 }

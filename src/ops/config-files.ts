@@ -101,7 +101,7 @@ export interface PutConfigResult {
   ok: true;
   path: string;
   mtime: number;
-  reloaded: string[];
+  reloaded: ('personas' | 'models')[];
   warnings: string[];
 }
 
@@ -132,7 +132,7 @@ export function putConfigFile(
   }
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, content);
-  const reloaded: string[] = [];
+  const reloaded: ('personas' | 'models')[] = [];
   const warnings: string[] = [];
   const kind = configKind(path);
   if (kind === 'persona') {

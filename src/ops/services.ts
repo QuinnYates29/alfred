@@ -27,7 +27,9 @@ export const SERVICES: UnitDef[] = [
 
 const SHOW_PROPS = '--property=ActiveState,SubState,ActiveEnterTimestampMonotonic,ExecMainStartTimestamp,MainPID,MemoryCurrent';
 
-async function unitState(ctx: OpsCtx, unit: string): Promise<Omit<ServiceInfo, 'name' | 'controllable' | 'url'>> {
+type UnitState = Pick<ServiceInfo, 'active' | 'sub' | 'since' | 'pid' | 'memMb'>;
+
+async function unitState(ctx: OpsCtx, unit: string): Promise<UnitState> {
   const base = { active: 'unknown', sub: 'unknown', since: null as number | null, pid: null as number | null, memMb: null as number | null };
   try {
     const r = await ctx.exec('systemctl', ['--user', 'show', unit, SHOW_PROPS]);
