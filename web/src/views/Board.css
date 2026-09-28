@@ -73,6 +73,11 @@
 .table td .input, .table td .select { height: 28px; padding: 2px 8px; font-size: var(--t-sm); }
 
 /* ---------- settings ---------- */
+.set-section { margin-top: var(--s-4); padding-top: var(--s-3); border-top: 1px solid var(--line); }
+.set-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); margin-bottom: var(--s-2); }
+.set-head h3 { margin: 0; color: var(--fg-2); }
+.set-row { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-2); flex-wrap: wrap; }
+.set-row .input, .set-row .select { height: 30px; padding: 2px 8px; font-size: var(--t-sm); flex: 1 1 120px; min-width: 80px; }
 .col-row { display: grid; grid-template-columns: minmax(90px, 1.4fr) minmax(100px, 1fr) 70px auto; gap: var(--s-2); align-items: center; }
 .col-row .input, .col-row .select { height: 30px; padding: 2px 8px; font-size: var(--t-sm); }
 .field-row { display: grid; grid-template-columns: minmax(90px, 1.2fr) minmax(100px, 1fr) minmax(90px, 1.4fr) auto; gap: var(--s-2); align-items: center; }
