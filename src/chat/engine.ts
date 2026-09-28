@@ -49,8 +49,32 @@ export function stateSnapshot(deps: ModuleDeps): string {
   return lines.join('\n');
 }
 
+/** Where an in-flight turn is. Emitted as `chat_progress { threadId, phase, tool?, turn? }` (system event). */
+export type ChatPhase = 'thinking' | 'tool' | 'done' | 'error';
+/** An in-flight turn, as returned by `pending()` and `GET /chat/threads/:id`. */
+export interface ChatPending {
+  since: number;
+  phase: 'thinking' | 'tool';
+  tool?: string;
+  turn?: number;
+}
+
+/** A thread whose last message is an unanswered user message this recent gets the interrupted note on startup. */
+export const INTERRUPTED_WINDOW_MS = 15 * 60_000;
+export const INTERRUPTED_REPLY =
+  "⚠ My reply was interrupted by a restart, so it never arrived. I didn't re-run it (I may have been part-way through an action) — please say it again.";
+
+/** One short line for the user: no stack traces, no multi-KB error bodies. */
+export function errorReply(e: any): string {
+  const first = String(e?.message ?? e ?? 'unknown error').split('\n').find((l) => l.trim())?.trim() ?? 'unknown error';
+  return `⚠ Sorry, I couldn't finish that reply: ${cap(first, 300)}. Try again?`;
+}
+
 export class ChatEngine {
-  private busyThreads = new Set<string>();
+  private inflight = new Map<string, ChatPending>();
+  /** Turns abandoned by stop(): they already got the interrupted note and must not write or run tools. */
+  private abandoned = new Set<string>();
+  private stopped = false;
 
   constructor(private deps: ModuleDeps, private cs: ChatStore) {}
 
@@ -63,7 +87,13 @@ export class ChatEngine {
   }
 
   busy(threadId: string): boolean {
-    return this.busyThreads.has(threadId);
+    return this.inflight.has(threadId);
+  }
+
+  /** The in-flight turn of a thread, if any. */
+  pending(threadId: string): ChatPending | undefined {
+    const p = this.inflight.get(threadId);
+    return p && { ...p };
   }
 
   private resolveLlm(): LLM {
@@ -73,41 +103,64 @@ export class ChatEngine {
     return llm;
   }
 
-  async send(threadId: string, text: string, _o?: { by?: string }): Promise<ChatMessage> {
-    if (!this.cs.getThread(threadId)) throw new Error(`no such thread: ${threadId}`);
-    if (this.busyThreads.has(threadId)) throw new ChatBusyError(threadId);
-    this.busyThreads.add(threadId);
+  /** Record + emit progress. Never throws: a progress event must not break a turn. */
+  private progress(threadId: string, phase: ChatPhase, o: { tool?: string; turn?: number } = {}): void {
+    if (phase === 'thinking' || phase === 'tool') {
+      const cur = this.inflight.get(threadId);
+      if (cur) this.inflight.set(threadId, { since: cur.since, phase, ...o });
+    }
     try {
-      this.cs.addMessage({ threadId, role: 'user', content: text });
-      return await this.runTurn(threadId);
-    } finally {
-      this.busyThreads.delete(threadId);
+      this.deps.store.appendEvent('', null, 'chat_progress', { threadId, phase, ...o });
+    } catch {
+      /* store closed during shutdown */
     }
   }
 
-  private async runTurn(threadId: string): Promise<ChatMessage> {
-    const tools = chatTools(this.deps);
-    const byName = new Map(tools.map((t) => [t.schema.name, t]));
-    const system = `${chatSystemPrompt(this.deps)}\n\n${stateSnapshot(this.deps)}`;
-    const messages: LLMMessage[] = this.cs
-      .messages(threadId, { limit: HISTORY })
-      .map((m) => ({ role: m.role, content: m.content }));
-    const actions: ChatAction[] = [];
-    const ctx: ToolContext = {
-      taskId: `chat:${threadId}`,
-      goalId: '',
-      workspace: this.deps.workRoot ?? '',
-      persona: 'chat',
-      signal: new AbortController().signal,
-      acceptance: [],
-      progress: () => {},
-    };
+  async send(threadId: string, text: string, _o?: { by?: string }): Promise<ChatMessage> {
+    if (this.stopped) throw new Error('chat is shutting down');
+    if (!this.cs.getThread(threadId)) throw new Error(`no such thread: ${threadId}`);
+    if (this.inflight.has(threadId)) throw new ChatBusyError(threadId);
+    this.inflight.set(threadId, { since: Date.now(), phase: 'thinking', turn: 1 });
+    let phase: ChatPhase = 'error';
+    try {
+      this.cs.addMessage({ threadId, role: 'user', content: text });
+      this.progress(threadId, 'thinking', { turn: 1 });
+      const { message, ok } = await this.runTurn(threadId);
+      if (ok) phase = 'done';
+      return message;
+    } finally {
+      this.inflight.delete(threadId);
+      // stop() already emitted the terminal phase for an abandoned turn.
+      if (!this.abandoned.delete(threadId)) this.progress(threadId, phase);
+    }
+  }
 
+  private async runTurn(threadId: string): Promise<{ message: ChatMessage; ok: boolean }> {
+    const actions: ChatAction[] = [];
+    const ctrl = new AbortController();
+    const gone = () => this.abandoned.has(threadId);
     let reply = '';
+    let ok = true;
     let lastText = '';
     try {
+      const tools = chatTools(this.deps);
+      const byName = new Map(tools.map((t) => [t.schema.name, t]));
+      const system = `${chatSystemPrompt(this.deps)}\n\n${stateSnapshot(this.deps)}`;
+      const messages: LLMMessage[] = this.cs
+        .messages(threadId, { limit: HISTORY })
+        .map((m) => ({ role: m.role, content: m.content }));
+      const ctx: ToolContext = {
+        taskId: `chat:${threadId}`,
+        goalId: '',
+        workspace: this.deps.workRoot ?? '',
+        persona: 'chat',
+        signal: ctrl.signal,
+        acceptance: [],
+        progress: () => {},
+      };
       const llm = this.resolveLlm();
-      for (let i = 0; i < MAX_LLM_CALLS; i++) {
+      for (let i = 0; i < MAX_LLM_CALLS && !gone(); i++) {
+        if (i > 0) this.progress(threadId, 'thinking', { turn: i + 1 });
         const resp = await llm.chat({ system, messages: [...messages], tools: tools.map((t) => t.schema), maxTokens: 2048 });
         if (resp.content) lastText = resp.content;
         const calls = resp.toolCalls ?? [];
@@ -117,6 +170,9 @@ export class ChatEngine {
         }
         messages.push({ role: 'assistant', content: resp.content, toolCalls: calls });
         for (const c of calls) {
+          // Never start a tool (it may send a text) after a restart abandoned this turn.
+          if (gone()) break;
+          this.progress(threadId, 'tool', { tool: c.name, turn: i + 1 });
           let result: ToolResult;
           const tool = byName.get(c.name);
           if (!tool) {
@@ -137,8 +193,48 @@ export class ChatEngine {
         }
       }
     } catch (e: any) {
-      reply = `⚠ ${e?.message ?? String(e)}`;
+      reply = errorReply(e);
+      ok = false;
     }
-    return this.cs.addMessage({ threadId, role: 'assistant', content: reply, actions });
+    if (gone()) {
+      ctrl.abort();
+      // stop() already stored the interrupted note; the store may be closed by now.
+      const now = Date.now();
+      return { ok: false, message: { id: '', threadId, role: 'assistant', content: INTERRUPTED_REPLY, actions, createdAt: now } };
+    }
+    return { ok, message: this.cs.addMessage({ threadId, role: 'assistant', content: reply, actions }) };
+  }
+
+  /** Shutdown: every in-flight turn is abandoned and gets the interrupted note now (never re-run). */
+  stop(): void {
+    this.stopped = true;
+    for (const threadId of [...this.inflight.keys()]) {
+      this.abandoned.add(threadId);
+      this.inflight.delete(threadId);
+      try {
+        this.cs.addMessage({ threadId, role: 'assistant', content: INTERRUPTED_REPLY });
+      } catch {
+        /* never block shutdown */
+      }
+      this.progress(threadId, 'error');
+    }
+  }
+
+  /**
+   * Startup: a thread whose last message is a user message from the last 15 minutes (a turn that died with
+   * the previous process) gets the interrupted note. Older unanswered ones are left alone. Returns the thread ids.
+   */
+  recoverInterrupted(now = Date.now()): string[] {
+    const out: string[] = [];
+    for (const t of this.cs.listThreads()) {
+      if (t.updatedAt < now - INTERRUPTED_WINDOW_MS) break; // most recently updated first
+      if (this.inflight.has(t.id)) continue;
+      const last = this.cs.lastMessage(t.id);
+      if (!last || last.role !== 'user' || last.createdAt < now - INTERRUPTED_WINDOW_MS) continue;
+      this.cs.addMessage({ threadId: t.id, role: 'assistant', content: INTERRUPTED_REPLY });
+      this.progress(t.id, 'error');
+      out.push(t.id);
+    }
+    return out;
   }
 }

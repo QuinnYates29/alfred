@@ -1,16 +1,26 @@
 // #/chat[/<threadId>] — chat with alfred. Threads sidebar, Markdown conversation,
 // tool-action chips, a composer (Enter sends, Shift+Enter newline) and the palette deep link
 // #/chat?ask=<text> (creates a thread and sends that text once). Replies arrive via chat_message events.
+// While a turn runs, a "thinking" bubble shows what alfred is doing. The server's `pending` (GET thread) is the
+// truth: chat_progress events and stream reconnects just refetch it, so a reopened page or a restart recovers.
 import { useEffect, useRef, useState } from 'react';
 import { api, post } from '../api.js';
-import { useResource } from '../lib/live.jsx';
+import { useLiveState, useResource } from '../lib/live.jsx';
 import { go, href, useRoute } from '../lib/router.js';
 import { timeAgo } from '../lib/format.js';
 import { Button, Empty, Icon, Markdown, Menu, useAction, useToast } from '../ui/index.jsx';
 import { threadTitle } from './home/model.js';
 import './Chat.css';
 
-const msgMatches = (threadId) => (ev) => ev.kind === 'chat_message' && ev.data?.threadId === threadId;
+const msgMatches = (threadId) => (ev) =>
+  (ev.kind === 'chat_message' || ev.kind === 'chat_progress') && ev.data?.threadId === threadId;
+
+/** What the thinking bubble says for a server `pending` ({phase, tool?, turn?}); null = just sent. */
+export function thinkingLabel(p) {
+  if (p?.phase === 'tool' && p.tool) return `using ${p.tool.replace(/_/g, ' ')}…`;
+  if (p?.phase === 'thinking' && p.turn > 1) return 'writing reply…';
+  return 'thinking…';
+}
 
 function ActionChips({ actions }) {
   const [open, setOpen] = useState(null);
@@ -52,12 +62,16 @@ function Message({ m }) {
   );
 }
 
-function Typing() {
+function Typing({ pending }) {
+  const label = thinkingLabel(pending);
   return (
-    <div className="chat-msg agent" data-testid="chat-typing">
+    <div className="chat-msg agent chat-thinking" data-testid="chat-typing" data-phase={pending?.phase ?? 'thinking'} role="status" aria-live="polite">
       <span className="chat-face"><Icon name="sparkles" size={14} /></span>
       <div className="chat-body">
-        <div className="chat-bubble chat-dots"><i /><i /><i /></div>
+        <div className="chat-bubble chat-thinking-bubble">
+          <span className="chat-dots" aria-hidden="true"><i /><i /><i /></span>
+          <span className="chat-thinking-label" data-testid="chat-thinking" key={label}>alfred is {label}</span>
+        </div>
       </div>
     </div>
   );
@@ -102,24 +116,37 @@ export default function Chat({ threadId }) {
   const { confirm } = useToast();
   const { query } = useRoute();
   const [draft, setDraft] = useState('');
-  const [pending, setPending] = useState(null); // threadId we are waiting on a reply for
+  // Optimistic "thinking" from the moment Enter is pressed until the thread shows the new message.
+  const [sent, setSent] = useState(null); // { threadId, count } | null
   const sendingRef = useRef(false);
   const askedRef = useRef(null);
   const listRef = useRef(null);
 
   const threads = useResource('/api/chat/threads', { on: ['chat_message'] });
   const convo = useResource(threadId ? `/api/chat/threads/${threadId}` : null, { on: msgMatches(threadId) });
+  const data = convo.data?.thread?.id === threadId ? convo.data : null;
 
-  // Stop "typing" when the reply has landed (or the thread changed).
-  useEffect(() => { setPending(null); }, [threadId]);
+  // The optimistic state ends once the server has our message (from then on `pending` is the truth).
   useEffect(() => {
-    const list = convo.data?.messages;
-    if (pending && list?.length && list[list.length - 1].role === 'assistant') setPending(null);
-  }, [convo.data, pending]);
+    if (sent && data && data.thread.id === sent.threadId && data.messages.length > sent.count) setSent(null);
+  }, [data, sent]);
+
+  // After the live stream reconnects (e.g. alfred restarted) refetch: a turn that died is no longer pending.
+  const live = useLiveState();
+  const wasOpen = useRef(true);
+  const reloadRef = useRef(convo.reload);
+  reloadRef.current = convo.reload;
+  useEffect(() => {
+    if (live === 'open' && !wasOpen.current) void reloadRef.current();
+    wasOpen.current = live === 'open';
+  }, [live]);
+
+  const inflight = data?.pending ?? null;
+  const thinking = !!threadId && (sent?.threadId === threadId || !!inflight);
 
   const send = async (raw) => {
     const text = String(raw ?? draft).trim();
-    if (!text || sendingRef.current) return;
+    if (!text || sendingRef.current || (thinking && raw == null)) return;
     sendingRef.current = true;
     setDraft('');
     try {
@@ -130,8 +157,12 @@ export default function Chat({ threadId }) {
         id = t.id;
         go(`/chat/${id}`);
       }
-      setPending(id);
-      await act(() => post(`/api/chat/threads/${id}/messages`, { text }));
+      setSent({ threadId: id, count: id === threadId ? (data?.messages.length ?? 0) : 0 });
+      const ok = await act(() => post(`/api/chat/threads/${id}/messages`, { text }));
+      if (!ok) {
+        setSent(null);
+        setDraft((d) => d || text); // don't lose what was typed
+      }
     } finally {
       sendingRef.current = false;
     }
@@ -148,10 +179,10 @@ export default function Chat({ threadId }) {
   }, [query.ask]);
 
   // Keep the newest message in view.
-  const messages = convo.data?.messages ?? [];
+  const messages = data?.messages ?? [];
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-  }, [messages.length, pending]);
+  }, [messages.length, thinking]);
 
   const removeThread = async (t) => {
     if (!(await confirm({ title: `Delete "${t.title}"?`, body: 'The whole conversation goes with it.', danger: true, ok: 'Delete' }))) return;
@@ -167,19 +198,21 @@ export default function Chat({ threadId }) {
           {threadId ? (
             <>
               {messages.map((m) => <Message m={m} key={m.id} />)}
-              {!messages.length && pending !== threadId && <Empty icon="chat" title="Say something to alfred." />}
-              {pending === threadId && <Typing />}
+              {!messages.length && !thinking && <Empty icon="chat" title="Say something to alfred." />}
+              {thinking && <Typing pending={inflight} />}
             </>
           ) : (
             <Empty icon="sparkles" title="New chat">Ask alfred about goals, the board, models — anything. Enter sends.</Empty>
           )}
         </div>
-        <div className="chat-composer">
+        <div className={`chat-composer ${thinking ? 'busy' : ''}`} data-testid="chat-composer" aria-busy={thinking}>
           <textarea
             data-testid="chat-input"
             className="input chat-input"
             rows={1}
-            placeholder="Ask alfred anything… (Enter to send, Shift+Enter for a newline)"
+            placeholder={thinking
+              ? 'alfred is replying… (you can type the next message)'
+              : 'Ask alfred anything… (Enter to send, Shift+Enter for a newline)'}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -193,8 +226,9 @@ export default function Chat({ threadId }) {
             variant="primary"
             icon="send"
             data-testid="chat-send"
-            aria-label="Send"
-            disabled={!draft.trim()}
+            aria-label={thinking ? 'alfred is replying' : 'Send'}
+            title={thinking ? 'alfred is replying…' : undefined}
+            disabled={!draft.trim() || thinking}
             onClick={() => void send()}
           />
         </div>

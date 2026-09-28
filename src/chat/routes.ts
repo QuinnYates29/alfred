@@ -34,7 +34,7 @@ export function chatRouter(engine: ChatEngine, cs: ChatStore): Router {
   r.get('/chat/threads/:id', (req, res) => {
     const thread = engine.getThread(req.params.id);
     if (!thread) return void res.status(404).json({ error: `no such thread: ${req.params.id}` });
-    res.json({ thread, messages: cs.messages(thread.id) });
+    res.json({ thread, messages: cs.messages(thread.id), pending: engine.pending(thread.id) ?? null });
   });
 
   r.delete('/chat/threads/:id', (req, res) => {

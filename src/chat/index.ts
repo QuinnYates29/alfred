@@ -12,6 +12,10 @@ export function createChatModule(deps: ModuleDeps): AlfredModule {
     name: 'chat',
     router: chatRouter(engine, cs),
     tools: [],
+    // A turn that died with the previous process gets an "interrupted" note (never re-run).
+    start: () => void engine.recoverInterrupted(),
+    // In-flight turns are abandoned with the same note before the store closes.
+    stop: () => engine.stop(),
   };
   (mod as any).chat = engine;
   return mod;
