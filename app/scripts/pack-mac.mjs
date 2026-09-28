@@ -29,7 +29,15 @@ function makeIcns(png, out) {
 execFileSync(process.execPath, [join(APP, 'scripts', 'build-node.mjs')], { stdio: 'inherit' });
 const icns = join(APP, 'assets', 'icon.icns');
 if (!existsSync(icns)) makeIcns(join(APP, 'assets', 'icon.png'), icns);
-if (!existsSync(join(APP, 'cli', 'alfred.mjs'))) console.warn('note: app/cli/alfred.mjs missing (root `npm run build:cli`): "Install command-line tool…" will say so');
+// The CLI (P19): the repo's single-file bundle, shipped in the app for "Install command-line tool…".
+const ROOT = resolve(APP, '..');
+try {
+  execFileSync('npm', ['run', '--silent', 'build:cli'], { cwd: ROOT, stdio: 'inherit' });
+  mkdirSync(join(APP, 'cli'), { recursive: true });
+  copyFileSync(join(ROOT, 'dist', 'alfred.mjs'), join(APP, 'cli', 'alfred.mjs'));
+} catch (e) {
+  console.warn(`note: could not build the CLI (${e?.message ?? e}); "Install command-line tool…" will say so`);
+}
 
 // 2. Alfred.app. Only what the app needs at runtime (no runtime npm deps: node_modules stays out).
 const KEEP = /^\/(package\.json|src|assets|node|cli)(\/|$)/;
