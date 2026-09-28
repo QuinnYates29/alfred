@@ -83,15 +83,15 @@ describe('quick add', () => {
       async request(method: string, path: string, body: any) {
         calls.push({ method, path, body });
         if (path === '/api/v1/items') return { key: 'ALF-7' };
-        if (path === '/api/v1/dispatch') return { persona: 'alfred', goal: { slug: 'g-1' } };
+        if (path === '/api/v1/goals') return { goal: { slug: 'g-1' } };
         if (path === '/api/v1/chat') return { reply: { content: 'y'.repeat(300) } };
         throw new Error('boom');
       },
     };
     expect(await submitQuick('Buy milk #home !!', api)).toBe('Created ALF-7');
     expect(calls[0].body).toEqual({ title: 'Buy milk', labels: ['home'], priority: 'high' });
-    expect(await submitQuick('! do the thing', api)).toBe('Started alfred → g-1');
-    expect(calls[1]).toEqual({ method: 'POST', path: '/api/v1/dispatch', body: { text: '! do the thing', source: 'mac-quick' } });
+    expect(await submitQuick('! do the thing', api)).toBe('Started goal g-1');
+    expect(calls[1].body).toEqual({ title: 'do the thing', persona: 'alfred', spec: 'do the thing' });
     expect((await submitQuick('? hi', api)).length).toBe(200);
     expect(await submitQuick('', api)).toMatch(/^⚠/);
     const failing = { request: async () => { throw new Error('offline'); } };

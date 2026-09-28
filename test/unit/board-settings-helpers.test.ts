@@ -19,7 +19,7 @@ describe('validateBoard', () => {
 
 describe('boardPatch', () => {
   it('trims names and maps empty wip to null', () => {
-    const p = boardPatch({
+    const p: any = boardPatch({
       name: '  My board ',
       columns: [col('a', '  To do  ', { wip: '' }), col('b', 'Doing', { wip: '3' })],
       fields: [fld('f1', ' Effort ')],
@@ -34,7 +34,7 @@ describe('boardPatch', () => {
   });
 
   it('keeps options only for select fields and sends moveTo when columns were removed', () => {
-    const p = boardPatch({
+    const p: any = boardPatch({
       name: 'B',
       columns: [col('a', 'A')],
       fields: [

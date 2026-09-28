@@ -1,0 +1,51 @@
+(node:42) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:55) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ RUN  v5.0.1 /home/quinna/repos/alfred-wt/D1
+
+(node:97) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | test/acceptance/p18/app.test.ts
+[plugin builtin-sinks] slack not configured
+
+ ❯ test/acceptance/p18/app.test.ts (6 tests | 6 skipped) 251ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/acceptance/p18/app.test.ts [ test/acceptance/p18/app.test.ts ]
+Error: electron.launch: Process failed to launch!
+Call log:
+[2m  - <launching> /home/quinna/repos/alfred-wt/D1/app/node_modules/electron/dist/electron --inspect=0 --remote-debugging-port=0 --no-sandbox --disable-gpu /home/quinna/repos/alfred-wt/D1/app[22m
+[2m  - <launched> pid=109[22m
+[2m  - [pid=109][err] Debugger listening on ws://127.0.0.1:43607/ecb1502f-99b2-4c6e-9055-1a1b5e707f71[22m
+[2m  - [pid=109][err] For help, see: https://nodejs.org/learn/getting-started/debugging[22m
+[2m  - <ws connecting> ws://127.0.0.1:43607/ecb1502f-99b2-4c6e-9055-1a1b5e707f71[22m
+[2m  - <ws connected> ws://127.0.0.1:43607/ecb1502f-99b2-4c6e-9055-1a1b5e707f71[22m
+[2m  - [pid=109][err] Debugger attached.[22m
+[2m  - [pid=109][err] [109:0928/124110.323276:ERROR:ui/ozone/platform/x11/ozone_platform_x11.cc:257] Missing X server or $DISPLAY[22m
+[2m  - [pid=109][err] [109:0928/124110.323336:ERROR:ui/aura/env.cc:246] The platform failed to initialize.  Exiting.[22m
+[2m  - <ws disconnected> ws://127.0.0.1:43607/ecb1502f-99b2-4c6e-9055-1a1b5e707f71 code=1005 reason=[22m
+[2m  - [pid=109] <kill>[22m
+[2m  - [pid=109] <will force kill>[22m
+[2m  - [pid=109] <process did exit: exitCode=null, signal=SIGTRAP>[22m
+[2m  - [pid=109] starting temporary directories cleanup[22m
+[2m  - [pid=109] finished temporary directories cleanup[22m
+
+ ❯ test/acceptance/p18/app.test.ts:103:9
+    101|   require('node:fs').mkdirSync(cfg, { recursive: true });
+    102|   writeFileSync(join(cfg, 'settings.json'), JSON.stringify({ url: alfr…
+    103|   app = await electron.launch({
+       |         ^
+    104|     executablePath: join(APP, 'node_modules/electron/dist/electron'),
+    105|     args: ['--no-sandbox', '--disable-gpu', APP],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 skipped (6)
+   Start at  12:41:08
+   Duration  1.93s (transform 59%, import 27%, tests 14%)
+

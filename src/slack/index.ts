@@ -101,7 +101,8 @@ export function createSlackModule(deps: ModuleDeps): AlfredModule {
         const st = (e.data as any)?.status;
         if (st === 'done' || st === 'failed') finish(st);
       });
-      const timer = setTimeout(() => finish('failed'), FOLLOW_TTL_MS);
+      // After 24 h stop listening (no completion is reported — we simply forget the run).
+      const timer = setTimeout(() => { if (!settled) { settled = true; unsub(); } }, FOLLOW_TTL_MS);
       if (typeof timer.unref === 'function') timer.unref();
     },
     dashboardUrl: deps.dashboardUrl,

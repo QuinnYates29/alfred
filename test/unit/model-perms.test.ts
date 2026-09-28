@@ -19,7 +19,6 @@ import { parseQwenExtra, parseQwenSetting, runQwenctl, validateQwenExtra } from 
 import { makeCtx } from '../../src/ops/exec.js';
 import { ChatEngine } from '../../src/chat/engine.js';
 import { openChatStore } from '../../src/chat/store.js';
-// @ts-expect-error — plain JS module from the web app
 import { joinRows, parseExtra, rowError } from '../../web/src/lib/qwenFlags.js';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'alfred-perm-'));

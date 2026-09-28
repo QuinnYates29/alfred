@@ -30,7 +30,7 @@
     busy = true;
     q.disabled = true;
     const v = q.value.trim();
-    line.textContent = v.startsWith('?') ? 'Asking…' : v.startsWith('!') && !v.startsWith('!!') ? 'Running…' : 'Adding…';
+    line.textContent = v.startsWith('?') ? 'Asking…' : /^!(?![\s!])/.test(v) ? 'Running…' : 'Adding…';
     let r;
     try { r = await window.alfredNative.quickSubmit(q.value); } catch (err) { r = '⚠ ' + err.message; }
     line.textContent = r;
