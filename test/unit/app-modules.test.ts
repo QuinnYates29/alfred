@@ -137,6 +137,6 @@ describe('node argv', () => {
     expect(wsUrl('https://gx10.tail.ts.net:8443/')).toBe('wss://gx10.tail.ts.net:8443');
     expect(wsUrl('http://127.0.0.1:8790')).toBe('ws://127.0.0.1:8790');
     const args = nodeArgs({ url: 'https://h:8443', token: 'T', node: { name: 'mac', roots: ['/a', '/b'], dsh: true } }, '/x/alfred-node.mjs');
-    expect(args).toEqual(['/x/alfred-node.mjs', '--server', 'wss://h:8443', '--token', 'T', '--name', 'mac', '--root', '/a', '--root', '/b', '--dsh']);
+    expect(args).toEqual(['/x/alfred-node.mjs', '--server', 'wss://h:8443', '--name', 'mac', '--root', '/a', '--root', '/b', '--dsh']);
   });
 });

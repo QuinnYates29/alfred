@@ -21,7 +21,6 @@ function nodeArgs(settings, script = SCRIPT) {
   return [
     script,
     '--server', wsUrl(settings.url),
-    '--token', settings.token,
     '--name', n.name || 'macbook',
     ...(n.roots || []).flatMap((r) => ['--root', r]),
     ...(n.dsh ? ['--dsh'] : []),
@@ -71,7 +70,8 @@ function createNodeRunner(o = {}) {
     let c;
     try {
       c = spawn(execPath, nodeArgs(s, script), {
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        // The token goes in the environment, not argv: argv is visible to every process via `ps`.
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ALFRED_TOKEN: s.token },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (e) {
