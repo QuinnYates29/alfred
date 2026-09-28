@@ -51,7 +51,7 @@ async function world(o: { withBoard?: boolean; env?: Record<string, string> } = 
     send: async (threadId: string, text: string) => { sent.push({ threadId, text }); return { id: 'm', threadId, role: 'assistant', content: `echo:${text}`, actions: [], createdAt: 0 }; },
   };
   const deps: ModuleDeps = {
-    store, registry: new ToolRegistry(), env: o.env ?? { SLACK_BOT_TOKEN: 'xoxb-1', SLACK_APP_TOKEN: 'xapp-1', SLACK_CHANNEL: 'C1' },
+    store, registry: new ToolRegistry(), env: o.env ?? { SLACK_BOT_TOKEN: 'xoxb-1', SLACK_APP_TOKEN: 'xapp-1', SLACK_CHANNEL: 'C1', SLACK_ALLOWED_USERS: 'U1, U9' },
     repoRoot: process.cwd(), personasDir: 'personas', workRoot: '/tmp/w', nodes: {} as any, repoHub: {} as any, deckState: { url: null },
     extra: { fetch: fetchFn, WebSocket, slackApi: 'https://slack.test/api', slackBackoffMs: [30, 30] },
     modules: { chat: { name: 'chat', chat } as any }, personas: new Map(),
@@ -111,6 +111,16 @@ describe('socket mode', () => {
     w.envelope('interactive', { type: 'block_actions', user: { id: 'U1' }, response_url: 'https://hooks.test/r2', actions: [{ action_id: 'deny', value: 'nope' }] });
     await until(() => w.posted.some(p => p.url === 'https://hooks.test/r2'));
     expect(w.posted.find(p => p.url === 'https://hooks.test/r2')!.body.text).toContain('⚠');
+
+    // a Slack user not in SLACK_ALLOWED_USERS cannot approve; the refusal names their id
+    const t2 = w.store.createTask({ goalId: g.id, persona: 'coder', title: 'text mom' });
+    w.store.claim(t2.id, 'w', 60_000);
+    w.store.transition(t2.id, 'blocked', { reason: 'approval needed', by: 'w' });
+    const ap2 = w.store.requestApproval(t2.id, 'message', 'message to Mom');
+    w.envelope('interactive', { type: 'block_actions', user: { id: 'U666', username: 'mallory' }, response_url: 'https://hooks.test/r3', actions: [{ action_id: 'approve', value: ap2.id }] });
+    await until(() => w.posted.some(p => p.url === 'https://hooks.test/r3'));
+    expect(w.posted.find(p => p.url === 'https://hooks.test/r3')!.body.text).toContain('U666');
+    expect(w.store.approvals({ status: 'pending' }).some(x => x.id === ap2.id)).toBe(true);
   });
 
   it('handles /alfred status, inbox, add and free text', async () => {
