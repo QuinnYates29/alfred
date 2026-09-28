@@ -5,7 +5,8 @@ const pad = (n) => String(n).padStart(2, '0');
 const isoLocal = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
 /**
- * `! text` → goal · `? text` → ask · otherwise an item with inline #label, !!/!!! and @today/@tomorrow/@YYYY-MM-DD.
+ * `! …` → run (D1: dispatch an agent — `!<persona> <prompt>`) · `? …` → ask · otherwise an item
+ * with inline #label, !!/!!! and @today/@tomorrow/@YYYY-MM-DD.
  * @param {string} text
  * @param {Date} [now]
  */
@@ -13,10 +14,9 @@ function parseQuick(text, now = new Date()) {
   const t = String(text ?? '').trim();
   if (!t) return { kind: 'none' };
 
-  const goal = /^!(?!!)\s*([\s\S]*)$/.exec(t);
-  if (goal) {
-    const title = goal[1].trim();
-    return title ? { kind: 'goal', title } : { kind: 'none' };
+  const run = /^!(?!!)\s*([\s\S]*)$/.exec(t);
+  if (run) {
+    return run[1].trim() ? { kind: 'run', text: t } : { kind: 'none' };
   }
   const ask = /^\?\s*([\s\S]*)$/.exec(t);
   if (ask) {
@@ -45,14 +45,14 @@ function parseQuick(text, now = new Date()) {
   return out;
 }
 
-/** Parse + submit; returns the result line (`Created ALF-3`, `Started goal <slug>`, the reply, or `⚠ …`). */
+/** Parse + submit; returns the result line (`Created ALF-3`, `Started coder → <slug>`, the reply, or `⚠ …`). */
 async function submitQuick(text, api) {
   const q = parseQuick(text);
   try {
     if (q.kind === 'none') return '⚠ nothing to add';
-    if (q.kind === 'goal') {
-      const r = await api.request('POST', '/api/v1/goals', { title: q.title, persona: 'alfred', spec: q.title });
-      return `Started goal ${r?.goal?.slug ?? r?.goal?.id ?? q.title}`;
+    if (q.kind === 'run') {
+      const r = await api.request('POST', '/api/v1/dispatch', { text: q.text, source: 'mac-quick' });
+      return `Started ${r?.persona ?? 'alfred'} → ${r?.goal?.slug ?? r?.goal?.id ?? ''}`.trim();
     }
     if (q.kind === 'ask') {
       const r = await api.request('POST', '/api/v1/chat', { text: q.text }, { timeoutMs: 180_000 });

@@ -116,6 +116,7 @@ export default function Chat({ threadId }) {
   const { confirm } = useToast();
   const { query } = useRoute();
   const [draft, setDraft] = useState('');
+  const [notice, setNotice] = useState(null); // D1: local "Started <persona> → <goal>" line
   // Optimistic "thinking" from the moment Enter is pressed until the thread shows the new message.
   const [sent, setSent] = useState(null); // { threadId, count } | null
   const sendingRef = useRef(false);
@@ -147,6 +148,20 @@ export default function Chat({ threadId }) {
   const send = async (raw) => {
     const text = String(raw ?? draft).trim();
     if (!text || sendingRef.current || (thinking && raw == null)) return;
+    // D1 — a message starting with a single `!` dispatches an agent run instead of chatting.
+    if (/^!(?!!)/.test(text)) {
+      sendingRef.current = true;
+      setDraft('');
+      try {
+        const r = await api('/api/v1/dispatch', { method: 'POST', body: { text } });
+        setNotice(r?.goal ? { persona: r.persona ?? 'alfred', id: r.goal.id, title: r.goal.title } : { err: 'dispatch failed' });
+      } catch (e) {
+        setNotice({ err: e?.message ?? String(e) });
+      } finally {
+        sendingRef.current = false;
+      }
+      return;
+    }
     sendingRef.current = true;
     setDraft('');
     try {
@@ -203,6 +218,18 @@ export default function Chat({ threadId }) {
             </>
           ) : (
             <Empty icon="sparkles" title="New chat">Ask alfred about goals, the board, models — anything. Enter sends.</Empty>
+          )}
+          {notice && (
+            <div className="chat-msg agent" data-testid="chat-dispatch-notice">
+              <span className="chat-face"><Icon name="zap" size={14} /></span>
+              <div className="chat-body">
+                <div className="chat-bubble">
+                  {notice.err
+                    ? `⚠ ${notice.err}`
+                    : <>Started {notice.persona} → <a href={href(`/goal/${notice.id}`)}>{notice.title}</a></>}
+                </div>
+              </div>
+            </div>
           )}
         </div>
         <div className={`chat-composer ${thinking ? 'busy' : ''}`} data-testid="chat-composer" aria-busy={thinking}>

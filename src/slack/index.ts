@@ -6,6 +6,9 @@ import { handleInteractive, handleSlash, handleEvent, type HandlerCtx } from './
 import { createSlackApi } from './slackApi.js';
 import { openThreadMap, type ChatLike } from './threadMap.js';
 import { slackRouter } from './routes.js';
+import { dispatchPrompt, parseDispatch } from '../dispatch.js';
+
+const FOLLOW_TTL_MS = 24 * 60 * 60 * 1000;
 
 const DEFAULT_BACKOFF = [1000, 5000, 30000];
 
@@ -69,6 +72,39 @@ export function createSlackModule(deps: ModuleDeps): AlfredModule {
     enqueueFor,
     setError,
     allowedUsers: new Set((deps.env.SLACK_ALLOWED_USERS ?? '').split(',').map((u) => u.trim()).filter(Boolean)),
+    // D1 — deps.personas is filled after modules are created: read it lazily, at call time.
+    personaNames: () => [...deps.personas.keys()],
+    dispatch: (text) => {
+      const parsed = parseDispatch(text, [...deps.personas.keys()]);
+      if (!parsed) throw new Error('nothing to dispatch');
+      const out = dispatchPrompt(deps.store, deps.personas, { ...parsed, source: 'slack' });
+      return { goalId: out.goal.id, slug: out.goal.slug, title: out.goal.title, persona: out.persona };
+    },
+    follow: (goalId, onDone) => {
+      let settled = false;
+      const finish = (status: string) => {
+        if (settled) return;
+        settled = true;
+        unsub();
+        clearTimeout(timer);
+        let summary = '';
+        for (const t of deps.store.listTasks(goalId)) {
+          if (!t.parentTaskId) {
+            summary = t.result ?? t.reason ?? '';
+            break;
+          }
+        }
+        onDone(status, summary.slice(0, 1500));
+      };
+      const unsub = deps.store.onEvent((e) => {
+        if (e.goalId !== goalId || e.kind !== 'goal_status') return;
+        const st = (e.data as any)?.status;
+        if (st === 'done' || st === 'failed') finish(st);
+      });
+      const timer = setTimeout(() => finish('failed'), FOLLOW_TTL_MS);
+      if (typeof timer.unref === 'function') timer.unref();
+    },
+    dashboardUrl: deps.dashboardUrl,
   };
 
   const onEnvelope = (env: { envelope_id?: string; type?: string; payload?: any }) => {
