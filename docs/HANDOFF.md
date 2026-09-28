@@ -3,12 +3,11 @@
 ## RESUME HERE (2026-09-27 22:15) — orchestrator state
 **Live:** alfred user service restarted on master (22:0x). Slack configured + connected (SLACK_* in ~/.config/alfred.env, allowlist set).
 tailscale serve https:8443 → :8790 is up (Quinn ran it). Mac node `macbook` connected (roots ~/code). ALFRED_DASHBOARD_URL set.
-**Merged on master:** scaffold, P17a shell+skins, P13 board API, P14 ops, P15 review, P16 chat, P17c goals UI, P17e system UI, P20 slack (+allowlist).
+**Merged on master:** scaffold, P17a shell+skins, P13 board API, P14 ops, P15 review, P16 chat, P17b board UI, P17c goals UI, P17e system UI, P20 slack (+allowlist), P21a powers (Claude), P18 mac app (Claude; zip app/dist/Alfred-mac-arm64.zip, no CLI bundled until P19).
 Orchestrator fixes tonight: useResource stale-route race; Services render loop; phone layouts; restart hang (server.close waited on SSE → closeAllConnections + 10 s hard exit);
 SSE flush on open (tailscale serve held the stream 15 s); Mac node/CLI shim run node+tsx directly (launchd PATH / nvm); headless Chromium kept off NVIDIA (Mesa/lavapipe env).
-**Running (Qwen):** P17b board UI (attempt 3), P17d home/inbox/chat UI (attempt 3), P19 CLI (attempt 2).
-**Claude subagents (22:20, worktrees ~/repos/alfred-wt/P21a + P18):** P21a powers (branch p21a-platform), P18 mac app (branch p18-app). Verify diff scope + run check, then merge like Qwen phases.
-**Queue:** P21b comms (needs P21a) → Claude subagent.
+**Running:** Qwen P17d home/inbox/chat UI, Qwen P19 CLI (attempt 3; 1 test left after attempt 2); Claude subagent P21b comms (worktree ~/repos/alfred-wt/P21b).
+**Queue:** empty. After P19 merges: `npm run build:cli`, copy to app/cli/alfred.mjs, re-run `npm --prefix app run pack:mac`.
 **Known UI gap:** Inbox is still the legacy P5 view (old styling) until P17d merges; then delete web/src/legacy.
 **Final steps:** screenshots in all skins, delete legacy views, `npm run build:cli`, `npm --prefix app run pack:mac`, README/API docs, custom domain later.
 
