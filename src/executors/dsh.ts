@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
-import { sandboxedCommand } from '../sandbox.js';
+import { DSH_HOME_WRITABLE, sandboxedCommand } from '../sandbox.js';
 import { clampTimeoutMin, runProc, tail } from './proc.js';
 
 const OUTPUT_CAP = 8000;
@@ -81,6 +81,8 @@ export function dshTool(o: { bin?: string; defaultTimeoutMin?: number } = {}): T
         args: ['--profile', 'headless', prompt],
         cwd: ctx.workspace,
         readonly: DSH_READONLY,
+        // ~/.dsh only for DSH itself (session store); run_shell never sees it
+        writable: DSH_HOME_WRITABLE.map((rel) => join(homedir(), rel)),
         timeoutMs,
         signal: ctx.signal,
         tickMs: 20_000,

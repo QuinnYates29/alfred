@@ -73,6 +73,12 @@ describe('sandboxSpawnArgs', () => {
     expect(s).toContain(`--ro-bind /dev/null ${home}/.dsh/.credentials.yaml`);
     expect(s).not.toContain(`${home}/.config`);
     expect(s).not.toContain(`${home}/.ssh`);
+    // ~/.dsh (every DSH session transcript) is not visible to a plain command…
+    expect(s).not.toContain(`--bind ${home}/.dsh ${home}/.dsh`);
+    // …only when the DSH executor asks for it (credentials still masked on top)
+    const dsh = sandboxSpawnArgs(['dsh'], { workspace: ws, home, writable: [join(home, '.dsh')] }).args.join(' ');
+    expect(dsh).toContain(`--bind ${home}/.dsh ${home}/.dsh`);
+    expect(dsh.indexOf(`--bind ${home}/.dsh `)).toBeLessThan(dsh.indexOf(`--ro-bind /dev/null ${home}/.dsh/.credentials.yaml`));
     // parents before children; the hub's ro hooks after the hub bind
     expect(s.indexOf(`--bind ${hub} `)).toBeLessThan(s.indexOf(`${hub}/p.git/hooks`));
     expect(args.slice(-6)).toEqual(['--chdir', ws, '--', 'bash', '-c', 'true']);

@@ -40,10 +40,14 @@ export const HOME_READONLY: string[] = [
  * Quinn's own builds, so an agent could poison a cached tarball/wheel that a later
  * unsandboxed build picks up. Accepted for speed (npm/pip re-downloads otherwise);
  * drop them from this list to trade speed for isolation.
- * `.dsh` is writable because DSH keeps sessions/storages/crash logs there
- * (its credentials file is masked, see HOME_MASKED).
+ * `.dsh` is NOT here: it holds every DSH session transcript, so only the DSH executor
+ * binds it (DSH_HOME_WRITABLE, passed as `writable` by executors/dsh.ts) — a plain
+ * run_shell must not be able to read Quinn's other sessions. Its credentials file stays masked.
  */
-export const HOME_WRITABLE: string[] = ['.cache', '.npm', '.dsh'];
+export const HOME_WRITABLE: string[] = ['.cache', '.npm'];
+
+/** Bound read-write only for the DSH executor (sessions/storages/crash logs live there). */
+export const DSH_HOME_WRITABLE: string[] = ['.dsh'];
 
 /** Home-relative files replaced by /dev/null even when a parent directory is bound. */
 export const HOME_MASKED: string[] = ['.dsh/.credentials.yaml'];

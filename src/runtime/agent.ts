@@ -57,6 +57,38 @@ export interface RunOpts {
 
 const CONTROL_TOOLS = new Set(['finish', 'give_up', 'ask_claude', 'spawn_subagent', 'wait_subtasks']);
 const RETRY_BACKOFF_MS = [1000, 4000];
+/** A model server that is down (crash + systemd restart ≈ 15 s + model load) gets this long before the task fails. */
+export const TRANSIENT_LLM_WINDOW_MS = 5 * 60_000;
+const TRANSIENT_BACKOFF_MS = [2000, 5000, 10_000, 20_000, 30_000];
+/** Turns-left thresholds at which the agent is told to wrap up (each once). */
+const WRAP_UP_AT = [10, 3];
+
+/** Connection-level failures (server restarting / overloaded), not model or request errors. */
+export function isTransientLlmError(e: unknown): boolean {
+  const m = `${(e as any)?.message ?? ''} ${(e as any)?.cause?.code ?? ''} ${(e as any)?.code ?? ''}`;
+  return /fetch failed|ECONNREFUSED|ECONNRESET|EPIPE|socket hang up|UND_ERR_SOCKET|other side closed|\b50[234]\b|Loading model/i.test(m);
+}
+
+export function wrapUpMessage(left: number, total: number): string {
+  return (
+    `⚠ ${left} turn${left === 1 ? '' : 's'} left of ${total}. Stop gathering. Write the deliverable the spec asks for now ` +
+    `(from what your notes already hold — do not re-read material you summarised) and call finish; ` +
+    `or call give_up naming exactly what is still missing.`
+  );
+}
+
+function sleepAbortable(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((r) => {
+    if (signal.aborted) return r();
+    const t = setTimeout(done, ms);
+    function done() {
+      clearTimeout(t);
+      signal.removeEventListener('abort', done);
+      r();
+    }
+    signal.addEventListener('abort', done, { once: true });
+  });
+}
 
 function isAbortError(e: unknown): boolean {
   return (e as { name?: string })?.name === 'AbortError';
@@ -320,6 +352,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
   /** P8: did a given tool call id fail? (for the compaction digest). */
   const failedCalls = new Set<string>();
   let nudged = false;
+  const warnedWrapUp = new Set<number>();
 
   const startedAt = Date.now();
   let turns = 0;
@@ -424,6 +457,19 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         messages.push({ role: 'user', content: nudgeMessage(Math.round((est / budget) * 100)) });
       }
 
+      // Near the turn budget: tell the agent to deliver instead of silently running out (research
+      // tasks otherwise keep gathering until "turn budget exhausted" with nothing written).
+      const left = task!.budget.turns - turns;
+      for (const w of WRAP_UP_AT) {
+        if (left <= w && left > 0 && task!.budget.turns > w * 2 && !warnedWrapUp.has(w)) {
+          warnedWrapUp.add(w);
+          for (const x of WRAP_UP_AT) if (x >= w) warnedWrapUp.add(x);
+          messages.push({ role: 'user', content: wrapUpMessage(left, task!.budget.turns) });
+          record('progress', { msg: `wrap-up warning: ${left} turns left` });
+          break;
+        }
+      }
+
       // P12(a): we own the task before every LLM call.
       if (ownershipLost()) return o.store.getTask(taskId) ?? task!;
 
@@ -448,6 +494,8 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
 
       let resp: LLMResponse | null = null;
       let lastError: unknown = null;
+      const firstTry = Date.now();
+      let transientWaits = 0;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           resp = await llmForCall().chat({
@@ -464,6 +512,18 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
             break;
           }
           lastError = e;
+          // The model server is down/restarting: wait it out (bounded) instead of failing the task.
+          if (isTransientLlmError(e) && Date.now() - firstTry < TRANSIENT_LLM_WINDOW_MS) {
+            const wait = TRANSIENT_BACKOFF_MS[Math.min(transientWaits++, TRANSIENT_BACKOFF_MS.length - 1)];
+            record('progress', { msg: `model server unreachable (${String((e as Error)?.message ?? e).slice(0, 80)}); retrying in ${Math.round(wait / 1000)}s` });
+            await sleepAbortable(wait, call.signal);
+            attempt = -1; // the loop's ++ makes it 0: transient waits don't use up the 3 normal attempts
+            if (call.signal.aborted) {
+              abortReason = abortReason ?? 'cancelled';
+              break;
+            }
+            continue;
+          }
           if (attempt < 2) await sleep(RETRY_BACKOFF_MS[attempt]);
         }
       }
