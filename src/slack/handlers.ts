@@ -154,12 +154,31 @@ export function handleEvent(ctx: HandlerCtx, event: Payload): void {
         if (placeholder && (await api.update({ channel, ts: placeholder, text: body }))) return;
         await api.postMessage({ channel, ...where, text: body });
       };
+      let unsub: (() => void) | null = null;
       try {
         const threadId = ctx.threads.resolve(key);
+        // live progress in the placeholder ("using contacts…"), like the dashboard's thinking bubble;
+        // throttled — Slack allows ~1 chat.update per second
+        let last = 0;
+        let settled = false;
+        let inflight: Promise<unknown> = Promise.resolve();
+        if (placeholder && typeof ctx.store.onEvent === 'function') {
+          unsub = ctx.store.onEvent((ev: any) => {
+            if (settled || ev.kind !== 'chat_progress' || ev.data?.threadId !== threadId || ev.data?.phase !== 'tool') return;
+            const t = Date.now();
+            if (t - last < 1500) return;
+            last = t;
+            inflight = api.update({ channel, ts: placeholder, text: `_:hourglass_flowing_sand: using ${ev.data.tool}…_` });
+          });
+        }
         const reply = await (chat as any).send(threadId, text);
+        settled = true;
+        await inflight.catch(() => {}); // a progress update must not land after the reply
         await deliver(`${toMrkdwn(String(reply?.content ?? '')) || '_(no reply)_'}${actionsFooter(reply?.actions)}`);
       } catch (e) {
         await deliver(`:warning: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        unsub?.();
       }
     };
     // turns of different conversations run side by side; one conversation stays in order
