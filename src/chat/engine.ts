@@ -1,7 +1,7 @@
 // P16 §3 — the chat engine: one LLM tool-loop per send, one reply at a time per thread.
 import type { LLM, LLMMessage, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModuleDeps } from '../modules.js';
-import { CHAT_SYSTEM_PROMPT } from './prompt.js';
+import { chatSystemPrompt } from './prompt.js';
 import { chatTools } from './tools.js';
 import type { ChatAction, ChatMessage, ChatStore, Thread } from './store.js';
 
@@ -88,7 +88,7 @@ export class ChatEngine {
   private async runTurn(threadId: string): Promise<ChatMessage> {
     const tools = chatTools(this.deps);
     const byName = new Map(tools.map((t) => [t.schema.name, t]));
-    const system = `${CHAT_SYSTEM_PROMPT}\n\n${stateSnapshot(this.deps)}`;
+    const system = `${chatSystemPrompt(this.deps)}\n\n${stateSnapshot(this.deps)}`;
     const messages: LLMMessage[] = this.cs
       .messages(threadId, { limit: HISTORY })
       .map((m) => ({ role: m.role, content: m.content }));
