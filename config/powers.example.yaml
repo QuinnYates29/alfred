@@ -1,0 +1,19 @@
+# P21 — agent powers policy. Copy to config/powers.yaml to use it.
+# Reading is free. Changing the platform, connectors, deploys, external messages and
+# calls need Quinn's approval — except what is pre-approved here.
+# Missing file (or a broken one) = everything mutating needs approval.
+#
+# Details the gate matches (exact, or a prefix ending in '*'):
+#   ops         service:<name>:<start|stop|restart>   qwen:<preset|slots|ctx|offload>=<v>
+#               config:<path> sha256=<hash>   role:<role>=<model>
+#               automation:<name>@<cron> sha256=<hash>   automation_delete:<id>
+#   connectors  connector:<name>:<add|remove>
+#   deploy      deploy:<goal slug>
+autoApprove:
+  - action: board                 # board edits never need approval (they are Quinn's own lists)
+  - action: ops
+    detail: "service:qwen-server:start"   # starting the model server is always fine
+  # - action: ops
+  #   detail: "qwen:preset=*"             # any Qwen preset switch
+  # - action: message
+  #   to: ["+15551234567", "Mom"]         # texting these contacts is pre-approved (P21b)
