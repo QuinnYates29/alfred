@@ -25,7 +25,11 @@ command -v node >/dev/null || { echo "node >= 20 required" >&2; exit 1; }
 # ws (and tsx) must exist in the repo; on a fresh clone do: cd "$REPO" && npm ci
 [[ -d "$REPO/node_modules/tsx" ]] || { echo "tsx missing: run 'npm ci' in $REPO first" >&2; exit 1; }
 
-ARGS=("$REPO/bin/alfred-node" --server "$SERVER" --name "$NAME" --token "$TOKEN")
+# Absolute node + the repo's own tsx: no npx (npx needs a login-shell PATH and trips nvm's
+# .npmrc prefix check). Re-run this script after switching node versions with nvm.
+NODE="$(command -v node)"
+TSX="$REPO/node_modules/tsx/dist/cli.mjs"
+ARGS=("$NODE" "$TSX" "$REPO/src/node/client.ts" --server "$SERVER" --name "$NAME" --token "$TOKEN")
 for r in "${ROOTS[@]}"; do ARGS+=(--root "$r"); done
 if [[ $WITH_DSH -eq 1 ]]; then
   ARGS+=(--dsh)
@@ -40,7 +44,7 @@ fi
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/alfred" <<EOF
 #!/usr/bin/env bash
-exec npx --prefix "$REPO" tsx "$REPO/src/cli.ts" "\$@"
+exec "$NODE" "$TSX" "$REPO/src/cli.ts" "\$@"
 EOF
 chmod +x "$HOME/.local/bin/alfred"
 
