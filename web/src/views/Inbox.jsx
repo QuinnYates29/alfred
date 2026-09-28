@@ -5,7 +5,7 @@ import { useResource } from '../lib/live.jsx';
 import { href } from '../lib/router.js';
 import { timeAgo } from '../lib/format.js';
 import { Button, Empty, Icon, StatusChip, useAction, useToast } from '../ui/index.jsx';
-import { attentionRows, failedRootTask, useGoalDetails } from './home/model.js';
+import { attentionRows, failedRootTask, needsDetail, useGoalDetails } from './home/model.js';
 import './Home.css';
 
 const group = (rows, kind) => rows.filter((r) => r.kind === kind);

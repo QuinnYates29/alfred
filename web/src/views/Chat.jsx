@@ -79,7 +79,9 @@ function ThreadList({ threads, current, onDelete }) {
             <div key={t.id} className={`chat-thread ${t.id === current ? 'on' : ''}`}>
               <a href={href(`/chat/${t.id}`)} onClick={() => setOpen(false)}>
                 <span className="ellipsis" style={{ display: 'block' }}>{t.title}</span>
-                <span className="xs faint ellipsis" style={{ display: 'block' }}>{t.last || '—'}</span>
+                {/* Preview deliberately shows the time, not the message text: the last
+                    message must not be duplicated outside the open conversation. */}
+                <span className="xs faint ellipsis" style={{ display: 'block' }}>{timeAgo(t.updatedAt ?? t.createdAt)}</span>
               </a>
               <Menu
                 align="right"
