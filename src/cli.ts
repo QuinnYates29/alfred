@@ -231,6 +231,8 @@ async function main(): Promise<void> {
       const bye = () => {
         if (shuttingDown) return;
         shuttingDown = true;
+        // Never hang a restart: if a module or connection stalls, exit anyway after 10 s.
+        setTimeout(() => process.exit(0), 10_000).unref();
         void a
           .stop()
           .catch(() => {})

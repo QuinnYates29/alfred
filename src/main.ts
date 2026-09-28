@@ -451,7 +451,11 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
       await scheduler.stop({ requeue: true });
       await pluginRt.teardownAll();
       await hub.close();
-      await new Promise<void>((res) => server.close(() => res()));
+      // Open SSE streams (the dashboard's live feed) never end on their own: drop every
+      // connection, or close() waits forever and systemd has to SIGKILL us after 90 s.
+      const closed = new Promise<void>((res) => server.close(() => res()));
+      server.closeAllConnections?.();
+      await closed;
       store.close();
     },
   };
