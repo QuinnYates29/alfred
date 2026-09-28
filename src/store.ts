@@ -1,7 +1,9 @@
 // P0 core store. SQLite-backed, WAL mode, BEGIN IMMEDIATE for claims.
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
+import { chmodSync, existsSync } from 'node:fs';
 import { registerApprovalStore, unregisterApprovalStore } from './approvals.js';
+import { envRedactor, type Redactor } from './redact.js';
 import {
   type Budget,
   DEFAULT_BUDGET,
@@ -319,9 +321,25 @@ function eventFromRow(r: EventRowRaw): EventRow {
   };
 }
 
-export function openStore(path: string, opts?: { now?: () => number }): Store {
+/** The DB holds transcripts and tool output: owner-only (file, -wal, -shm). */
+function lockDownDbFiles(path: string): void {
+  if (!path || path === ':memory:' || path.startsWith('file:')) return;
+  for (const f of [path, `${path}-wal`, `${path}-shm`, `${path}-journal`]) {
+    try {
+      if (existsSync(f)) chmodSync(f, 0o600);
+    } catch {
+      /* not ours to chmod (e.g. read-only mount) */
+    }
+  }
+}
+
+export function openStore(
+  path: string,
+  opts?: { now?: () => number; /** default: secrets found in process.env */ redact?: Redactor },
+): Store {
   const db = new Database(path);
   const now = opts?.now ?? (() => Date.now());
+  const redact: Redactor = opts?.redact ?? envRedactor(process.env);
 
   // WAL mode where the filesystem supports it; in-memory DBs ignore this.
   try {
@@ -331,6 +349,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
   }
   db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
+  lockDownDbFiles(path);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS goals (
@@ -558,8 +577,9 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     return db.prepare(sql).all(...args) as ApprovalRow[];
   }
 
-  function emit(goalId: string, taskId: string | null, kind: string, data: any): EventRow {
+  function emit(goalId: string, taskId: string | null, kind: string, rawData: any): EventRow {
     const ts = now();
+    const data = redact(rawData);
     const info = stmts.insertEvent.run(goalId, taskId, ts, kind, JSON.stringify(data ?? null));
     const row = eventFromRow({
       id: Number(info.lastInsertRowid),
@@ -882,11 +902,11 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
 
   function appendNote(taskId: string, text: string): void {
     const t = now();
-    stmts.appendNoteStmt.run(text, t, taskId);
+    stmts.appendNoteStmt.run(redact(text), t, taskId);
   }
 
   function setResult(taskId: string, text: string): void {
-    stmts.setResultStmt.run(text, now(), taskId);
+    stmts.setResultStmt.run(redact(text), now(), taskId);
   }
 
   interface UsageAccum extends Usage {

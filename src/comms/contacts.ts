@@ -1,10 +1,11 @@
 // P21b §1 — Quinn's contacts: config/contacts.yaml ([{name, phone?, email?, imessage?, notes?}]),
 // read fresh on every call, validated and backed up on every write.
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { ModuleDeps } from '../modules.js';
 import { powersRoot } from '../powers/gate.js';
+import { backupPrivate } from '../secure-fs.js';
 import { normalizeHandle, normalizePhone } from '../node/protocol.js';
 
 export interface Contact {
@@ -98,9 +99,7 @@ export function saveContacts(deps: ModuleDeps, input: unknown): Contact[] {
   const path = contactsPath(deps);
   if (existsSync(path)) {
     const backupDir = (deps.extra?.backupDir as string | undefined) ?? join(powersRoot(deps), '.alfred-backup');
-    const bak = join(backupDir, 'config', `contacts.yaml.${Date.now()}`);
-    mkdirSync(dirname(bak), { recursive: true });
-    cpSync(path, bak);
+    backupPrivate(path, backupDir, join('config', `contacts.yaml.${Date.now()}`));
   }
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;

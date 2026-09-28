@@ -1,11 +1,12 @@
 // P14 §6 — edit personas / models / alfred.yaml over the API, safely.
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { ModuleDeps } from '../modules.js';
 import { loadPersonas } from '../runtime/personas.js';
 import { loadModels } from '../models.js';
+import { backupPrivate, writePrivateFile } from '../secure-fs.js';
 
 export const CONFIG_PATH_RE = /^(personas\/[A-Za-z0-9_.-]+\.ya?ml|config\/[A-Za-z0-9_.-]+\.(ya?ml|json))$/;
 
@@ -125,13 +126,16 @@ export function putConfigFile(
   } catch (e: any) {
     throw Object.assign(new Error(e?.message ?? String(e)), { status: 400, isValidation: true });
   }
-  if (existsSync(abs)) {
-    const bak = join(backupDir, path + '.' + Date.now());
-    mkdirSync(dirname(bak), { recursive: true });
-    cpSync(abs, bak);
+  if (containsRedaction(content)) {
+    throw Object.assign(
+      new Error('content still has «redacted» placeholders: this file holds literal secrets — edit it on disk or move them to ${ENV} references'),
+      { status: 400, isValidation: true },
+    );
   }
+  // Config may hold secrets (mcp.json headers, *.local.yaml): owner-only file and backups.
+  if (existsSync(abs)) backupPrivate(abs, backupDir, path + '.' + Date.now());
   mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, content);
+  writePrivateFile(abs, content);
   const reloaded: ('personas' | 'models')[] = [];
   const warnings: string[] = [];
   const kind = configKind(path);
@@ -148,4 +152,58 @@ export function putConfigFile(
     }
   }
   return { ok: true, path, mtime: Math.floor(statSync(abs).mtimeMs), reloaded, warnings };
+}
+
+// ---- secrets in served config ----
+// Tokens are env-only by design (config.ts), but a hand-edited mcp.json / *.local.yaml may still
+// carry literal secrets. GET /ops/config/file masks them; a PUT that still has a mask is refused
+// (it would overwrite the real secret with the placeholder).
+export const REDACTED = '«redacted»';
+const SECRET_KEY_RE = /(token|secret|password|passwd|api[_-]?key|authorization|private[_-]?key)$/i;
+// `key: value` (YAML, optionally a list item) or `"key": value` (JSON).
+const KV_RE = /^(\s*(?:-\s+)?(["']?)([A-Za-z0-9_.-]+)\2\s*:\s*)(.*?)(\s*,?\s*)$/;
+const JSON_PAIR_RE = /("([A-Za-z0-9_.-]+)"\s*:\s*)"((?:[^"\\]|\\.)*)"/g;
+const BEARER_RE = /\b(Bearer|Basic)\s+(?!\$\{)[A-Za-z0-9._~+/=-]{8,}/g;
+
+function isHarmlessValue(v: string): boolean {
+  const bare = v.replace(/^["']|["']$/g, '').trim();
+  return (
+    bare === '' ||
+    bare.includes('${') || // an env reference, resolved at load time
+    bare.startsWith('#') ||
+    /^[[{|>]/.test(bare) ||
+    /^(true|false|null|~|-?\d+(\.\d+)?)$/i.test(bare)
+  );
+}
+
+export function containsRedaction(content: string): boolean {
+  return content.includes('«redacted');
+}
+
+/** Mask literal secret values; `redactEnv` also masks values of secrets known from the env. */
+export function redactConfigContent(
+  content: string,
+  redactEnv: (s: string) => string = (s) => s,
+): { content: string; redacted: boolean } {
+  let redacted = false;
+  const lines = content.split('\n').map((line) => {
+    let out = line;
+    const m = KV_RE.exec(line);
+    if (m && SECRET_KEY_RE.test(m[3]!) && !isHarmlessValue(m[4]!)) {
+      const v = m[4]!;
+      const q = v.startsWith('"') ? '"' : v.startsWith("'") ? "'" : '';
+      out = `${m[1]}${q}${REDACTED}${q}${m[5]}`;
+    }
+    // JSON pairs anywhere on the line (inline objects: `{ "API_KEY": "…" }`).
+    out = out.replace(JSON_PAIR_RE, (all, pre: string, key: string, val: string) =>
+      SECRET_KEY_RE.test(key) && !isHarmlessValue(val) ? `${pre}"${REDACTED}"` : all);
+    out = out.replace(BEARER_RE, (_all, scheme) => `${scheme} ${REDACTED}`);
+    return out;
+  });
+  let text = lines.join('\n');
+  if (text !== content) redacted = true;
+  const envText = redactEnv(text);
+  if (envText !== text) redacted = true;
+  text = envText;
+  return { content: text, redacted };
 }

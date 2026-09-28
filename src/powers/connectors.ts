@@ -1,13 +1,14 @@
 // P21a §3 — connectors: the MCP servers alfred uses (config/mcp.json), editable by
 // Quinn (System → Connectors) and by agents (tool `connectors`, add/remove gated).
 // Every change is validated, backed up, written, then the hub reconnects live.
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import express, { type Request, type Response } from 'express';
 import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModuleDeps } from '../modules.js';
 import { loadMcpConfig, type McpServerConfig } from '../connectors/mcp.js';
 import { gated, powersRoot, sha256 } from './gate.js';
+import { backupPrivate, writePrivateFileAtomic } from '../secure-fs.js';
 
 export interface ConnectorInfo {
   name: string;
@@ -107,14 +108,11 @@ export class Connectors {
     mutate(raw.servers);
     if (existsSync(path)) {
       const backupDir = (this.deps.extra?.backupDir as string | undefined) ?? join(powersRoot(this.deps), '.alfred-backup');
-      const bak = join(backupDir, 'config', `mcp.json.${Date.now()}`);
-      mkdirSync(dirname(bak), { recursive: true });
-      cpSync(path, bak);
+      backupPrivate(path, backupDir, join('config', `mcp.json.${Date.now()}`));
     }
     mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.tmp-${process.pid}`;
-    writeFileSync(tmp, JSON.stringify(raw, null, 2) + '\n');
-    renameSync(tmp, path);
+    // mcp.json may hold connector headers/env: owner-only, atomic.
+    writePrivateFileAtomic(path, JSON.stringify(raw, null, 2) + '\n');
     await this.reload(before);
   }
 

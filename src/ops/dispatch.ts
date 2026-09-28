@@ -40,6 +40,7 @@ export function getDispatch(
   dispatchDir: string,
   name: string,
 ): { status: DispatchStatus | null; log: string[]; check: string | null } | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) return null; // no traversal out of .dispatch/
   const dir = join(dispatchDir, name);
   let statusRaw: any = null;
   try {

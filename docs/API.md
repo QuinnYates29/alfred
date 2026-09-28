@@ -2,8 +2,21 @@
 
 Base URL: `http://<host>:<port>` (default `127.0.0.1:8790`).
 Every route is served under **`/api/v1/…`**; **`/api/…` is a permanent alias** (same handlers).
-All bodies are JSON. When `ALFRED_TOKEN` is set, every `/api…` request needs
-`Authorization: Bearer <token>` or `?token=<token>` — otherwise `401 {error:"unauthorized"}`.
+All bodies are JSON. Every `/api…` request needs `Authorization: Bearer <token>`
+(`?token=<token>` still works but is deprecated: URLs leak into history/logs) — otherwise
+`401 {error:"unauthorized"}`. `alfred serve` refuses to start without `ALFRED_TOKEN`; only
+tests (`NODE_ENV=test`) or an explicit `allowNoToken` run tokenless.
+
+- **SSE tickets.** `EventSource` can't send headers: `POST /api/v1/events/ticket` (bearer) →
+  `{ticket, expiresAt}`, valid 60 s and for exactly one `GET /api/events?ticket=…` stream.
+- **Host check.** Requests whose `Host` is not loopback (`127.0.0.1`, `localhost`, `[::1]`), an IP
+  literal, the host of `ALFRED_DASHBOARD_URL`, or listed in `ALFRED_ALLOWED_HOSTS` (comma list)
+  get `421` (DNS-rebinding guard). tailscale serve forwards the browser's Host (the ts.net name),
+  so set `ALFRED_DASHBOARD_URL` (or `ALFRED_ALLOWED_HOSTS`) to it.
+- Every response carries a Content-Security-Policy (self only; the Deck origin may be framed),
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`.
+- Stored events / task notes / results have the values of secret env vars (`*TOKEN*`, `*SECRET*`,
+  `*PASSWORD*`, `*API_KEY*`, `SLACK_*`, `TWILIO_*`, ≥ 8 chars) replaced by `«redacted:NAME»`.
 
 ## Health & contract
 

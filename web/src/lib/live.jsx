@@ -6,7 +6,7 @@
 // `on` matches event kinds by prefix ('item_' matches item_created/item_moved/…), or is a predicate (ev) => boolean.
 // Refetches are debounced (150 ms) so a burst of events costs one request.
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { api, authQuery } from '../api.js';
+import { api, sseUrl } from '../api.js';
 
 const LiveCtx = createContext(null);
 
@@ -29,7 +29,18 @@ export function LiveProvider({ children }) {
         }
       }
       setState('connecting');
-      es = new EventSource(authQuery(`/api/events?since=${lastId}`));
+      let url;
+      try {
+        url = await sseUrl(`/api/events?since=${lastId}`);
+      } catch {
+        if (closed) return;
+        setState('down');
+        timer = setTimeout(connect, delay);
+        delay = Math.min(delay * 2, 10_000);
+        return;
+      }
+      if (closed) return;
+      es = new EventSource(url);
       es.onopen = () => {
         delay = 500;
         setState('open');

@@ -77,6 +77,7 @@ export default function Config({ file }) {
             <div className="row between">
               <strong className="key">{loaded.path}</strong>
               <span className="faint xs">mtime {dateTime(loaded.mtime)}</span>
+              {loaded.redacted && <span className="faint xs" data-testid="config-redacted"> · secrets masked (read-only here: edit them on disk)</span>}
             </div>
             <textarea
               data-testid="config-editor"

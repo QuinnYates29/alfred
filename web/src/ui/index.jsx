@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { sanitizeMarkdownHtml } from '../lib/sanitize.js';
 import { Icon } from './icons.jsx';
 import { initials, isAgent } from '../lib/format.js';
 
@@ -164,7 +165,7 @@ export function Menu({ trigger, items, align = 'left' }) {
 
 marked.setOptions({ gfm: true, breaks: true });
 export function Markdown({ text, className = '' }) {
-  const html = useMemo(() => DOMPurify.sanitize(marked.parse(String(text ?? ''))), [text]);
+  const html = useMemo(() => sanitizeMarkdownHtml(DOMPurify, marked.parse(String(text ?? ''))), [text]);
   return <div className={`md ${className}`} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
