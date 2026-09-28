@@ -368,6 +368,7 @@ export class NodeHub {
       const prev = this.nodes.get(name);
       if (prev && prev.ws !== ws) {
         // second connection replaces the first
+        console.log(`[nodes] ${name}: replaced by a new connection (two processes with the same --name?)`);
         this.nodes.delete(name);
         this.failPending(prev, `replaced by a new ${name} connection`);
         try {
@@ -391,8 +392,10 @@ export class NodeHub {
         misses: 0,
       };
       this.nodes.set(name, conn);
+      console.log(`[nodes] ${name}: connected (caps ${conn.caps.join(',')})`);
       ws.on('close', () => {
         if (this.nodes.get(name) !== conn) return;
+        console.log(`[nodes] ${name}: disconnected (${((Date.now() - conn.connectedAt) / 1000).toFixed(0)} s after connecting)`);
         this.nodes.delete(name);
         this.failPending(conn, 'node disconnected');
         this.emitOffline(name);
@@ -433,6 +436,7 @@ export class NodeHub {
     for (const c of [...this.nodes.values()]) {
       if (c.misses >= this.missLimit) {
         if (this.nodes.get(c.name) === c) {
+          console.log(`[nodes] ${c.name}: dropped after ${c.misses} missed heartbeats`);
           this.nodes.delete(c.name);
           this.failPending(c, 'missed heartbeats');
           try {
