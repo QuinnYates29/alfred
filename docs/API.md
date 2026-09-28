@@ -76,7 +76,7 @@ tables live with their specs:
 | Module | Routes | Spec |
 |---|---|---|
 | board | `/boards…`, `/items…` (CRUD, move, check, comments, dispatch), `/board/dispatch` | `docs/phases/P13-board.md` |
-| ops | `/stats`, `/ops/services…`, `/ops/qwen`, `/ops/logs`, `/ops/config…`, `/ops/repos`, `/ops/dispatch`, `/ops/alfred/build-web` | `docs/phases/P14-ops.md` |
+| ops | `/stats`, `/ops/services…`, `/ops/qwen`, `/ops/logs/:name`, `/ops/config…`, `/ops/repos`, `/ops/dispatch`, `/ops/alfred/build-web` | `docs/phases/P14-ops.md` |
 | review | `/goals/:id/changes`, `/goals/:id/files`, `/goals/:id/file`, `/goals/:id/merge` | `docs/phases/P15-review.md` |
 | chat | `/chat`, `/chat/threads…` | `docs/phases/P16-chat.md` |
 | slack | `/slack/status` | `docs/phases/P20-slack.md` |
