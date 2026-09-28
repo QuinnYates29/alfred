@@ -42,5 +42,5 @@ Alternative with no certificate work: keep the ts.net URL and add a redirect pag
 ## 4. Slack (later)
 Create a Slack app with Socket Mode on (no public URL needed): bot scopes `chat:write`, `commands`, `app_mentions:read`, `im:history`,
 `im:write`; an app-level token with `connections:write`; a slash command `/alfred`; event subscriptions `app_mention`, `message.im`;
-interactivity on. Put `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_CHANNEL` in `~/.config/alfred.env` and restart. Check with
+interactivity on. Put `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_CHANNEL` and `SLACK_ALLOWED_USERS` (your Slack member id, e.g. `U0123ABCD`; comma-separate several) in `~/.config/alfred.env` and restart. Anyone not listed is refused, and the refusal message shows their id, so the easy way to find yours is to DM the bot once. Check with
 `GET /api/v1/slack/status` or System → Overview.
