@@ -1,5 +1,6 @@
 // P4 §3 + P11 — the HTTP API. Every route lives under /api/v1; /api is an alias.
-// Token auth (when set): `Authorization: Bearer <token>` or `?token=`.
+// Token auth: `Authorization: Bearer <token>` or `?token=` (legacy; the web client uses
+// single-use SSE tickets instead). Tokenless only in tests / explicit allowNoToken.
 import express, { type Express, type Request, type Response } from 'express';
 import { existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -14,6 +15,9 @@ import type { ModelRegistry } from '../models.js';
 import { promptCost } from '../runtime/personas.js';
 import type { PluginRouteReg, AlfredPlugin } from '../plugins.js';
 import { createGoalWithRoot, retryTask, goalSummary } from '../ops.js';
+import { hostGuard, safeEqual, securityHeaders, TicketBook } from './security.js';
+
+export { safeEqual };
 
 export interface AppDeps {
   store: Store;
@@ -23,6 +27,10 @@ export interface AppDeps {
   personas?: Map<string, Persona>;
   registry?: ToolRegistry;
   token?: string;
+  /** Serve /api and /mcp without a token. Implied under NODE_ENV=test; never in production. */
+  allowNoToken?: boolean;
+  /** Extra hostnames accepted in the Host header (loopback and IP literals always are). */
+  allowedHosts?: string[];
   staticDir?: string;
   deckUrl?: string;
   /** P11 */
@@ -335,12 +343,23 @@ export function createApp(d: AppDeps): Express {
   const app = express();
   app.disable('x-powered-by');
 
-  if (d.token) {
-    app.use('/api', (req, res, next) => {
-      if (getToken(req) !== d.token) return res.status(401).json({ error: 'unauthorized' });
-      next();
-    });
-  }
+  // DNS-rebinding guard first, then CSP & friends on every response (dashboard + API).
+  app.use(hostGuard(d.allowedHosts ?? []));
+  app.use(securityHeaders(() => d.deckUrl));
+
+  const tokenless = !d.token && (d.allowNoToken === true || process.env.NODE_ENV === 'test');
+  const tickets = new TicketBook();
+  const isEventsPath = (p: string) => p === '/events' || p === '/v1/events';
+  app.use('/api', (req, res, next) => {
+    if (tokenless) return next();
+    if (d.token && safeEqual(getToken(req), d.token)) return next();
+    // EventSource can't send headers: a single-use ticket opens exactly one stream.
+    if (req.method === 'GET' && isEventsPath(req.path) && tickets.consume(req.query.ticket)) return next();
+    res.status(401).json({ error: d.token ? 'unauthorized' : 'server has no token configured' });
+  });
+  const issueTicket = (_req: Request, res: Response) => res.json(tickets.issue());
+  app.post('/api/v1/events/ticket', issueTicket);
+  app.post('/api/events/ticket', issueTicket);
 
   const router = buildRouter(d);
   app.use('/api/v1', router);
@@ -376,8 +395,8 @@ export function createApp(d: AppDeps): Express {
   if (d.door) {
     app.use('/mcp', express.json({ limit: '4mb' }));
     const authorize = (req: Request, res: Response): boolean => {
-      if (!d.token) return true;
-      if (getToken(req) === d.token) return true;
+      if (tokenless) return true;
+      if (d.token && safeEqual(getToken(req), d.token)) return true;
       res.status(401).json({ error: 'unauthorized' });
       return false;
     };

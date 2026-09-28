@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { authQuery } from './api.js';
+import { sseUrl } from './api.js';
 
 /**
  * One EventSource('/api/events?since=<lastId>') for the whole app.
@@ -18,10 +18,23 @@ export function useEvents(onEvent) {
     let timer = null;
     let closed = false;
 
-    const connect = () => {
+    const retry = () => {
+      if (closed) return;
+      setState('down');
+      timer = setTimeout(connect, delay);
+      delay = Math.min(delay * 2, 10_000);
+    };
+    const connect = async () => {
       if (closed) return;
       setState('connecting');
-      es = new EventSource(authQuery(`/api/events?since=${lastId}`));
+      let url;
+      try {
+        url = await sseUrl(`/api/events?since=${lastId}`);
+      } catch {
+        return retry();
+      }
+      if (closed) return;
+      es = new EventSource(url);
       es.onopen = () => {
         delay = 500;
         setState('open');

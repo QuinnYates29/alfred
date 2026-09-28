@@ -8,7 +8,8 @@ import { listServices, SERVICES } from './services.js';
 import { parseQwenExtra, parseQwenSetting, qwenHealth, qwenRunningCmdline, QWEN_LIMITS, QWEN_PRESETS, readQwenEnv, runQwenctl } from './qwen.js';
 import { applyPermissions } from './permissions.js';
 import { getLogs } from './logs.js';
-import { CONFIG_PATH_RE, listConfigFiles, putConfigFile, resolveConfigPath } from './config-files.js';
+import { CONFIG_PATH_RE, listConfigFiles, putConfigFile, redactConfigContent, resolveConfigPath } from './config-files.js';
+import { envRedactor } from '../redact.js';
 import { getDispatch, launchDispatch, listDispatch } from './dispatch.js';
 import { createRepo, listReposWithBranches } from './repos.js';
 
@@ -154,7 +155,9 @@ export function buildOpsRouter(deps: ModuleDeps): express.Router {
       if (!CONFIG_PATH_RE.test(path)) return err(res, 400, `invalid path: ${path}`);
       const abs = resolveConfigPath(deps, path)!;
       if (!existsSync(abs)) return err(res, 404, `no such file: ${path}`);
-      res.json({ path, content: readFileSync(abs, 'utf8'), mtime: Math.floor(statSync(abs).mtimeMs) });
+      // Literal secrets (and env secret values) are masked; a PUT with a mask is refused.
+      const { content, redacted } = redactConfigContent(readFileSync(abs, 'utf8'), envRedactor(deps.env ?? {}));
+      res.json({ path, content, mtime: Math.floor(statSync(abs).mtimeMs), ...(redacted ? { redacted: true } : {}) });
     }),
   );
 
@@ -201,6 +204,7 @@ export function buildOpsRouter(deps: ModuleDeps): express.Router {
   r.get(
     '/ops/dispatch/:name',
     h((req, res) => {
+      if (!/^[A-Za-z0-9_-]+$/.test(String(req.params.name))) return err(res, 400, 'name must match ^[A-Za-z0-9_-]+$');
       const out = getDispatch(ctx.dispatchDir, String(req.params.name));
       if (!out) return err(res, 404, 'no such dispatch job');
       res.json(out);

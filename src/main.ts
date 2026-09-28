@@ -25,6 +25,8 @@ import { builtinExecutorsPlugin } from './plugins/builtin/executors.js';
 import { builtinSinksPlugin } from './plugins/builtin/sinks.js';
 import { builtinDeckPlugin, type DeckState } from './plugins/builtin/deck.js';
 import { createApp } from './server/app.js';
+import { allowedHostsFromEnv } from './server/security.js';
+import { envRedactor } from './redact.js';
 import { RepoHub } from './git/hub.js';
 import type { AlfredModule, ModuleDeps, ModuleFactory } from './modules.js';
 import { createBoardModule } from './board/index.js';
@@ -65,6 +67,8 @@ export interface AlfredConfig {
   pollMs?: number;
   deck?: { dir: string; port: number } | null;
   token?: string;
+  /** Run without a token (loopback dev/test only). Implied when NODE_ENV=test. */
+  allowNoToken?: boolean;
   staticDir?: string;
   /** P11 — alternative to explicit fields; explicit fields win. */
   configPath?: string;
@@ -117,10 +121,17 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
 
   // P9: a public bind without a token is refused. Tailscale serve lets us stay on 127.0.0.1.
   const isLoopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
-  if (!isLoopback && !(typeof token === 'string' && token.trim())) {
+  const hasToken = typeof token === 'string' && Boolean(token.trim());
+  if (!isLoopback && !hasToken) {
     throw new Error(
       `refusing to bind ${host} without a token: set ALFRED_TOKEN (or pass token in config)`,
     );
+  }
+  // Even on loopback a tokenless server is drivable by any website (DNS rebinding, CSRF):
+  // only tests or an explicit opt-in may run without one.
+  const allowNoToken = c.allowNoToken === true || process.env.NODE_ENV === 'test' || env.NODE_ENV === 'test';
+  if (!hasToken && !allowNoToken) {
+    throw new Error('refusing to start without a token: set ALFRED_TOKEN (or pass token in config)');
   }
 
   const dbPath = c.dbPath ?? file?.paths?.db ?? join(REPO_ROOT, '.alfred-dev', 'alfred.db');
@@ -135,7 +146,8 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
 
   // A fresh machine has no ~/.alfred yet: create the DB directory (not for :memory:).
   if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
-  const store = openStore(dbPath);
+  // Secrets in env never land in stored events/notes/results (e.g. an agent running `env`).
+  const store = openStore(dbPath, { redact: envRedactor({ ...process.env, ...env, ...(token ? { ALFRED_TOKEN: token } : {}) }) });
   const registry = new ToolRegistry();
   for (const t of builtinTools()) registry.register(t);
 
@@ -393,7 +405,8 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     personas,
     registry,
     // P9: the resolved token (config OR ALFRED_TOKEN) guards /api and the /mcp door.
-    ...(token ? { token } : {}),
+    ...(token ? { token } : { allowNoToken }),
+    allowedHosts: allowedHostsFromEnv(env, host),
     door: () => buildDoor(store, workRoot),
     staticDir: c.staticDir ?? resolve(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist'),
     ...(deckState.url ? { deckUrl: deckState.url } : {}),

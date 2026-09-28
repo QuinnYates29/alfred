@@ -47,6 +47,28 @@ export function safeJoin(workspace: string, rel: string): string {
   return joined;
 }
 
+/**
+ * safeJoin is lexical; on the local fs also resolve symlinks and refuse anything whose real path
+ * leaves the workspace's real path (a symlink in an agent's workspace must not expose ~/.ssh).
+ */
+export async function realContained(workspace: string, abs: string): Promise<string> {
+  let realWs: string;
+  try {
+    realWs = await fs.realpath(workspace);
+  } catch (e: any) {
+    throw new HttpError(e?.code === 'ENOENT' ? 404 : 500, e?.message ?? String(e));
+  }
+  let real: string;
+  try {
+    real = await fs.realpath(abs);
+  } catch (e: any) {
+    if (e?.code === 'ENOENT') throw new HttpError(404, e?.message ?? String(e));
+    throw new HttpError(500, e?.message ?? String(e));
+  }
+  if (real !== realWs && !real.startsWith(realWs + path.sep)) throw new HttpError(400, 'path escapes the workspace');
+  return real;
+}
+
 function wrapOffline<T>(node: string, p: Promise<T>): Promise<T> {
   return p.catch((e: any) => {
     if (e instanceof NodeOfflineError) throw new HttpError(503, `node ${node} offline`);
@@ -62,7 +84,8 @@ export async function listWorkspace(
   const abs = safeJoin(ws.workspace, rel);
   let entries: { name: string; dir: boolean }[];
   if (ws.node === 'local') {
-    entries = (await fs.readdir(abs, { withFileTypes: true }).catch((e: any) => {
+    const real = await realContained(ws.workspace, abs);
+    entries = (await fs.readdir(real, { withFileTypes: true }).catch((e: any) => {
       throw new HttpError(e?.code === 'ENOENT' ? 404 : 500, e?.message ?? String(e));
     })).map((d) => ({ name: d.name, dir: d.isDirectory() }));
   } else {
@@ -80,7 +103,8 @@ export async function readWorkspaceFile(
   const abs = safeJoin(ws.workspace, rel);
   let raw: string;
   if (ws.node === 'local') {
-    raw = await fs.readFile(abs, 'utf8').catch((e: any) => {
+    const real = await realContained(ws.workspace, abs);
+    raw = await fs.readFile(real, 'utf8').catch((e: any) => {
       throw new HttpError(e?.code === 'ENOENT' ? 404 : 500, e?.message ?? String(e));
     });
   } else {
