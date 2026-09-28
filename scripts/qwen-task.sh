@@ -62,6 +62,11 @@ Fix the failures. Read the failing test and the code before changing anything."
   fi
 
   out=$(bash -c "$CHECK" 2>&1); rc=$?
+  # vitest silently skips a named test file that doesn't exist — a check that names one must see it
+  for tf in $(grep -oE 'test/[A-Za-z0-9_./-]+\.test\.(ts|mjs|js)' <<<"$CHECK"); do
+    [ -f "$tf" ] || { rc=1; out="$out
+MISSING TEST FILE: $tf (the acceptance command names it; write it)"; }
+  done
   echo "$out" | tail -60 > "$LOGS/check$a.txt"
   echo "check rc=$rc" >> "$LOGS/run.log"
   tests=$(echo "$out" | grep -E "Tests |passed|failed" | tail -1 | sed 's/"/\\"/g' | tr -s ' ')

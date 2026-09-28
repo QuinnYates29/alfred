@@ -85,8 +85,14 @@ export function openChatStore(store: Store): ChatStore {
   let seq = 0;
   const nextId = (p: string) => `${p}_${(++seq).toString().padStart(9, '0')}_${randomUUID()}`;
   const now = () => Date.now();
-  const ev = (threadId: string, message: ChatMessage) =>
-    store.appendEvent('', null, 'chat_message', { threadId, message });
+  // A private thread's content never enters the event log / SSE stream / plugins / Mac notifications:
+  // its event carries ids only (the dashboard just refetches the thread).
+  const ev = (threadId: string, message: ChatMessage) => {
+    const priv = !!(db.prepare('SELECT private FROM chat_threads WHERE id = ?').get(threadId) as any)?.private;
+    store.appendEvent('', null, 'chat_message', priv
+      ? { threadId, private: true, message: { id: message.id, threadId, role: message.role, createdAt: message.createdAt } }
+      : { threadId, message });
+  };
 
   const rowToThread = (r: any): Thread => ({
     id: r.id, title: r.title, createdAt: r.createdAt, updatedAt: r.updatedAt, private: !!r.private,

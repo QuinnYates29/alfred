@@ -172,9 +172,11 @@ export function readRecords(
     const dir = datasetDir(env);
     if (!dir) return [];
     let recs: any[] = [];
-    for (const f of filesIn(dir, kind)) recs = recs.concat(readLines(f, false));
+    // keep every line here: turn/goal records have no rating, and a cleared (null) rating must
+    // still win the per-message dedupe before it is dropped
+    for (const f of filesIn(dir, kind)) recs = recs.concat(readLines(f, true));
     if (Number.isFinite(o.since)) recs = recs.filter((r) => Number(r.ts) >= (o.since as number));
-    if (kind === 'feedback') recs = dedupeByMessage(recs);
+    if (kind === 'feedback') recs = dedupeByMessage(recs).filter((r) => r.rating != null);
     if (o.limit && recs.length > o.limit) recs = recs.slice(recs.length - o.limit);
     return recs;
   } catch {

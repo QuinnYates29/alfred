@@ -56,7 +56,8 @@ function decide(ev, ctx) {
     }
     case 'chat_message': {
       const m = data.message || {};
-      if (m.role !== 'assistant' || !n.chat || ctx.windowFocused) return null;
+      // private chats never become macOS notifications (Notification Center keeps them)
+      if (data.private || m.role !== 'assistant' || !n.chat || ctx.windowFocused) return null;
       return out({ kind: 'chat', title: 'alfred', body: m.content || '', url: `/chat/${data.threadId}` });
     }
     case 'notice':
