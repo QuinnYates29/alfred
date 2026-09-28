@@ -1,10 +1,12 @@
 // P16 §3 — the chat engine: one LLM tool-loop per send, one reply at a time per thread.
+import { createHash } from 'node:crypto';
 import type { LLM, LLMMessage, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModuleDeps } from '../modules.js';
 import { chatSystemPrompt } from './prompt.js';
 import { chatTools } from './tools.js';
 import { chatAsks } from '../powers/gate.js';
 import { denyReason, toolCaps } from '../runtime/caps.js';
+import { recordTurn } from './dataset.js';
 import type { ChatAction, ChatMessage, ChatStore, Thread } from './store.js';
 
 export class ChatBusyError extends Error {
@@ -80,8 +82,8 @@ export class ChatEngine {
 
   constructor(private deps: ModuleDeps, private cs: ChatStore) {}
 
-  createThread(title?: string): Thread {
-    return this.cs.createThread(title);
+  createThread(title?: string, o?: { private?: boolean }): Thread {
+    return this.cs.createThread(title, o);
   }
 
   getThread(id: string): Thread | undefined {
@@ -110,20 +112,62 @@ export class ChatEngine {
     return llm;
   }
 
-  /** Record + emit progress. Never throws: a progress event must not break a turn. */
+  /** The ModelSpec behind the model chat runs on (for the dataset record); null when there's no registry. */
+  private modelSpec(): { name: string; model: string; baseUrl: string } {
+    try {
+      const s = this.deps.models?.resolve?.('planner');
+      if (s) return { name: s.name, model: s.model, baseUrl: s.baseUrl };
+    } catch {
+      /* fall through */
+    }
+    return { name: 'test', model: 'test', baseUrl: '' };
+  }
+
+  /** Private threads only ever run on a model served on the Spark itself. `extra.llm` counts as local. */
+  private localModel(): { llm: LLM; spec: { name: string; model: string; baseUrl: string } } | undefined {
+    const d = this.deps;
+    if (d.extra?.llm) return { llm: d.extra.llm, spec: this.modelSpec() };
+    const reg = d.models;
+    if (!reg) return d.llm ? { llm: d.llm, spec: this.modelSpec() } : undefined;
+    const local = (baseUrl: string) => {
+      try {
+        const host = new URL(baseUrl).hostname.replace(/^\[|\]$/g, '');
+        return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+      } catch {
+        return false;
+      }
+    };
+    try {
+      const planner = reg.resolve('planner');
+      if (planner && local(planner.baseUrl)) return { llm: reg.llm('planner'), spec: { name: planner.name, model: planner.model, baseUrl: planner.baseUrl } };
+      const first = reg.list().find((m) => local(m.baseUrl));
+      if (first) return { llm: reg.llm(first.name), spec: { name: first.name, model: first.model, baseUrl: first.baseUrl } };
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
+
+  static PRIVATE_REPLY = '⚠ Private mode needs a local model on the Spark; none is configured.';
+  static PRIVATE_SYSTEM_LINE = 'Private conversation: you have no tools; answer from your own knowledge.';
+  static PRIVATE_TOOL_REPLY = 'tools are off in private mode';
+
+  /** Record + emit progress. Never throws: a progress event must not break a turn.
+   *  Private threads emit phase + threadId ONLY — never a tool name, never content. */
   private progress(threadId: string, phase: ChatPhase, o: { tool?: string; turn?: number } = {}): void {
+    const clean = this.cs.getThread(threadId)?.private ? {} : o;
     if (phase === 'thinking' || phase === 'tool') {
       const cur = this.inflight.get(threadId);
-      if (cur) this.inflight.set(threadId, { since: cur.since, phase, ...o });
+      if (cur) this.inflight.set(threadId, { since: cur.since, phase, ...clean });
     }
     try {
-      this.deps.store.appendEvent('', null, 'chat_progress', { threadId, phase, ...o });
+      this.deps.store.appendEvent('', null, 'chat_progress', { threadId, phase, ...clean });
     } catch {
       /* store closed during shutdown */
     }
   }
 
-  async send(threadId: string, text: string, _o?: { by?: string }): Promise<ChatMessage> {
+  async send(threadId: string, text: string, o?: { by?: string; source?: string }): Promise<ChatMessage> {
     if (this.stopped) throw new Error('chat is shutting down');
     if (!this.cs.getThread(threadId)) throw new Error(`no such thread: ${threadId}`);
     if (this.inflight.has(threadId)) throw new ChatBusyError(threadId);
@@ -132,7 +176,7 @@ export class ChatEngine {
     try {
       this.cs.addMessage({ threadId, role: 'user', content: text });
       this.progress(threadId, 'thinking', { turn: 1 });
-      const { message, ok } = await this.runTurn(threadId);
+      const { message, ok } = await this.runTurn(threadId, o?.source);
       if (ok) phase = 'done';
       return message;
     } finally {
@@ -142,24 +186,47 @@ export class ChatEngine {
     }
   }
 
-  private async runTurn(threadId: string): Promise<{ message: ChatMessage; ok: boolean }> {
+  private async runTurn(threadId: string, source?: string): Promise<{ message: ChatMessage; ok: boolean }> {
     const actions: ChatAction[] = [];
     const ctrl = new AbortController();
     const gone = () => this.abandoned.has(threadId);
+    const isPrivate = !!this.cs.getThread(threadId)?.private;
     let reply = '';
     let ok = true;
+    let errText = '';
     let lastText = '';
     const turnStart = Date.now();
+    let llmCalls = 0;
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let finalMessages: LLMMessage[] = [];
+    let system = '';
+    let deniedNames = new Set<string>();
+    let model = { name: 'unknown', model: 'unknown', baseUrl: '' };
     try {
+      let llm: LLM;
+      if (isPrivate) {
+        // Private: local model only, and NO tools at all (no web/Slack/Jira/goals/connectors).
+        const local = this.localModel();
+        if (!local) {
+          return { ok: true, message: this.cs.addMessage({ threadId, role: 'assistant', content: ChatEngine.PRIVATE_REPLY }) };
+        }
+        llm = local.llm;
+        model = local.spec;
+      } else {
+        llm = this.resolveLlm();
+        model = this.modelSpec();
+      }
       // Per-model deny (config/models.yaml) for the model chat runs on: not offered, and refused below.
-      const denied = this.deps.models?.denied('planner') ?? new Set<string>();
+      const denied = isPrivate ? new Set<string>() : this.deps.models?.denied('planner') ?? new Set<string>();
       // By name or by capability class (`class:exec` blocks every command-running tool).
       const blocked = (t: { schema: { name: string }; caps?: any }) => !!denyReason(denied, t.schema.name, toolCaps(t.schema.name, t));
-      const all = chatTools(this.deps);
-      const deniedNames = new Set(all.filter(blocked).map((t) => t.schema.name));
+      const all = isPrivate ? [] : chatTools(this.deps);
+      deniedNames = new Set(all.filter(blocked).map((t) => t.schema.name));
       const tools = all.filter((t) => !deniedNames.has(t.schema.name));
       const byName = new Map(tools.map((t) => [t.schema.name, t]));
-      const system = `${chatSystemPrompt(this.deps)}\n\n${stateSnapshot(this.deps)}`;
+      system = `${chatSystemPrompt(this.deps)}\n\n${stateSnapshot(this.deps)}`;
+      if (isPrivate) system += `\n\n${ChatEngine.PRIVATE_SYSTEM_LINE}`;
       const messages: LLMMessage[] = this.cs
         .messages(threadId, { limit: HISTORY })
         .map((m) => ({ role: m.role, content: m.content }));
@@ -172,10 +239,13 @@ export class ChatEngine {
         acceptance: [],
         progress: () => {},
       };
-      const llm = this.resolveLlm();
       for (let i = 0; i < MAX_LLM_CALLS && !gone(); i++) {
         if (i > 0) this.progress(threadId, 'thinking', { turn: i + 1 });
+        finalMessages = [...messages];
+        llmCalls++;
         const resp = await llm.chat({ system, messages: [...messages], tools: tools.map((t) => t.schema), maxTokens: 2048 });
+        promptTokens += Number(resp.usage?.promptTokens) || 0;
+        completionTokens += Number(resp.usage?.completionTokens) || 0;
         if (resp.content) lastText = resp.content;
         const calls = resp.toolCalls ?? [];
         if (calls.length === 0) {
@@ -189,7 +259,9 @@ export class ChatEngine {
           this.progress(threadId, 'tool', { tool: c.name, turn: i + 1 });
           let result: ToolResult;
           const tool = byName.get(c.name);
-          if (!tool) {
+          if (isPrivate) {
+            result = { ok: false, output: ChatEngine.PRIVATE_TOOL_REPLY };
+          } else if (!tool) {
             result = { ok: false, output: deniedNames.has(c.name) || denied.has(c.name) ? `tool ${c.name} is not allowed on this model` : `unknown tool: ${c.name}` };
           } else {
             try {
@@ -209,6 +281,7 @@ export class ChatEngine {
     } catch (e: any) {
       reply = errorReply(e);
       ok = false;
+      errText = String(e?.message ?? e ?? 'unknown error').slice(0, 500);
     }
     if (gone()) {
       ctrl.abort();
@@ -222,7 +295,32 @@ export class ChatEngine {
       const lines = asked.map((a) => `- ${a.action}: ${a.detail}`);
       reply += `\n\n**Needs your OK** — reply "yes" to run ${asked.length === 1 ? 'this' : 'all of these'}, or decide in the Inbox:\n${lines.join('\n')}`;
     }
-    return { ok, message: this.cs.addMessage({ threadId, role: 'assistant', content: reply, actions }) };
+    const message = this.cs.addMessage({ threadId, role: 'assistant', content: reply, actions });
+    // Training/eval record — never for a private thread, and never throws into the reply.
+    if (!isPrivate) {
+      try {
+        recordTurn(this.deps.env, {
+          id: message.id,
+          ts: Date.now(),
+          threadId,
+          source: source ?? 'api',
+          model,
+          system,
+          messages: finalMessages,
+          reply,
+          actions,
+          llmCalls,
+          usage: { promptTokens, completionTokens },
+          latencyMs: Date.now() - turnStart,
+          ok,
+          ...(ok ? {} : { error: errText }),
+          deniedTools: [...deniedNames],
+        });
+      } catch {
+        /* the reply is done; recording can never matter more */
+      }
+    }
+    return { ok, message };
   }
 
   /** Shutdown: every in-flight turn is abandoned and gets the interrupted note now (never re-run). */
