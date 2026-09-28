@@ -15,6 +15,7 @@ import {
 import { guardCommand, storeForTask } from '../approvals.js';
 import { containedPath, writeFileNoFollow } from '../pathguard.js';
 import { sandboxedCommand } from '../sandbox.js';
+import { webFetchTool, webSearchTool } from './web.js';
 
 /**
  * P9: park the task when the workspace machine went away mid-call.
@@ -324,5 +325,7 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
       model: { type: 'string', description: 'Optional model name or role for the child (default: the child persona\'s model).' },
     }, ['persona', 'title', 'spec']),
     control('wait_subtasks', 'Wait until all spawned child tasks are terminal or parked.', {}),
+    webSearchTool(),
+    webFetchTool(),
   ];
 }

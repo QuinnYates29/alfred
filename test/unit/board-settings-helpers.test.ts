@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+// @ts-ignore -- .jsx is transpiled by vitest/esbuild; tsc has no jsx config here.
 import { boardPatch, validateBoard } from '../../web/src/views/board/Settings.jsx';
 
 const col = (id: string, name: string, extra = {}) => ({ id, name, kind: 'todo', wip: null, ...extra });

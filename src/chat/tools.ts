@@ -4,6 +4,7 @@ import type { AcceptanceCheck, TaskStatus } from '../types.js';
 import { createGoalWithRoot, resolveGoal } from '../ops.js';
 import type { ModuleDeps } from '../modules.js';
 import { gated } from '../powers/gate.js';
+import { webFetchTool, webSearchTool } from '../runtime/web.js';
 
 const cap = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s);
 
@@ -166,10 +167,14 @@ function approvalsTool(deps: ModuleDeps): Tool {
  * The chat tool set: the board module's tool (when present) + goals / start_goal / approvals,
  * + the P21 powers tools (platform, connectors, alfred_dev) and comms tools (contacts, message, call)
  * when those modules are loaded. Read per turn: powers and comms are built after chat.
+ * The web tools ride the registry (main.ts registers the builtins): a harness with an empty
+ * registry keeps the lean four-tool chat that P16 budgets for.
  */
 export function chatTools(deps: ModuleDeps): Tool[] {
   const boardTools = deps.modules.board?.tools ?? [];
   const powerTools = deps.modules.powers?.tools ?? [];
   const commsTools = deps.modules.comms?.tools ?? [];
-  return [...boardTools, goalsTool(deps), startGoalTool(deps), approvalsTool(deps), ...powerTools, ...commsTools];
+  const reg = deps.registry as { get?: (n: string) => unknown } | undefined;
+  const webTools = reg?.get?.('web_search') && reg?.get?.('web_fetch') ? [webSearchTool(), webFetchTool()] : [];
+  return [...boardTools, goalsTool(deps), startGoalTool(deps), approvalsTool(deps), ...webTools, ...powerTools, ...commsTools];
 }

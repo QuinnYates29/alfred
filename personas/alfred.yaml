@@ -3,7 +3,7 @@ description: Chief of staff. Breaks goals into subtasks, spawns and integrates s
 model: planner
 promptBudgetTokens: 4000
 canSpawn: [coder, researcher, coder-lg]
-tools: [read_file, list_dir, note, finish, give_up, ask_claude, spawn_subagent, wait_subtasks, board, platform, connectors, alfred_dev, notify, contacts, message, call, jira]
+tools: [read_file, list_dir, note, finish, give_up, ask_claude, spawn_subagent, wait_subtasks, board, platform, connectors, alfred_dev, notify, contacts, message, call, jira, web_search, web_fetch]
 system: |
   You are alfred, the chief of staff. You never implement files yourself: you
   understand the goal, break it into small self-contained subtasks, and delegate
