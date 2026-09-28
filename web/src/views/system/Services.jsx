@@ -12,9 +12,11 @@ export default function Services() {
   const live = useLiveState();
   const { toast, confirm } = useToast();
   const [busy, setBusy] = useState(null); // `${name}:${action}`
-  const [restartingAlfred, setRestartingAlfred] = useState(false);
-
-  if (restartingAlfred && live === 'open') setRestartingAlfred(false); // the stream is back — the restart landed
+  // alfred restart: null → 'sent' (request accepted) → 'down' (stream dropped) → null (stream back: it landed)
+  const [restart, setRestart] = useState(null);
+  if (restart === 'sent' && live !== 'open') setRestart('down');
+  else if (restart === 'down' && live === 'open') setRestart(null);
+  const restartingAlfred = restart !== null;
 
   const act = async (svc, action) => {
     const label = cap(action);
@@ -32,7 +34,7 @@ export default function Services() {
           await go(true);
         } else throw e;
       }
-      if (svc.name === 'alfred') setRestartingAlfred(true);
+      if (svc.name === 'alfred' && action !== 'stop') setRestart('sent');
       toast(`${label} ${svc.name}`, 'ok');
     } catch (e) {
       toast(e?.message ?? String(e), 'bad');
@@ -63,13 +65,13 @@ export default function Services() {
           <span className="faint small hide-mobile">{svc.memMb != null ? `${svc.memMb} MB` : ''}</span>
           <span className="faint small">{svc.since ? `since ${dateTime(svc.since)}` : ''}</span>
           {svc.url && <a className="small" href={svc.url} target="_blank" rel="noreferrer">open</a>}
-          {(svc.controllable ?? []).map((action) => (
+          {(svc.controllable ?? []).filter((a) => (svc.active === 'active' ? a !== 'start' : a !== 'stop')).map((action) => (
             <Button key={action} size="sm" variant={action === 'stop' ? 'danger' : undefined}
               disabled={busy !== null} onClick={() => act(svc, action)}>
-              {restartingAlfred && svc.name === 'alfred' && action === 'restart' && live !== 'open' ? 'reconnecting…' : cap(action)}
+              {restartingAlfred && svc.name === 'alfred' && action === 'restart' ? 'reconnecting…' : cap(action)}
             </Button>
           ))}
-          {svc.name === 'alfred' && restartingAlfred && live !== 'open' && <span className="muted small">reconnecting…</span>}
+          
         </div>
       ))}
       {data && !data.length && !error && <Empty title="No services found" />}

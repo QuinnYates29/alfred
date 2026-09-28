@@ -58,8 +58,10 @@ export default function Config({ file }) {
             {list.map((f) => (
               <div key={f.path} className={`list-item ${f.path === path ? 'sel' : ''}`} onClick={() => setQuery({ file: f.path })} role="button" tabIndex={0}
                 onKeyDown={(e) => e.key === 'Enter' && setQuery({ file: f.path })}>
-                <span className="grow ellipsis">{f.path}</span>
-                <span className="faint xs">{Math.round(f.size / 1024)}k · {dateTime(f.mtime)}</span>
+                <span className="grow stack tight" style={{ minWidth: 0, gap: 2 }}>
+                  <span className="mono small ellipsis" title={f.path}>{f.path}</span>
+                  <span className="faint xs">{f.size < 1024 ? `${f.size} B` : `${(f.size / 1024).toFixed(1)} KB`} · {dateTime(f.mtime)}</span>
+                </span>
               </div>
             ))}
           </div>

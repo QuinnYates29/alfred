@@ -31,7 +31,9 @@ export async function boot(llm: LLM, o: { viewport?: { width: number; height: nu
     port: 0, host: '127.0.0.1', pollMs: 25, deck: null, env: { ALFRED_NOTIFY_DESKTOP: '0' }, llm, gitRoot: join(base, 'git'),
     extra: { llm, ...(o.extra ?? {}) },
   });
-  const browser = await chromium.launch({ executablePath: EXE, args: ['--disable-gpu'] }); // the GPU is full of Qwen: no NVRM noise
+  const browser = await chromium.launch({ executablePath: EXE, args: ['--disable-gpu'], env: { ...process.env, __EGL_VENDOR_LIBRARY_FILENAMES: '/usr/share/glvnd/egl_vendor.d/50_mesa.json', VK_ICD_FILENAMES: '/usr/share/vulkan/icd.d/lvp_icd.json' } });
+// ^ --disable-gpu alone still loads the NVIDIA GL driver and opens /dev/nvidia0 (a real GPU context);
+// with Qwen holding most of the unified memory that fails as NVRM NV_ERR_NO_MEMORY. Point EGL/Vulkan at Mesa/lavapipe.
   const page = await browser.newPage({ viewport: o.viewport ?? { width: 1400, height: 900 } });
   page.on('pageerror', (e) => console.error('pageerror:', e.message));
   const api = async (path: string, body?: any, method?: string) => {

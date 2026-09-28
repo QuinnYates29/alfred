@@ -38,10 +38,11 @@ export default function QwenTab() {
 
   const lim = data.limits ?? {};
   const num = (k) => (vals[k] !== '' ? Number(vals[k]) : undefined);
+  // [field, label, limits, env key in qwen-server.env]
   const fields = [
-    ['slots', 'Slots', lim.slots],
-    ['ctx', 'Context per slot', lim.ctx],
-    ['offload', 'Offload layers', lim.offload],
+    ['slots', 'Slots', lim.slots, 'QWEN_NP'],
+    ['ctx', 'Context per slot', lim.ctx, 'QWEN_CTX'],
+    ['offload', 'Offload layers', lim.offload, 'QWEN_NCMOE'],
   ];
 
   return (
@@ -59,12 +60,12 @@ export default function QwenTab() {
             ))}
           </div>
           <div className="form-row">
-            {fields.map(([k, label, [min, max]]) => (
+            {fields.map(([k, label, [min, max], envKey]) => (
               <div className="field" key={k}>
                 <label htmlFor={`qwen-${k}`}>{label} <span className="faint xs">[{min}…{max}]</span></label>
                 <div className="row">
                   <input id={`qwen-${k}`} className="input" type="number" min={min} max={max}
-                    value={vals[k]} placeholder={data.env?.[`QWEN_${k.toUpperCase()}`] ?? '—'}
+                    value={vals[k]} placeholder={data.env?.[envKey] ?? '—'}
                     onChange={(e) => setVals({ ...vals, [k]: e.target.value })} />
                   <Button size="sm" disabled={busy || num(k) === undefined}
                     onClick={() => { send({ [k]: num(k) }, `Set ${label.toLowerCase()} to ${num(k)}`); setVals({ ...vals, [k]: '' }); }}>

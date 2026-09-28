@@ -102,8 +102,8 @@ beforeAll(async () => {
   writeFileSync(join(cfg, 'settings.json'), JSON.stringify({ url: alfred.url, token: 'app-token', notify: { failures: true, approvals: true, done: true, chat: true } }));
   app = await electron.launch({
     executablePath: join(APP, 'node_modules/electron/dist/electron'),
-    args: ['--no-sandbox', APP],
-    env: { ...process.env, ALFRED_APP_TEST: '1', ALFRED_APP_CONFIG_DIR: cfg },
+    args: ['--no-sandbox', '--disable-gpu', APP],
+    env: { ...process.env, ALFRED_APP_TEST: '1', ALFRED_APP_CONFIG_DIR: cfg, __EGL_VENDOR_LIBRARY_FILENAMES: '/usr/share/glvnd/egl_vendor.d/50_mesa.json', VK_ICD_FILENAMES: '/usr/share/vulkan/icd.d/lvp_icd.json' }, // keep Electron off the NVIDIA driver (see p17 harness)
   });
 }, 120_000);
 

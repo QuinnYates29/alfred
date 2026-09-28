@@ -180,11 +180,10 @@ export default function OverviewTab({ goal, tasks, events, usage }) {
           {failing.map((t) => (
             <FailureCard key={t.id} title={t.title} reason={t.reason} taskId={t.id} persona={t.persona} />
           ))}
-          {goalFailed && (
+          {goalFailed && failing.length === 0 && (
             <FailureCard
               title={goal.title}
-              reason={goal.meta?.reason ?? failing[0]?.reason ?? 'The goal failed.'}
-              taskId={failing[0]?.id}
+              reason={goal.meta?.reason ?? 'The goal failed.'}
             />
           )}
         </div>

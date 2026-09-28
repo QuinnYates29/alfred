@@ -7,7 +7,9 @@ import { mkdirSync } from 'node:fs';
 const [base, out, ...routes] = process.argv.slice(2);
 mkdirSync(out, { recursive: true });
 const EXE = join(homedir(), '.cache/ms-playwright/chromium_headless_shell-1228/chrome-linux/headless_shell');
-const browser = await chromium.launch({ executablePath: EXE, args: ['--disable-gpu'] }); // the GPU is full of Qwen: no NVRM noise
+const browser = await chromium.launch({ executablePath: EXE, args: ['--disable-gpu'], env: { ...process.env, __EGL_VENDOR_LIBRARY_FILENAMES: '/usr/share/glvnd/egl_vendor.d/50_mesa.json', VK_ICD_FILENAMES: '/usr/share/vulkan/icd.d/lvp_icd.json' } });
+// ^ --disable-gpu alone still loads the NVIDIA GL driver and opens /dev/nvidia0 (a real GPU context);
+// with Qwen holding most of the unified memory that fails as NVRM NV_ERR_NO_MEMORY. Point EGL/Vulkan at Mesa/lavapipe.
 const page = await browser.newPage({ viewport: { width: Number(process.env.SHOT_W ?? 1440), height: Number(process.env.SHOT_H ?? 900) }, colorScheme: process.env.SHOT_THEME === 'light' ? 'light' : 'dark' });
 if (process.env.SHOT_SKIN) await page.addInitScript((k) => localStorage.setItem('alfred.skin', k), process.env.SHOT_SKIN);
 page.on('pageerror', (e) => console.error('pageerror:', e.message));

@@ -15,7 +15,7 @@
 .sys-meters { display: flex; flex-direction: column; gap: 3px; }
 .sys-meters .lbl { display: flex; justify-content: space-between; font-size: var(--t-xs); color: var(--fg-3); }
 
-.sys-cols { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: var(--s-4); align-items: start; }
+.sys-cols { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: var(--s-4); align-items: start; }
 @media (max-width: 900px) { .sys-cols { grid-template-columns: 1fr; } }
 
 .sys-files { max-height: 60vh; overflow: auto; }
