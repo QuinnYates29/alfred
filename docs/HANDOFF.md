@@ -1,5 +1,15 @@
 # HANDOFF: state of the alfred build (keep this current)
 
+## SECURITY (2026-09-28 00:40) — fixes in flight, read first
+Two reviews found (verified): agent shells run as quinna, unsandboxed, with ALFRED_TOKEN/SLACK_* in env and ~/.config/alfred.env readable →
+a prompt-injected agent can self-approve via the local API, rewrite config/powers.yaml, exfiltrate tokens; chat `confirm:true` is model-chosen;
+door alfred_approve; deploy not bound to reviewed sha; agents can push hub master; symlink escapes; no CSP; img/form in Markdown; langgraph bridge unauthenticated.
+Fix branches (Claude subagents, worktrees ~/repos/alfred-wt/): SA sa-sandbox (bwrap + env scrub + symlinks + Mac node sandbox-exec + installer argv),
+SB sb-approvals (chat confirm → real user "yes"/approval row, door approve removed, deploy sha binding + hub pre-receive hook, approval content shown,
+connector env allowlist, deny classes + inheritance), SC sc-hygiene (CSP, DOMPurify, token replaceState/timing-safe/SSE tickets, Host check,
+dispatch traversal, 0600 modes, secret redaction). Also U1 u1-self-update (Mac app self-update). Merge order: SA, SB, SC, U1; full suite after each.
+Optional after merge: rotate Slack tokens + ALFRED_TOKEN (agents had env access until SA lands).
+
 ## RESUME HERE (2026-09-27 23:15) — BUILD COMPLETE
 All phases merged on master (scaffold, P13–P21); full suite green (355 + 6 app tests, tsc clean). No worktrees, no dispatch running.
 **Live:** alfred user service on master; Slack connected (allowlist); tailscale serve :8443; Mac node `macbook`; ALFRED_DASHBOARD_URL set.
