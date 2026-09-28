@@ -84,7 +84,8 @@ export function deployDetail(slug: string, pin: DeployPin | null): string {
 }
 // ---- end SB
 
-async function deploy(deps: ModuleDeps, goalId: string, pin?: DeployPin | null): Promise<ToolResult> {
+/** Exported for tests of the post-approval sequence (merge → build-web → Mac app → restart); the tool gates it. */
+export async function deploy(deps: ModuleDeps, goalId: string, pin?: DeployPin | null): Promise<ToolResult> {
   const steps: string[] = [];
   const say = (ok: boolean) => ({ ok, output: steps.join('\n') });
   const changes = await selfApi(deps, 'GET', `/goals/${encodeURIComponent(goalId)}/changes`);

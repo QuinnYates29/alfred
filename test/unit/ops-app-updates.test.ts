@@ -12,7 +12,7 @@ import type { ModuleDeps } from '../../src/modules.js';
 import type { ToolContext } from '../../src/runtime/contract.js';
 import { createOpsModule } from '../../src/ops/index.js';
 import { readLatest } from '../../src/ops/app-updates.js';
-import { alfredDevTool, APP_REBUILD_RE } from '../../src/powers/dev.js';
+import { APP_REBUILD_RE, deploy } from '../../src/powers/dev.js';
 
 let store: Store;
 let root: string;
@@ -153,12 +153,12 @@ describe('alfred_dev deploy rebuilds the Mac app when app code changed', () => {
     } as unknown as ModuleDeps;
     mkdirSync(join(root, 'config'), { recursive: true });
     const goal = store.createGoal({ title: 'app tweak', meta: { repo: 'alfred' } } as any);
-    const ctx: ToolContext = { taskId: 'chat:x', goalId: '', workspace: root, persona: 'alfred', signal: new AbortController().signal, acceptance: [], progress: () => {} };
-    const tool = alfredDevTool(deps);
 
     replies[`GET /goals/${goal.id}/changes`] = { status: 200, body: { files: [{ path: 'app/src/main.cjs' }, { path: 'src/cli/util.ts' }] } };
     replies[`POST /goals/${goal.id}/merge`] = { status: 200, body: { ok: true, into: 'master', sha: 'abcdef12' } };
-    const r = await tool.run({ op: 'deploy', goal: goal.slug, confirm: true }, ctx);
+    // the approval gate + sha pinning are covered in powers-p21a/sb-approvals; here: the approved sequence
+    const pin = { branch: 'alfred/app/1', sha: 'abcdef1234567890', base: 'master', baseSha: '1234567890abcdef' };
+    const r = await deploy(deps, goal.id, pin);
     expect(r.ok).toBe(true);
     expect(fetched).toEqual([
       `GET /goals/${goal.id}/changes`,
@@ -173,7 +173,7 @@ describe('alfred_dev deploy rebuilds the Mac app when app code changed', () => {
     // app-only change: no waiting, no restart
     fetched.length = 0;
     replies[`GET /goals/${goal.id}/changes`] = { status: 200, body: { files: [{ path: 'app/src/tray.cjs' }] } };
-    const r2 = await tool.run({ op: 'deploy', goal: goal.slug, confirm: true }, ctx);
+    const r2 = await deploy(deps, goal.id, pin);
     expect(r2.ok).toBe(true);
     expect(fetched.slice(2)).toEqual(['POST /ops/alfred/build-web', 'POST /ops/app/build']);
     expect(r2.output).toContain('restart: not needed');
