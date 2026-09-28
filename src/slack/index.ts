@@ -61,6 +61,7 @@ export function createSlackModule(deps: ModuleDeps): AlfredModule {
     postUrl,
     enqueue,
     setError,
+    allowedUsers: new Set((deps.env.SLACK_ALLOWED_USERS ?? '').split(',').map((u) => u.trim()).filter(Boolean)),
   };
 
   const onEnvelope = (env: { envelope_id?: string; type?: string; payload?: any }) => {

@@ -40,6 +40,7 @@ function testCtx(store: Store, o: Partial<HandlerCtx> = {}) {
     postUrl: async (url, body) => { posts.push({ url, body }); },
     enqueue: (fn) => { jobs.push(fn().catch((e) => { errors.push(String(e?.message ?? e)); })); },
     setError: (m) => errors.push(m),
+    allowedUsers: new Set(['U1']),
     ...o,
   };
   const flush = () => Promise.all(jobs.splice(0));
@@ -53,7 +54,7 @@ describe('slash commands', () => {
     const t = store.createTask({ goalId: g.id, persona: 'coder', title: 't' });
     store.claim(t.id, 'w', 60_000);
     const { ctx } = testCtx(store);
-    const ack = handleSlash(ctx, { text: 'status' });
+    const ack = handleSlash(ctx, { user_id: 'U1', text: 'status' });
     expect(ack.text).toContain('my-goal [active] My Goal');
     expect(ack.text).toContain('1 running');
     expect(ack.text).toContain('0 queued');
@@ -62,13 +63,13 @@ describe('slash commands', () => {
   it('inbox shows pending approvals and parked tasks, else Inbox zero', () => {
     const store = openStore(':memory:');
     const { ctx } = testCtx(store);
-    expect(handleSlash(ctx, { text: 'inbox' }).text).toBe('Inbox zero.');
+    expect(handleSlash(ctx, { user_id: 'U1', text: 'inbox' }).text).toBe('Inbox zero.');
     const g = store.createGoal({ title: 'g' });
     const t = store.createTask({ goalId: g.id, persona: 'coder', title: 'stuck' });
     store.claim(t.id, 'w', 60_000);
     store.transition(t.id, 'needs_claude', { reason: 'need help', by: 'w' });
     const ap = store.requestApproval(t.id, 'git push', 'git push origin main');
-    const text = handleSlash(ctx, { text: 'Inbox' }).text;
+    const text = handleSlash(ctx, { user_id: 'U1', text: 'Inbox' }).text;
     expect(text).toContain(`${ap.id.slice(0, 8)} git push: git push origin main`);
     expect(text).toContain(`[${'needs_claude'}] stuck — need help`);
   });
@@ -77,11 +78,11 @@ describe('slash commands', () => {
     const store = openStore(':memory:');
     const board = openBoard(store);
     const { ctx } = testCtx(store, { getBoard: () => board as any });
-    const ack = handleSlash(ctx, { text: 'add Buy milk', user_name: 'quinn' });
+    const ack = handleSlash(ctx, { user_id: 'U1', text: 'add Buy milk', user_name: 'quinn' });
     expect(ack.text).toBe('Added ALF-1: Buy milk');
     expect(board.getItem('ALF-1')!.createdBy).toBe('slack:quinn');
     const noChat = testCtx(store, { getChat: () => undefined });
-    expect(handleSlash(noChat.ctx, { text: 'hello there' }).text).toBe('chat is not available');
+    expect(handleSlash(noChat.ctx, { user_id: 'U1', text: 'hello there' }).text).toBe('chat is not available');
   });
 });
 

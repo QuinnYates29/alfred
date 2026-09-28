@@ -14,7 +14,17 @@ export interface HandlerCtx {
   postUrl(url: string, body: any): Promise<void>;
   enqueue(fn: () => Promise<void>): void;
   setError(msg: string): void;
+  /** Slack user ids allowed to use the bot (SLACK_ALLOWED_USERS). Everyone else is refused. */
+  allowedUsers: ReadonlySet<string>;
 }
+
+/** Approvals from Slack gate texting, calls and deploys: only allow-listed users may act. */
+function allowed(ctx: HandlerCtx, userId: string | undefined): boolean {
+  return !!userId && ctx.allowedUsers.has(userId);
+}
+
+const refusal = (userId: string | undefined) =>
+  `⛔ not authorized. To allow this Slack user, add ${userId ?? '<unknown>'} to SLACK_ALLOWED_USERS in ~/.config/alfred.env and restart alfred.`;
 
 type Payload = Record<string, any>;
 
@@ -30,6 +40,13 @@ export function handleInteractive(ctx: HandlerCtx, payload: Payload): void {
       (a: Payload) => a.action_id === 'approve' || a.action_id === 'deny',
     );
     if (!action) return;
+    if (!allowed(ctx, payload.user?.id)) {
+      if (payload.response_url) {
+        const url = payload.response_url;
+        ctx.enqueue(() => ctx.postUrl(url, { replace_original: false, text: refusal(payload.user?.id) }));
+      }
+      return;
+    }
     const decision = action.action_id === 'approve' ? 'approved' : 'denied';
     const approvalId = String(action.value ?? '');
     const who = `slack:${userName(payload)}`;
@@ -64,6 +81,7 @@ export function handleInteractive(ctx: HandlerCtx, payload: Payload): void {
 /** `slash_commands` envelope for /alfred. Returns the immediate ack payload. */
 export function handleSlash(ctx: HandlerCtx, payload: Payload): Payload {
   try {
+    if (!allowed(ctx, payload.user_id)) return { text: refusal(payload.user_id) };
     const text = String(payload.text ?? '').trim();
     const lower = text.toLowerCase();
     if (lower === 'status') return { text: statusText(ctx.store) };
@@ -111,6 +129,10 @@ export function handleEvent(ctx: HandlerCtx, event: Payload): void {
     }
     const channel = event.channel;
     const root = event.thread_ts ?? event.ts;
+    if (!allowed(ctx, event.user)) {
+      ctx.enqueue(async () => { await ctx.slackApi?.postMessage({ channel, thread_ts: root, text: refusal(event.user) }); });
+      return;
+    }
     const key = `slack:${channel}:${root}`;
     ctx.enqueue(async () => {
       const chat = ctx.getChat();
