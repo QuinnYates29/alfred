@@ -86,7 +86,9 @@ export class ChatEngine {
   }
 
   private async runTurn(threadId: string): Promise<ChatMessage> {
-    const tools = chatTools(this.deps);
+    // Per-model deny (config/models.yaml) for the model chat runs on: not offered, and refused below.
+    const denied = this.deps.models?.denied('planner') ?? new Set<string>();
+    const tools = chatTools(this.deps).filter((t) => !denied.has(t.schema.name));
     const byName = new Map(tools.map((t) => [t.schema.name, t]));
     const system = `${chatSystemPrompt(this.deps)}\n\n${stateSnapshot(this.deps)}`;
     const messages: LLMMessage[] = this.cs
@@ -120,7 +122,7 @@ export class ChatEngine {
           let result: ToolResult;
           const tool = byName.get(c.name);
           if (!tool) {
-            result = { ok: false, output: `unknown tool: ${c.name}` };
+            result = { ok: false, output: denied.has(c.name) ? `tool ${c.name} is not allowed on this model` : `unknown tool: ${c.name}` };
           } else {
             try {
               result = await tool.run(c.args ?? {}, ctx);

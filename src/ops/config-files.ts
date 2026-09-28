@@ -90,7 +90,7 @@ export function validateConfigContent(deps: ModuleDeps, path: string, content: s
     const tmp = join(tmpdir(), `alfred-models-${Date.now()}-${Math.random().toString(36).slice(2)}.yaml`);
     try {
       writeFileSync(tmp, content);
-      loadModels(tmp);
+      loadModels(tmp, { knownTools: deps.registry.all().map((t) => t.schema.name) });
     } finally {
       rmSync(tmp, { force: true });
     }

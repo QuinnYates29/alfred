@@ -5,7 +5,8 @@ import type { ModuleDeps } from '../modules.js';
 import { makeCtx, tail2, type OpsCtx } from './exec.js';
 import { getStats, getHistory } from './stats.js';
 import { listServices, SERVICES } from './services.js';
-import { parseQwenSetting, qwenHealth, QWEN_LIMITS, QWEN_PRESETS, readQwenEnv, runQwenctl } from './qwen.js';
+import { parseQwenExtra, parseQwenSetting, qwenHealth, qwenRunningCmdline, QWEN_LIMITS, QWEN_PRESETS, readQwenEnv, runQwenctl } from './qwen.js';
+import { applyPermissions } from './permissions.js';
 import { getLogs } from './logs.js';
 import { CONFIG_PATH_RE, listConfigFiles, putConfigFile, resolveConfigPath } from './config-files.js';
 import { getDispatch, launchDispatch, listDispatch } from './dispatch.js';
@@ -97,8 +98,15 @@ export function buildOpsRouter(deps: ModuleDeps): express.Router {
   r.get(
     '/ops/qwen',
     h(async (_req, res) => {
-      const [health] = await Promise.all([qwenHealth(ctx)]);
-      res.json({ env: readQwenEnv(ctx.qwenEnvPath), health, presets: QWEN_PRESETS, limits: QWEN_LIMITS });
+      const [health, running] = await Promise.all([qwenHealth(ctx), qwenRunningCmdline(ctx)]);
+      const env = readQwenEnv(ctx.qwenEnvPath);
+      let extraRows: { flag: string; value: string }[] | null = null;
+      try {
+        extraRows = parseQwenExtra(env.QWEN_EXTRA ?? '');
+      } catch {
+        /* hand-edited into something we won't round-trip: the UI falls back to raw text */
+      }
+      res.json({ env, health, presets: QWEN_PRESETS, limits: QWEN_LIMITS, url: ctx.qwenUrl, running, extraRows });
     }),
   );
 
@@ -165,6 +173,23 @@ export function buildOpsRouter(deps: ModuleDeps): express.Router {
         res.json(out);
       } catch (e: any) {
         logOp('config.put', path, false, body.by);
+        err(res, e?.status ?? 400, msgOf(e));
+      }
+    }),
+  );
+
+  // Permissions matrix: persona `tools:` lists + per-model `deny:` lists, validated, backed up, reloaded.
+  r.post(
+    '/ops/permissions',
+    h((req, res) => {
+      const body = req.body ?? {};
+      if (body.confirm !== true) return err(res, 400, 'confirm required');
+      try {
+        const out = applyPermissions(deps, ctx.backupDir, body);
+        logOp('permissions.set', out.written.join(',') || '-', true, body.by);
+        res.json(out);
+      } catch (e: any) {
+        logOp('permissions.set', '-', false, body.by);
         err(res, e?.status ?? 400, msgOf(e));
       }
     }),
