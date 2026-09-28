@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<title>Alfred Settings</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f6f6f7; --fg: #1c1c1e; --muted: #6e6e73; --line: #d8d8dc; --field: #fff; --acc: #0a84ff; --ok: #1f9d55; --bad: #d93025; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1b1b1d; --fg: #f2f2f7; --muted: #98989f; --line: #3a3a3c; --field: #2c2c2e; --ok: #32d74b; --bad: #ff453a; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px 24px 24px; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: var(--muted); }
+  fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px 14px; margin: 0 0 14px; }
+  legend { padding: 0 6px; font-weight: 600; }
+  label.row { display: block; margin: 8px 0 0; }
+  label.row > span { display: block; margin-bottom: 4px; color: var(--muted); }
+  input[type=text], input[type=password], input[type=url], textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--field); color: var(--fg); font: inherit; }
+  textarea { min-height: 58px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .check { display: flex; gap: 8px; align-items: center; margin: 6px 0 0; }
+  .inline { display: flex; gap: 8px; align-items: center; }
+  .inline input { flex: 1; }
+  button { padding: 6px 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--field); color: var(--fg); font: inherit; cursor: pointer; }
+  button.primary { background: var(--acc); border-color: var(--acc); color: #fff; }
+  .status { min-height: 18px; margin-top: 6px; color: var(--muted); }
+  .status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<h1>Alfred</h1>
+<p class="lead">Connect to Alfred on the Spark. Everything runs there; this app shows the dashboard, notifies you and adds things quickly.</p>
+
+<fieldset>
+  <legend>Server</legend>
+  <label class="row"><span>URL</span><input id="url" type="url" placeholder="https://gx10-de9a.tail542084.ts.net:8443" spellcheck="false"></label>
+  <label class="row"><span>Token</span>
+    <div class="inline"><input id="token" type="password" autocomplete="off" spellcheck="false"><button id="show" type="button">Show</button></div>
+  </label>
+  <div class="inline" style="margin-top:10px"><button id="test" type="button">Test connection</button><div id="testStatus" class="status"></div></div>
+</fieldset>
+
+<fieldset>
+  <legend>Notifications</legend>
+  <label class="check"><input id="n_failures" type="checkbox"> Failures, stops and parked tasks</label>
+  <label class="check"><input id="n_approvals" type="checkbox"> Approvals (with Approve / Deny)</label>
+  <label class="check"><input id="n_done" type="checkbox"> Finished goals</label>
+  <label class="check"><input id="n_chat" type="checkbox"> Chat replies (when the window is in the background)</label>
+</fieldset>
+
+<fieldset>
+  <legend>App</legend>
+  <label class="check"><input id="launchAtLogin" type="checkbox"> Launch at login</label>
+  <label class="row"><span>Quick-add shortcut</span><input id="shortcut" type="text" spellcheck="false"></label>
+  <div class="hint">Electron accelerator, e.g. CommandOrControl+Shift+Space.</div>
+</fieldset>
+
+<fieldset>
+  <legend>This Mac as a workspace (alfred-node)</legend>
+  <label class="check"><input id="node_enabled" type="checkbox"> Run the node while the app is open</label>
+  <label class="row"><span>Node name</span><input id="node_name" type="text" spellcheck="false"></label>
+  <label class="row"><span>Roots (one absolute folder per line; agents can only touch these)</span><textarea id="node_roots" spellcheck="false" placeholder="/Users/quinn/code"></textarea></label>
+  <label class="check"><input id="node_dsh" type="checkbox"> Allow desktop shell (dsh) + notifications</label>
+  <div id="nodeStatus" class="hint"></div>
+</fieldset>
+
+<div class="actions">
+  <div id="saveStatus" class="status" style="margin-right:auto"></div>
+  <button id="cancel" type="button">Close</button>
+  <button id="save" type="button" class="primary">Save</button>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const N = window.alfredNative;
+  const setStatus = (el, text, cls) => { el.textContent = text; el.className = 'status' + (cls ? ' ' + cls : ''); };
+
+  function read() {
+    return {
+      url: $('url').value.trim(),
+      token: $('token').value.trim(),
+      notify: { failures: $('n_failures').checked, approvals: $('n_approvals').checked, done: $('n_done').checked, chat: $('n_chat').checked },
+      launchAtLogin: $('launchAtLogin').checked,
+      shortcut: $('shortcut').value.trim(),
+      node: {
+        enabled: $('node_enabled').checked,
+        name: $('node_name').value.trim(),
+        roots: $('node_roots').value.split('\n').map((r) => r.trim()).filter(Boolean),
+        dsh: $('node_dsh').checked,
+      },
+    };
+  }
+
+  async function init() {
+    const s = await N.getSettings();
+    $('url').value = s.url || '';
+    $('token').value = s.token || '';
+    for (const k of ['failures', 'approvals', 'done', 'chat']) $('n_' + k).checked = Boolean(s.notify && s.notify[k]);
+    $('launchAtLogin').checked = Boolean(s.launchAtLogin);
+    $('shortcut').value = s.shortcut || '';
+    $('node_enabled').checked = Boolean(s.node.enabled);
+    $('node_name').value = s.node.name || '';
+    $('node_roots').value = (s.node.roots || []).join('\n');
+    $('node_dsh').checked = Boolean(s.node.dsh);
+    const st = s.nodeState;
+    $('nodeStatus').textContent = !s.node.bundled ? 'This build has no bundled node (npm run build:node before packaging).'
+      : st ? `Node ${st.name}: ${st.running ? 'running' : 'stopped'}${st.error ? ' (' + st.error + ')' : ''}` : 'Node: off';
+    if (!s.url || !s.token) $(s.url ? 'token' : 'url').focus();
+  }
+
+  $('show').onclick = () => {
+    const t = $('token');
+    t.type = t.type === 'password' ? 'text' : 'password';
+    $('show').textContent = t.type === 'password' ? 'Show' : 'Hide';
+  };
+  $('test').onclick = async () => {
+    setStatus($('testStatus'), 'Testing…');
+    const r = await N.testConnection(read());
+    setStatus($('testStatus'), r.ok ? 'Connected' : '⚠ ' + (r.error || 'failed'), r.ok ? 'ok' : 'bad');
+  };
+  $('save').onclick = async () => {
+    const s = read();
+    if (!s.url || !s.token) return setStatus($('saveStatus'), '⚠ URL and token are required', 'bad');
+    const r = await N.saveSettings(s);
+    if (!r.ok) return setStatus($('saveStatus'), '⚠ ' + (r.error || 'could not save'), 'bad');
+    setStatus($('saveStatus'), 'Saved', 'ok');
+    setTimeout(() => window.close(), 600);
+  };
+  $('cancel').onclick = () => window.close();
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.close(); });
+  init().catch((e) => setStatus($('saveStatus'), '⚠ ' + e.message, 'bad'));
+</script>
+</body>
+</html>
