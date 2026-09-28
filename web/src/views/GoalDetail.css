@@ -70,3 +70,7 @@
 .entry:last-child { border-bottom: 0; }
 .entry:hover { background: var(--hover); }
 .entry .icon { color: var(--fg-3); flex: none; }
+
+/* tasks | activity: side by side on desktop, stacked on phones */
+.goal-main { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 900px) { .goal-main { grid-template-columns: minmax(0, 1fr); } }

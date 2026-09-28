@@ -29,3 +29,11 @@
 
 .sys-table { overflow-x: auto; }
 .sys-role { font-family: var(--font-mono); font-size: var(--t-sm); min-width: 110px; color: var(--fg-2); }
+
+/* Services on phones: status + name on the first line, details and actions wrap below */
+@media (max-width: 700px) {
+  .sys-services .list-item { flex-wrap: wrap; row-gap: var(--s-1); }
+  .sys-services .list-item .grow { flex: 1 1 60%; min-width: 0; }
+  .sys-services .list-item .key { display: none; }
+  .sys-services .list-item .svc-since { flex: 1 1 100%; order: 3; }
+}

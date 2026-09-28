@@ -45,7 +45,7 @@ export default function Services() {
   };
 
   return (
-    <div className="card list">
+    <div className="card list sys-services">
       <div className="card-head">
         <h3>Services</h3>
         <span className="actions"><Button size="sm" variant="ghost" icon="retry" onClick={reload}>Refresh</Button></span>
@@ -63,7 +63,7 @@ export default function Services() {
           </span>
           <span className="faint small hide-mobile">{svc.pid ? `pid ${svc.pid}` : ''}</span>
           <span className="faint small hide-mobile">{svc.memMb != null ? `${svc.memMb} MB` : ''}</span>
-          <span className="faint small">{svc.since ? `since ${dateTime(svc.since)}` : ''}</span>
+          <span className="faint small svc-since">{svc.since ? `since ${dateTime(svc.since)}` : ''}</span>
           {svc.url && <a className="small" href={svc.url} target="_blank" rel="noreferrer">open</a>}
           {(svc.controllable ?? []).filter((a) => (svc.active === 'active' ? a !== 'start' : a !== 'stop')).map((action) => (
             <Button key={action} size="sm" variant={action === 'stop' ? 'danger' : undefined}

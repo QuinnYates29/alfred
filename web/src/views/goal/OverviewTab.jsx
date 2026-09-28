@@ -191,7 +191,7 @@ export default function OverviewTab({ goal, tasks, events, usage }) {
 
       {claude.map((t) => <ClaudeCard key={t.id} task={t} origin={location.origin} />)}
 
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', alignItems: 'start' }}>
+      <div className="grid goal-main">
         <div className="card">
           <div className="card-head"><h3>Tasks</h3><span className="chip">{tasks.length}</span></div>
           {flat.length === 0

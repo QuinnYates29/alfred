@@ -51,7 +51,7 @@ export default function Overview() {
             <span className="chip">{s.host.cpus} cpus</span>
             <span className="chip">up {duration(s.host.uptimeS * 1000)}</span>
           </div>
-          <BarMeter label="Memory" used={s.host.mem.usedMb} total={s.host.mem.totalMb} unit="MB" />
+          <BarMeter label="Memory" used={Math.round(s.host.mem.usedMb / 102.4) / 10} total={Math.round(s.host.mem.totalMb / 102.4) / 10} unit="GB" />
           {s.host.disk
             ? <BarMeter label="Disk /" used={s.host.disk.usedGb} total={s.host.disk.totalGb} unit="GB" />
             : <span className="faint small">disk stats unavailable</span>}
