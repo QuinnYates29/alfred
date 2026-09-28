@@ -24,6 +24,7 @@ function nodeArgs(settings, script = SCRIPT) {
     '--name', n.name || 'macbook',
     ...(n.roots || []).flatMap((r) => ['--root', r]),
     ...(n.dsh ? ['--dsh'] : []),
+    ...(n.messages ? ['--messages'] : []),
   ];
 }
 

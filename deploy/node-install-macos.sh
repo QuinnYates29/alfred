@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # P9: install alfred-node on the Mac as a LaunchAgent (KeepAlive).
 # Usage: node-install-macos.sh --server wss://gx10-de9a.tail542084.ts.net:8443 \
-#          --token $ALFRED_TOKEN --name macbook --root ~/code [--root …] [--with-dsh] [--repo /path/to/alfred]
+#          --token $ALFRED_TOKEN --name macbook --root ~/code [--root …] [--with-dsh] [--messages] [--repo /path/to/alfred]
+# --messages: let agents text (Messages.app: iMessage, or SMS through the paired iPhone) and hand
+#   calls to the iPhone (tel:, Quinn clicks Call). Every text/call still needs Quinn's approval on the Spark.
 # This script is SHIPPED, not run by the tests. It never prints the token to logs.
 set -euo pipefail
 
 SERVER=""; NAME="macbook"; TOKEN="${ALFRED_TOKEN:-}"; REPO="${ALFRED_REPO:-$HOME/alfred}"
-ROOTS=(); WITH_DSH=0
+ROOTS=(); WITH_DSH=0; WITH_MESSAGES=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --server) SERVER="$2"; shift 2;;
@@ -15,6 +17,7 @@ while [[ $# -gt 0 ]]; do
     --root)   ROOTS+=("$2"); shift 2;;
     --repo)   REPO="$2"; shift 2;;
     --with-dsh) WITH_DSH=1; shift;;
+    --messages) WITH_MESSAGES=1; shift;;
     *) echo "unknown arg: $1" >&2; exit 2;;
   esac
 done
@@ -38,6 +41,14 @@ if [[ $WITH_DSH -eq 1 ]]; then
   cat > "$HOME/.deepseek/alfred-node.json" <<JSON
 { "profile": "headless", "apiBaseUrl": "http://gx10-de9a:1110/v1", "nodeName": "$NAME" }
 JSON
+fi
+
+if [[ $WITH_MESSAGES -eq 1 ]]; then
+  ARGS+=(--messages)
+  # The first send asks macOS for Automation permission (node → Messages); approve it once in
+  # System Settings → Privacy & Security → Automation. Calls need "Calls from iPhone" enabled in
+  # FaceTime and on the iPhone (Settings → Phone → Calls on Other Devices).
+  echo "messages enabled: approve the Automation prompt (Messages) on the first text"
 fi
 
 # `alfred` CLI shim (works with ALFRED_URL + ALFRED_TOKEN from the Mac, §4 addendum).

@@ -62,6 +62,7 @@
   <label class="row"><span>Node name</span><input id="node_name" type="text" spellcheck="false"></label>
   <label class="row"><span>Roots (one absolute folder per line; agents can only touch these)</span><textarea id="node_roots" spellcheck="false" placeholder="/Users/quinn/code"></textarea></label>
   <label class="check"><input id="node_dsh" type="checkbox"> Allow desktop shell (dsh) + notifications</label>
+  <label class="check"><input id="node_messages" type="checkbox"> Let agents text (Messages) and hand calls to my iPhone — each one still needs my approval</label>
   <div id="nodeStatus" class="hint"></div>
 </fieldset>
 
@@ -88,6 +89,7 @@
         name: $('node_name').value.trim(),
         roots: $('node_roots').value.split('\n').map((r) => r.trim()).filter(Boolean),
         dsh: $('node_dsh').checked,
+        messages: $('node_messages').checked,
       },
     };
   }
@@ -103,6 +105,7 @@
     $('node_name').value = s.node.name || '';
     $('node_roots').value = (s.node.roots || []).join('\n');
     $('node_dsh').checked = Boolean(s.node.dsh);
+    $('node_messages').checked = Boolean(s.node.messages);
     const st = s.nodeState;
     $('nodeStatus').textContent = !s.node.bundled ? 'This build has no bundled node (npm run build:node before packaging).'
       : st ? `Node ${st.name}: ${st.running ? 'running' : 'stopped'}${st.error ? ' (' + st.error + ')' : ''}` : 'Node: off';

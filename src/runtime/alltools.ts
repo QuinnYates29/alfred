@@ -7,6 +7,7 @@ import { pipelineTool } from '../executors/pipeline.js';
 import { langgraphTool } from '../executors/langgraph.js';
 import { boardTool } from '../board/tool.js';
 import { powersToolStubs } from '../powers/index.js';
+import { commsToolStubs } from '../comms/index.js';
 
 export function allTools(
   o: {
@@ -26,5 +27,6 @@ export function allTools(
     langgraphTool({ ...o.langgraph, models: o.langgraph?.models ?? o.models }),
     boardTool(),
     ...powersToolStubs(),
+    ...commsToolStubs(),
   ];
 }
