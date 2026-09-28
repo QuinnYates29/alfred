@@ -67,3 +67,21 @@ A `: ping` comment is written every 15 s. Event kinds (see `/api/v1/schema/event
 | `/plugins/<name>/…` | static dirs registered with `ctx.registerStatic(dir)` (no token — static UI assets; register nothing sensitive) |
 
 See `docs/EXTENDING.md` for writing plugins.
+
+## Feature modules (P13–P21)
+
+Each module mounts its routes under `/api/v1` (and the `/api` alias), behind the same token. The route
+tables live with their specs:
+
+| Module | Routes | Spec |
+|---|---|---|
+| board | `/boards…`, `/items…` (CRUD, move, check, comments, dispatch), `/board/dispatch` | `docs/phases/P13-board.md` |
+| ops | `/stats`, `/ops/services…`, `/ops/qwen`, `/ops/logs`, `/ops/config…`, `/ops/repos`, `/ops/dispatch`, `/ops/alfred/build-web` | `docs/phases/P14-ops.md` |
+| review | `/goals/:id/changes`, `/goals/:id/files`, `/goals/:id/file`, `/goals/:id/merge` | `docs/phases/P15-review.md` |
+| chat | `/chat`, `/chat/threads…` | `docs/phases/P16-chat.md` |
+| slack | `/slack/status` | `docs/phases/P20-slack.md` |
+| powers | `/connectors…` | `docs/phases/P21-agent-powers.md` (P21a) |
+| comms | `/contacts` (GET, PUT) | `docs/phases/P21-agent-powers.md` (P21b) |
+
+Live event kinds (including the module ones: `item_*`, `ops`, `chat_*`, `power`, `comms`) are listed by `GET /api/v1/schema/events`;
+every tool agents can call is listed by `GET /api/v1/tools`.
