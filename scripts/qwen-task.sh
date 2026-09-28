@@ -10,6 +10,9 @@ if [ -z "${QWEN_TASK_PRIVATE:-}" ]; then
   QWEN_TASK_PRIVATE=1 exec bash "$priv" "$@"
 fi
 NAME=$1 BRANCH=$2 PROMPT_FILE=$3 CHECK=$4 ATTEMPTS=${5:-4} TMIN=${6:-60}
+# Resolve the prompt before cd-ing into the worktree (a relative path silently became an empty prompt).
+PROMPT_FILE=$(realpath "$PROMPT_FILE") || { echo "prompt file not found: $3" >&2; exit 2; }
+[ -s "$PROMPT_FILE" ] || { echo "prompt file empty: $PROMPT_FILE" >&2; exit 2; }
 REPO=${REPO:-$HOME/repos/alfred}
 WT=${WT_ROOT:-$HOME/repos/alfred-wt}/$NAME
 LOGS=$HOME/repos/alfred/.dispatch/$NAME; mkdir -p "$LOGS"
