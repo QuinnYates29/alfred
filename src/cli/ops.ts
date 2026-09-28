@@ -217,3 +217,29 @@ export async function cmdOpen(api: Api, p: Parsed): Promise<void> {
   child.on('error', () => console.log(url)); // no opener available — at least show it
   child.unref();
 }
+
+// ---- jira ----
+
+export async function cmdJira(api: Api, p: Parsed): Promise<void> {
+  const sub = p.rest[0] ?? 'status';
+  if (sub === 'sync') {
+    const r = await api.req('POST', '/jira/sync');
+    return print(p, r, () => {
+      console.log(`jira sync: created ${r.created?.length ?? 0}, updated ${r.updated?.length ?? 0}, closed ${r.closed?.length ?? 0}, errors ${r.errors?.length ?? 0}`);
+      for (const e of r.errors ?? []) console.log(`  error: ${e}`);
+    });
+  }
+  if (sub !== 'status') throw new Error('usage: alfred jira status | sync');
+  const s = await api.get('/jira/status');
+  print(p, s, () => {
+    if (!s.configured) return console.log(`jira: not configured — ${s.error ?? 'set JIRA_SITE, JIRA_EMAIL, JIRA_API_TOKEN in ~/.config/alfred.env'}`);
+    console.log(`jira: ${s.site}${s.user ? ` as ${s.user}` : ''}${s.error ? ` (${s.error})` : ''}`);
+    const pol = s.policy ?? {};
+    console.log(`projects: ${(pol.projects ?? []).join(', ') || '(none — agents cannot create or comment)'}  types: ${(pol.issueTypes ?? []).join(', ')}`);
+    const l = pol.limits ?? {}; const u = s.usage ?? {};
+    console.log(`limits: creates ${u.createsToday ?? 0}/${l.createsPerDay ?? '-'} today · comments ${u.commentsToday ?? 0}/${l.commentsPerDay ?? '-'} · searches ${u.searchesHour ?? 0}/${l.searchesPerHour ?? '-'} this hour`);
+    const imp = pol.import ?? {};
+    console.log(`import: ${imp.enabled ? `every ${imp.everyMinutes} min (max ${imp.max})` : 'off'}  board=${imp.board || '(default)'}`);
+    if (s.lastSync) console.log(`last sync: created ${s.lastSync.created?.length ?? 0}, updated ${s.lastSync.updated?.length ?? 0}, closed ${s.lastSync.closed?.length ?? 0}, errors ${s.lastSync.errors?.length ?? 0}`);
+  });
+}

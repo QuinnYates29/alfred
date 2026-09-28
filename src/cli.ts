@@ -6,7 +6,7 @@ import { Api, Parsed, parseArgs, resolveConn } from './cli/util.js';
 import { cmdGoal, cmdLogin, cmdShow, cmdStatus, cmdTail } from './cli/core.js';
 import { cmdAdd, cmdBoard, cmdComment, cmdDone, cmdEdit, cmdInbox, cmdItem, cmdMv, cmdSend } from './cli/board.js';
 import { cmdAsk, cmdChat } from './cli/chat.js';
-import { cmdBuild, cmdBuilds, cmdConfig, cmdLogs, cmdModels, cmdNodes, cmdOpen, cmdPersonas, cmdQwen, cmdStats, cmdSvc } from './cli/ops.js';
+import { cmdBuild, cmdBuilds, cmdConfig, cmdJira, cmdLogs, cmdModels, cmdNodes, cmdOpen, cmdPersonas, cmdQwen, cmdStats, cmdSvc } from './cli/ops.js';
 import { cmdCat, cmdDiff, cmdDiscard, cmdFiles, cmdMerge, cmdTranscript } from './cli/review.js';
 
 const USAGE = `alfred — the agent platform
@@ -47,6 +47,10 @@ Ops (P14)
   alfred config ls · get <path> · edit <path> · set <path> <localFile>
   alfred builds · build <name>
   alfred nodes · models · personas
+
+Jira (J1)
+  alfred jira status                            site, allowed projects, today's usage, import state
+  alfred jira sync                              pull Jira issues onto the board now
 
 Review (P15)
   alfred diff <goal> [--file p]                branches, files, diff of a goal's work
@@ -148,6 +152,7 @@ async function main(): Promise<void> {
     case 'nodes': return cmdNodes(api, p);
     case 'models': return cmdModels(api, p);
     case 'personas': return cmdPersonas(api, p);
+    case 'jira': return cmdJira(api, p);
     case 'diff': return cmdDiff(api, p, need(p.rest[0], 'alfred diff <goal> [--file p]'));
     case 'merge': return cmdMerge(api, p, need(p.rest[0], 'alfred merge <goal>'));
     case 'discard': return cmdDiscard(api, p, need(p.rest[0], 'alfred discard <goal>'));

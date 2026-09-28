@@ -98,8 +98,9 @@ function toIssue(c: JiraCreds, raw: any): JiraIssue {
 }
 
 export function jiraClient(env: JiraEnv, fetchImpl: typeof fetch = fetch): JiraClient | null {
-  const c = credsFrom(env);
-  if (!c) return null;
+  const maybe = credsFrom(env);
+  if (!maybe) return null;
+  const c: JiraCreds = maybe;
   const auth = 'Basic ' + Buffer.from(`${c.email}:${c.token}`).toString('base64');
 
   async function req(method: string, path: string, body?: any): Promise<any> {

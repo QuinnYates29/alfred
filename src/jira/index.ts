@@ -9,7 +9,7 @@ import type { Store } from '../store.js';
 import type { Board } from '../board/board.js';
 import { JIRA_NOT_CONFIGURED, jiraPolicyPath, loadJiraPolicy } from './config.js';
 import { clientFor, jiraTool, usage } from './tool.js';
-import { syncJira, type SyncResult } from './sync.js';
+import { syncJira, JIRA_FIELD, type SyncResult } from './sync.js';
 
 const boardOf = (deps: ModuleDeps): Board | undefined => (deps.modules?.board as any)?.board;
 
@@ -110,6 +110,10 @@ function jiraRouter(deps: ModuleDeps): express.Router {
           description: item.description || undefined,
           labels: ['alfred'],
         });
+        const def = board.getBoard(item.boardId);
+        if (def && !(def.fields ?? []).some((f) => f.id === 'jira')) {
+          board.updateBoard(def.key, { fields: [...(def.fields ?? []), { ...JIRA_FIELD }] });
+        }
         const labels = item.labels.includes('jira') ? item.labels : [...item.labels, 'jira'];
         board.updateItem(item.key, { labels, fields: { ...(item.fields ?? {}), jira: t.url } }, 'quinn');
         deps.store.appendEvent('', null, 'jira', { kind: 'create', ok: true, key: t.key, summary: item.title, project });

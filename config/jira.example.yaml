@@ -3,7 +3,7 @@
 # Credentials are NEVER here: JIRA_SITE, JIRA_EMAIL, JIRA_API_TOKEN go in ~/.config/alfred.env.
 
 # Agents may create tickets / comment ONLY in these projects (empty = agents can't create or comment at all).
-# Each name: uppercase letter, then up to 9 of A-Z 0-9 _ (e.g. [WORK, OPS-2, HOME]).
+# Each name: uppercase letter, then up to 9 of A-Z 0-9 _ (e.g. [WORK, OPS2, HOME_X]).
 projects: []
 
 # Allowed issue types for agent-created tickets.

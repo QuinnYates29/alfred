@@ -98,12 +98,12 @@ export function loadJiraPolicy(deps: ModuleDeps): JiraPolicy {
     raw = null;
   }
   if (!raw || typeof raw !== 'object') raw = {};
-  const projects = Array.isArray(raw.projects)
-    ? [...new Set(raw.projects.map((p: any) => String(p).trim()).filter((p: string) => PROJECT_RE.test(p)))]
+  const projects: string[] = Array.isArray(raw.projects)
+    ? [...new Set<string>(raw.projects.map((p: any) => String(p).trim()).filter((p: string) => PROJECT_RE.test(p)))]
     : [];
-  const issueTypes = Array.isArray(raw.issueTypes)
-    ? [...new Set(raw.issueTypes.map((t: any) => String(t).trim()).filter((t: string) => t.length >= 1 && t.length <= 60))]
-    : [];
+  const issueTypes: string[] = Array.isArray(raw.issueTypes)
+    ? [...new Set<string>(raw.issueTypes.map((t: any) => String(t).trim()).filter((t: string) => t.length >= 1 && t.length <= 60))]
+    : [...d.issueTypes];
   const imp = raw.import && typeof raw.import === 'object' ? raw.import : {};
   const lim = raw.limits && typeof raw.limits === 'object' ? raw.limits : {};
   const defaults = num(lim.createsPerDay, d.limits.createsPerDay, 0, 50);

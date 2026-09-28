@@ -13,6 +13,21 @@ export interface SyncResult {
   errors: string[];
 }
 
+/** Minimal board-item shape unit tests use instead of the real Board (structural subset of Item). */
+export interface FakeItem {
+  key: string;
+  boardId: string;
+  title: string;
+  description: string;
+  status: string;
+  kind: 'todo' | 'indeterminate' | 'done';
+  priority: Priority;
+  labels: string[];
+  due: string | null;
+  fields: Record<string, any>;
+  archived: boolean;
+}
+
 export const JIRA_FIELD = { id: 'jira', name: 'Jira', type: 'url' } as const;
 
 export function mapPriority(p: string | null): Priority {
