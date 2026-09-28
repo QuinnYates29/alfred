@@ -1,18 +1,15 @@
 # HANDOFF: state of the alfred build (keep this current)
 
-## RESUME HERE (2026-09-27 19:15) — orchestrator state
-**Merged on master:** scaffold (src/modules.ts seam), P17a web shell + skins (JARVIS default / Mark 42 gunmetal / FRIDAY / Classic), P15 review, P14 ops, P13 board, P16 chat, P20 slack (+ SLACK_ALLOWED_USERS allowlist added by orchestrator), P17c goals UI, P17e system UI (both finished by the orchestrator after Qwen stalled: a test race + a React render loop; also fixed a stale-route bug in useResource).
-**Running (Qwen via scripts/qwen-task.sh, check .dispatch/<NAME>/status.json):** P17b board UI, P17d home/inbox/chat UI, P19 CLI.
-**UI nits to fix before final deploy (from screenshots 19:59):** Config file list truncates names; Qwen Slots field shows — although QWEN_NP=3; qwen-server shows Start+Stop while running; failed goal shows two near-identical cancelled cards; Services "reconnecting…" label never shows. NVRM NV_ERR_NO_MEMORY bursts (14:20/16:26/19:00/19:59) = GPU context alloc failing under ~81% unified-memory use; not reproducible; watcher logs recent processes.
-**Lesson:** when an attempt times out with only a few UI tests failing, debug it directly (pageerror log via a throwaway test writing to a file — vitest swallows console) instead of paying another 75-min attempt.
-**Queue, in order (≤3 at once):** P21a powers, P18 mac app, P21b comms (needs P21a).
-Launch: `CHECK=$(grep '^Test: ' docs/dispatch/X.md | sed 's/^Test: //'); LINKS="node_modules sidecar/.venv web/node_modules web/dist" setsid nohup scripts/qwen-task.sh X <branch> $PWD/docs/dispatch/X.md "$CHECK" 4 75 >/dev/null 2>&1 </dev/null &`
-  — for P17*/P18 use LINKS without `web/dist` (they build their own). Branches: p16-chat p17b-board p17c-goals p17d-home p17e-system p18-app p19-cli p20-slack p21a-platform p21b-comms.
-Verify+merge: diff vs `git merge-base HEAD master` (no edits to test/acceptance, types.ts, contract.ts, main.ts, app.ts unless allowed) → `git merge --no-ff` → run all suites ≤ merged phases + `npx tsc --noEmit -p tsconfig.src.json` → `git worktree remove --force ~/repos/alfred-wt/X && git branch -D <br> && rm -rf .dispatch/X`.
-After P17 views merge: rebuild web (`npm run build:web`), screenshot with `node scripts/shot.mjs "<url>?token=…" <dir> <routes>` (SHOT_SKIN=jarvis), delete web/src/legacy + legacy.css once no view imports them.
-Final steps when all merged: restart the user service (`systemctl --user restart alfred`), build CLI bundle (`npm run build:cli`) + Mac app zip (`npm --prefix app run pack:mac`), update README/docs/API.md, report to Quinn.
-Quinn to do (sudo/accounts): `sudo tailscale set --operator=$USER` + `tailscale serve --bg --https=8443 http://127.0.0.1:8790`; Slack app (docs/REMOTE-ACCESS.md); Mac node/app install; optional Twilio; custom domain later (docs/REMOTE-ACCESS.md §2).
-Harness fixes today: DSH defaultMaxTokens 32768 (~/.dsh/settings.yaml); PREAMBLE says split files; checks use tsconfig.src.json.
+## RESUME HERE (2026-09-27 22:15) — orchestrator state
+**Live:** alfred user service restarted on master (22:0x). Slack configured + connected (SLACK_* in ~/.config/alfred.env, allowlist set).
+tailscale serve https:8443 → :8790 is up (Quinn ran it). Mac node `macbook` connected (roots ~/code). ALFRED_DASHBOARD_URL set.
+**Merged on master:** scaffold, P17a shell+skins, P13 board API, P14 ops, P15 review, P16 chat, P17c goals UI, P17e system UI, P20 slack (+allowlist).
+Orchestrator fixes tonight: useResource stale-route race; Services render loop; phone layouts; restart hang (server.close waited on SSE → closeAllConnections + 10 s hard exit);
+SSE flush on open (tailscale serve held the stream 15 s); Mac node/CLI shim run node+tsx directly (launchd PATH / nvm); headless Chromium kept off NVIDIA (Mesa/lavapipe env).
+**Running (Qwen):** P17b board UI (attempt 3), P17d home/inbox/chat UI (attempt 3), P19 CLI (attempt 2).
+**Queue:** P21a powers → P18 mac app → P21b comms (needs P21a). Launch recipe unchanged (below).
+**Known UI gap:** Inbox is still the legacy P5 view (old styling) until P17d merges; then delete web/src/legacy.
+**Final steps:** screenshots in all skins, delete legacy views, `npm run build:cli`, `npm --prefix app run pack:mac`, README/API docs, custom domain later.
 
 ## 2026-09-27 — Control-surface build (Quinn: "everything controllable from the Mac")
 Goal set by Quinn: build all of it now; he sets up Slack + the Mac node afterward. Native Mac app + quick CLI backup + a website on the tailnet
