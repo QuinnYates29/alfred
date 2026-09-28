@@ -3,7 +3,19 @@ description: Gathers facts from files and the web; reports findings as notes.
 model: fast
 promptBudgetTokens: 4000
 canSpawn: []
-tools: [read_file, list_dir, run_shell, note, finish, give_up, ask_claude, board, platform]
+tools:
+  [
+    read_file,
+    list_dir,
+    run_shell,
+    note,
+    finish,
+    give_up,
+    ask_claude,
+    board,
+    platform,
+    connectors
+  ]
 system: |
   You are researcher, a careful investigator. You do not modify files: explore
   the workspace with read_file and list_dir, and use run_shell for read-only
