@@ -116,18 +116,18 @@ export async function cmdInbox(api: Api, p: Parsed): Promise<void> {
   const approvals: any[] = await api.get('/approvals?status=pending');
   const goals: any[] = await api.get('/goals');
   const parked: { slug: string; id8: string; status: string; title: string }[] = [];
-  for (const gs of goals) {
-    const c = gs.counts ?? {};
+  for (const g of goals) {
+    const c = g.counts ?? {};
     if ((Number(c.blocked) || 0) + (Number(c.needs_claude) || 0) > 0) {
-      const d = await api.get(`/goals/${enc(gs.goal.id)}`);
+      const d = await api.get(`/goals/${enc(g.id)}`);
       for (const t of d.tasks ?? []) {
         if (t.status === 'blocked' || t.status === 'needs_claude') {
-          parked.push({ slug: gs.goal.slug, id8: t.id.slice(0, 8), status: t.status, title: t.title });
+          parked.push({ slug: g.slug, id8: t.id.slice(0, 8), status: t.status, title: t.title });
         }
       }
     }
   }
-  const failed = goals.filter((gs) => gs.goal.status === 'failed');
+  const failed = goals.filter((g) => g.status === 'failed');
   const boardItems: any[] = await api.get('/items?label=needs-attention');
 
   if (!approvals.length && !parked.length && !failed.length && !boardItems.length) {
@@ -144,7 +144,7 @@ export async function cmdInbox(api: Api, p: Parsed): Promise<void> {
     for (const t of parked) console.log(`  ${t.id8}  ${t.slug}  [${t.status}] ${t.title}`);
     console.log('Failed goals');
     if (!failed.length) console.log('  none');
-    for (const gs of failed) console.log(`  ${gs.goal.id.slice(0, 8)}  ${gs.goal.slug}  ${gs.goal.title}`);
+    for (const g of failed) console.log(`  ${g.id.slice(0, 8)}  ${g.slug}  ${g.title}`);
     console.log('Board');
     if (!boardItems.length) console.log('  none');
     for (const it of boardItems) console.log(itemLine(it));

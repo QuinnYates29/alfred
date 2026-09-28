@@ -2,6 +2,10 @@
 import { createInterface } from 'node:readline';
 import { Api, flag, Parsed } from './util.js';
 
+// POST /chat returns reply as a ChatMessage object ({ role, content, … }); tolerate a plain string too.
+const replyText = (out: any): string =>
+  typeof out?.reply === 'string' ? out.reply : String(out?.reply?.content ?? '');
+
 export async function cmdAsk(api: Api, p: Parsed): Promise<void> {
   const text = p.rest[0];
   if (!text) throw new Error('usage: alfred ask "<text>" [--thread id]');
@@ -9,7 +13,7 @@ export async function cmdAsk(api: Api, p: Parsed): Promise<void> {
   if (flag(p, 'thread')) body.threadId = flag(p, 'thread');
   const out = await api.req('POST', '/chat', body);
   if (p.bools.has('json')) return void console.log(JSON.stringify(out, null, 2));
-  process.stdout.write(`${String(out.reply ?? '').trim()}\n`);
+  process.stdout.write(`${replyText(out).trim()}\n`);
   console.error(`(thread ${out.threadId})`);
 }
 
@@ -18,14 +22,14 @@ export async function cmdChat(api: Api, p: Parsed): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: 'you> ' });
   console.error(`alfred chat${threadId ? ` (thread ${threadId})` : ''} — /quit to exit`);
   for (;;) {
-    const line = (await rl.question('you> ')).trim();
+    const line = (await new Promise<string>((res) => rl.question('you> ', res))).trim();
     if (!line || line === '/quit' || line === '/exit') break;
     try {
       const body: Record<string, unknown> = { text: line };
       if (threadId) body.threadId = threadId;
       const out = await api.req('POST', '/chat', body);
       threadId = out.threadId ?? threadId;
-      console.log(String(out.reply ?? '').trim());
+      console.log(replyText(out).trim());
     } catch (e: any) {
       console.error(`alfred: ${e?.message ?? e}`);
     }
