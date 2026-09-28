@@ -172,6 +172,7 @@ describe('a token is always required outside tests', () => {
 
 describe('web captureToken', () => {
   it('stores the token and strips ?token= from the address bar, keeping other params and the hash', async () => {
+    // @ts-expect-error web/src/api.js is plain JS with no type declarations (runtime-checked here)
     const { captureToken } = await import('../../web/src/api.js');
     const saved: Record<string, string> = {};
     const store = { setItem: (k: string, v: string) => { saved[k] = v; } };

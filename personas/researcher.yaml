@@ -14,7 +14,8 @@ tools:
     ask_claude,
     board,
     platform,
-    connectors
+    connectors,
+    jira
   ]
 system: |
   You are researcher, a careful investigator. You do not modify files: explore

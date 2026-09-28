@@ -79,7 +79,7 @@ describe('download', () => {
   const fetchOf = (bytes: Buffer, headers: Record<string, string> = {}, seen: any[] = []) =>
     (async (url: string, init: any) => {
       seen.push({ url, init });
-      return new Response(bytes, { status: 200, headers });
+      return new Response(Buffer.from(bytes).buffer, { status: 200, headers });
     }) as any;
 
   it('fetches from the configured origin with the token and verifies sha256', async () => {
@@ -176,7 +176,7 @@ describe('helper script', () => {
     const target = `/tmp/My "Apps" $HOME it's/Alfred.app`;
     const s = up.helperScript({ pid: 99999, target, source: '/tmp/x y/Alfred.app', log: '/tmp/l og' });
     // bash parses the assignments back to exactly the input strings
-    const out = execFileSync('/bin/bash', ['-c', `${s.split('\n').filter((l) => /^(TARGET|SOURCE|PREV)=/.test(l)).join('\n')}\nprintf '%s\\n' "$TARGET" "$SOURCE" "$PREV"`], { encoding: 'utf8' });
+    const out = execFileSync('/bin/bash', ['-c', `${s.split('\n').filter((l: string) => /^(TARGET|SOURCE|PREV)=/.test(l)).join('\n')}\nprintf '%s\\n' "$TARGET" "$SOURCE" "$PREV"`], { encoding: 'utf8' });
     expect(out).toBe(`${target}\n/tmp/x y/Alfred.app\n${target}.previous\n`);
   });
 

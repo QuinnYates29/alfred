@@ -1,0 +1,22 @@
+# Jira (J1) — what agents may do on Quinn's work site, and the board import.
+# Copy to config/jira.yaml. Missing or broken file = the safe defaults below (fail closed).
+# Credentials are NEVER here: JIRA_SITE, JIRA_EMAIL, JIRA_API_TOKEN go in ~/.config/alfred.env.
+
+# Agents may create tickets / comment ONLY in these projects (empty = agents can't create or comment at all).
+# Each name: uppercase letter, then up to 9 of A-Z 0-9 _ (e.g. [WORK, OPS2, HOME_X]).
+projects: []
+
+# Allowed issue types for agent-created tickets.
+issueTypes: [Task, Bug]
+
+limits:
+  createsPerDay: 5 # across all agents, rolling 24 h (max 50)
+  commentsPerDay: 20 # rolling 24 h (max 200)
+  searchesPerHour: 60 # rolling hour (max 600)
+
+import: # pull Jira → board (server-side, read-only; never writes to Jira)
+  enabled: false
+  jql: 'assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC'
+  board: '' # board key; '' = the default board
+  everyMinutes: 15 # 5..1440
+  max: 50 # issues per sync; 1..100

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+// @ts-expect-error web/src is plain JSX (built by vite); root tsc has no --jsx setting
 import { boardPatch, validateBoard } from '../../web/src/views/board/Settings.jsx';
 
 const col = (id: string, name: string, extra = {}) => ({ id, name, kind: 'todo', wip: null, ...extra });

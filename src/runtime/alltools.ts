@@ -8,6 +8,7 @@ import { langgraphTool } from '../executors/langgraph.js';
 import { boardTool } from '../board/tool.js';
 import { powersToolStubs } from '../powers/index.js';
 import { commsToolStubs } from '../comms/index.js';
+import { jiraToolStubs } from '../jira/index.js';
 
 export function allTools(
   o: {
@@ -28,5 +29,6 @@ export function allTools(
     boardTool(),
     ...powersToolStubs(),
     ...commsToolStubs(),
+    ...jiraToolStubs(),
   ];
 }
