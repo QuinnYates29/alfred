@@ -279,7 +279,11 @@ function buildRouter(d: AppDeps): express.Router {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
+      'x-accel-buffering': 'no',
     });
+    // Proxies (tailscale serve) hold the response until body bytes flow: send one now, or the
+    // client sits in "connecting" until the first heartbeat.
+    res.write(': open\n\n');
     const since = Number(req.query.since ?? 0);
     for (const e of d.store.allEvents({ sinceId: since })) {
       res.write(`id: ${e.id}\ndata: ${JSON.stringify(e)}\n\n`);
@@ -297,7 +301,7 @@ function buildRouter(d: AppDeps): express.Router {
       } catch {
         /* socket gone */
       }
-    }, 15_000);
+    }, 10_000);
     if (typeof hb.unref === 'function') hb.unref();
     req.on('close', () => {
       clearInterval(hb);
