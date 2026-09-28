@@ -103,7 +103,13 @@ export interface Approval {
   createdAt: number;
   decidedAt: number | null;
   decidedBy: string | null;
+  /** What Quinn needs to see to decide (a config diff, an automation's spec, a connector's config).
+   *  Present only when the requester supplied it. */
+  info?: string;
 }
+
+/** Approvals asked from a chat turn use this pseudo task id (no task row; goalId ''). */
+export const CHAT_TASK_PREFIX = 'chat:';
 
 /** P10 §2 — a repo registered in the hub: where its checkouts live per machine. */
 export interface Repo {
@@ -153,12 +159,14 @@ export interface Store {
   putAutomationRow(row: AutomationRow): void;
   deleteAutomationRow(id: string): boolean;
   /** P3: record a requested action and park-ready notify the decider (event `approval_requested`). */
-  requestApproval(taskId: string, action: string, detail: string): Approval;
+  requestApproval(taskId: string, action: string, detail: string, info?: string): Approval;
   /** P3: approve/deny; a `blocked` task goes back to `queued` with the outcome in its notes. */
   decideApproval(id: string, decision: 'approved' | 'denied', by: string): Approval;
   approvals(opts?: { status?: ApprovalStatus; taskId?: string }): Approval[];
   /** P3: true once for an approved match, then the approval is spent. */
   consumeApproval(taskId: string, detail: string): boolean;
+  /** The oldest approval row for exactly this task + detail with the given status, if any. */
+  findApproval(taskId: string, detail: string, status: ApprovalStatus): Approval | undefined;
   /** P10: register/merge a repo row (paths are merged per machine). */
   upsertRepo(input: { name: string; paths: Record<string, string>; defaultBranch?: string | null }): Repo;
   getRepo(name: string): Repo | undefined;
@@ -256,6 +264,7 @@ interface ApprovalRow {
   createdAt: number;
   decidedAt: number | null;
   decidedBy: string | null;
+  info?: string | null;
 }
 
 function approvalFromRow(r: ApprovalRow): Approval {
@@ -269,6 +278,7 @@ function approvalFromRow(r: ApprovalRow): Approval {
     createdAt: r.createdAt,
     decidedAt: r.decidedAt,
     decidedBy: r.decidedBy,
+    ...(r.info ? { info: r.info } : {}),
   };
 }
 
@@ -453,6 +463,11 @@ export function openStore(
   if (!taskCols.some((c) => c.name === 'result')) {
     db.exec(`ALTER TABLE tasks ADD COLUMN result TEXT`);
   }
+  // approvals.info — what the decider sees besides the detail (additive).
+  const approvalCols = db.prepare(`PRAGMA table_info(approvals)`).all() as { name: string }[];
+  if (!approvalCols.some((c) => c.name === 'info')) {
+    db.exec(`ALTER TABLE approvals ADD COLUMN info TEXT`);
+  }
 
   const subscribers = new Set<(e: EventRow) => void>();
 
@@ -542,14 +557,17 @@ export function openStore(
     deleteAutomation: db.prepare(`DELETE FROM automations WHERE id = ?`),
 
     insertApproval: db.prepare(
-      `INSERT INTO approvals (id, taskId, goalId, action, detail, status, createdAt, decidedAt, decidedBy)
-       VALUES (@id, @taskId, @goalId, @action, @detail, @status, @createdAt, @decidedAt, @decidedBy)`,
+      `INSERT INTO approvals (id, taskId, goalId, action, detail, status, createdAt, decidedAt, decidedBy, info)
+       VALUES (@id, @taskId, @goalId, @action, @detail, @status, @createdAt, @decidedAt, @decidedBy, @info)`,
     ),
     getApproval: db.prepare(`SELECT * FROM approvals WHERE id = ?`),
     approvedForTask: db.prepare(
       `SELECT * FROM approvals WHERE taskId = ? AND detail = ? AND status = 'approved' ORDER BY seq ASC LIMIT 1`,
     ),
     decidedBy: db.prepare(`UPDATE approvals SET status = ?, decidedAt = ?, decidedBy = ? WHERE id = ?`),
+    findApproval: db.prepare(
+      `SELECT * FROM approvals WHERE taskId = ? AND detail = ? AND status = ? ORDER BY seq ASC LIMIT 1`,
+    ),
     deleteApproval: db.prepare(`DELETE FROM approvals WHERE id = ?`),
 
     getRepo: db.prepare(`SELECT * FROM repos WHERE name = ?`),
@@ -1008,33 +1026,49 @@ export function openStore(
     return () => subscribers.delete(cb);
   }
 
-  const requestApprovalTxn = db.transaction((taskId: string, action: string, detail: string) => {
-    const row = getTaskRow(taskId);
-    if (!row) throw new Error(`no such task: ${taskId}`);
+  const requestApprovalTxn = db.transaction((taskId: string, action: string, detail: string, info?: string) => {
+    // A chat turn has no task row: its approvals hang off the pseudo task `chat:<threadId>`.
+    const chat = taskId.startsWith(CHAT_TASK_PREFIX) && taskId.length > CHAT_TASK_PREFIX.length;
+    const row = chat ? undefined : getTaskRow(taskId);
+    if (!chat && !row) throw new Error(`no such task: ${taskId}`);
+    const goalId = row ? row.goalId : '';
+    if (chat) {
+      // One pending row per chat ask: asking again doesn't pile up duplicates.
+      const dup = stmts.findApproval.get(taskId, String(detail ?? ''), 'pending') as ApprovalRow | undefined;
+      if (dup) return approvalFromRow(dup);
+    }
     const t = now();
     const aRow: ApprovalRow = {
       seq: 0,
       id: randomUUID(),
       taskId,
-      goalId: row.goalId,
+      goalId,
       action: String(action ?? ''),
       detail: String(detail ?? ''),
       status: 'pending',
       createdAt: t,
       decidedAt: null,
       decidedBy: null,
+      info: info ? String(info) : null,
     };
     stmts.insertApproval.run(aRow);
-    emit(row.goalId, taskId, 'approval_requested', {
+    emit(goalId, chat ? null : taskId, 'approval_requested', {
       approvalId: aRow.id,
       action: aRow.action,
       detail: aRow.detail,
+      ...(aRow.info ? { info: aRow.info } : {}),
+      ...(chat ? { taskId } : {}),
     });
     return approvalFromRow(aRow);
   });
 
-  function requestApproval(taskId: string, action: string, detail: string): Approval {
-    return requestApprovalTxn.immediate(taskId, action, detail);
+  function requestApproval(taskId: string, action: string, detail: string, info?: string): Approval {
+    return requestApprovalTxn.immediate(taskId, action, detail, info);
+  }
+
+  function findApproval(taskId: string, detail: string, status: ApprovalStatus): Approval | undefined {
+    const r = stmts.findApproval.get(taskId, String(detail ?? ''), status) as ApprovalRow | undefined;
+    return r ? approvalFromRow(r) : undefined;
   }
 
   const decideApprovalTxn = db.transaction(
@@ -1057,13 +1091,15 @@ export function openStore(
         decision === 'approved'
           ? `approved: ${a.detail}`
           : `denied: ${a.detail} — find another way`;
-      stmts.appendNoteStmt.run(note, t, a.taskId);
-      emit(a.goalId, a.taskId, 'approval_decided', {
+      const chat = a.taskId.startsWith(CHAT_TASK_PREFIX);
+      if (!chat) stmts.appendNoteStmt.run(note, t, a.taskId);
+      emit(a.goalId, chat ? null : a.taskId, 'approval_decided', {
         approvalId: id,
         action: a.action,
         detail: a.detail,
         decision,
         by: by ?? null,
+        ...(chat ? { taskId: a.taskId } : {}),
       });
       return approvalFromRow(stmts.getApproval.get(id) as ApprovalRow);
     },
@@ -1084,10 +1120,12 @@ export function openStore(
     const a = stmts.approvedForTask.get(taskId, String(detail ?? '')) as ApprovalRow | undefined;
     if (!a) return false;
     stmts.deleteApproval.run(a.id);
-    emit(a.goalId, taskId, 'approval_consumed', {
+    const chat = taskId.startsWith(CHAT_TASK_PREFIX);
+    emit(a.goalId, chat ? null : taskId, 'approval_consumed', {
       approvalId: a.id,
       action: a.action,
       detail: a.detail,
+      ...(chat ? { taskId } : {}),
     });
     return true;
   });
@@ -1194,6 +1232,7 @@ export function openStore(
     decideApproval,
     approvals,
     consumeApproval,
+    findApproval,
     upsertRepo,
     getRepo,
     listRepos,

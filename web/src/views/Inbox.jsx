@@ -45,6 +45,9 @@ function Approvals({ rows, onDecide }) {
           <span className="chip accent"><Icon name="check" size={12} /></span>
           <span className="grow" style={{ minWidth: 0 }}>
             <span className="ellipsis" style={{ display: 'block', fontWeight: 600 }}>{r.approval.action}</span>
+            {String(r.approval.taskId ?? '').startsWith('chat:') && (
+              <span className="xs faint" style={{ display: 'block' }}>asked in chat</span>
+            )}
             {r.taskTitle && (
               <a className="xs faint" style={{ display: 'block' }} href={href(`/goal/${r.approval.goalId}`)}>
                 {r.taskTitle}
@@ -55,6 +58,10 @@ function Approvals({ rows, onDecide }) {
           <span className="row" style={{ gap: 'var(--s-2)', width: '100%' }}>
             <code className="codeblock wrap grow" style={{ margin: 0 }}>{r.approval.detail}</code>
           </span>
+          {r.approval.info && (
+            <pre className="codeblock wrap" data-testid={`approval-info-${r.approval.id}`}
+              style={{ margin: 0, width: '100%', maxHeight: 360, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{r.approval.info}</pre>
+          )}
           <span className="row" style={{ gap: 'var(--s-2)', marginLeft: 'auto' }}>
             <Button size="sm" variant="primary" data-testid={`approve-${r.approval.id}`} onClick={() => onDecide(r.approval, 'approved')}>
               Approve
@@ -97,7 +104,7 @@ export default function Inbox() {
   const total = rows.length;
 
   const decide = (approval, decision) =>
-    act(() => post(`/api/approvals/${approval.id}`, { decision, by: 'dashboard' }),
+    act(() => post(`/api/approvals/${approval.id}`, { decision }),
       decision === 'approved' ? 'Approved' : 'Denied').catch(() => {});
 
   const retry = (goalId) =>

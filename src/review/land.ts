@@ -7,6 +7,7 @@ import type { Store } from '../store.js';
 import type { RepoHub } from '../git/hub.js';
 import { git, gitTry } from './git.js';
 import { resolveRepo, resolveBase, pushedBranches } from './changes.js';
+import { assertBranch, SHA_RE } from '../git/refs.js';
 
 export class HttpError extends Error {
   constructor(public status: number, message: string, public extra: Record<string, any> = {}) {
@@ -22,6 +23,10 @@ export interface MergeInput {
   strategy?: 'merge' | 'squash';
   message?: string;
   deleteBranch?: boolean;
+  /** Merge exactly this commit of the branch (what was reviewed/approved), not whatever the branch is now. */
+  sha?: string;
+  /** The base head the change was reviewed against: refuse (409) if the base has moved since. */
+  baseSha?: string;
 }
 
 export async function mergeGoal(
@@ -30,6 +35,16 @@ export async function mergeGoal(
   goal: { id: string; title: string; meta?: Record<string, any> },
   input: MergeInput,
 ): Promise<{ ok: true; into: string; sha: string; localUpdated: boolean }> {
+  for (const [k, v] of [['branch', input.branch], ['into', input.into]] as const) {
+    try {
+      assertBranch(v, k);
+    } catch (e: any) {
+      throw new HttpError(400, e.message);
+    }
+  }
+  for (const [k, v] of [['sha', input.sha], ['baseSha', input.baseSha]] as const) {
+    if (v !== undefined && !SHA_RE.test(String(v))) throw new HttpError(400, `invalid ${k}: must be a full commit sha`);
+  }
   const repo = resolveRepo(store, goal);
   const branches = pushedBranches(store, goal.id);
   const branch = input.branch ?? branches[0]?.branch;
@@ -38,27 +53,43 @@ export async function mergeGoal(
   const base = await resolveBase(repoHub, repo.name, repo);
   const into = input.into ?? base;
   if (!into) throw new HttpError(409, 'no base branch in the hub');
+  repoHub.protect(repo.name, [into]);
+
+  // What gets merged is a commit, read from the hub — never a name that could move under us.
+  const branchHead = await repoHub.headSha(repo.name, branch);
+  if (!branchHead) throw new HttpError(409, `branch ${branch} is not in the hub`);
+  const baseHead = await repoHub.headSha(repo.name, into);
+  if (!baseHead) throw new HttpError(409, `base ${into} is not in the hub`);
+  if (input.baseSha && input.baseSha !== baseHead) {
+    throw new HttpError(409, `base ${into} moved since review (${input.baseSha.slice(0, 8)} → ${baseHead.slice(0, 8)}); review and approve again`, { baseSha: baseHead });
+  }
+  const mergeSha = input.sha ?? branchHead;
 
   const strategy = input.strategy === 'squash' ? 'squash' : 'merge';
   const deleteBranch = input.deleteBranch !== false;
   const message = input.message || `Merge ${branch}: ${goal.title}`;
   const bare = repoHub.barePath(repo.name);
+  if (input.sha && input.sha !== branchHead) {
+    // Only a commit the branch still contains (so the clone has it); a rewritten branch is re-reviewed.
+    const anc = await gitTry(['--git-dir', bare, 'merge-base', '--is-ancestor', input.sha, branchHead]);
+    if (!anc.ok) throw new HttpError(409, `commit ${input.sha.slice(0, 8)} is no longer on ${branch}; review and approve again`);
+  }
 
   const tmp = await mkdtemp(join(tmpdir(), 'alfred-land-'));
   let sha = '';
   try {
-    await git(['clone', '-q', bare, tmp]);
-    await git(['checkout', '-q', into], tmp);
+    await git(['clone', '-q', '--', bare, tmp]);
+    await git(['checkout', '-q', '-B', into, baseHead], tmp);
 
     if (strategy === 'merge') {
-      const m = await gitTry([...IDENTITY, 'merge', '--no-ff', '-m', message, `origin/${branch}`], tmp);
+      const m = await gitTry([...IDENTITY, 'merge', '--no-ff', '-m', message, mergeSha], tmp);
       if (!m.ok) {
         const conflicts = await conflictPaths(tmp);
         await gitTry(['merge', '--abort'], tmp);
         throw new HttpError(409, 'merge conflict', { conflicts });
       }
     } else {
-      const m = await gitTry(['merge', '--squash', `origin/${branch}`], tmp);
+      const m = await gitTry(['merge', '--squash', mergeSha], tmp);
       if (!m.ok) {
         const conflicts = await conflictPaths(tmp);
         await gitTry(['reset', '--hard'], tmp);
@@ -69,11 +100,15 @@ export async function mergeGoal(
     }
 
     sha = (await git(['rev-parse', 'HEAD'], tmp)).trim();
-    await git(['push', 'origin', into], tmp);
+    // Not a push (the hub's pre-receive hook refuses pushes to base branches): bring the objects
+    // into the hub and move the base ref with a compare-and-swap against the reviewed base head.
+    await git(['--git-dir', bare, 'fetch', '-q', '--no-tags', '--', tmp, `+refs/heads/${into}:refs/alfred/landing`]);
+    const upd = await gitTry(['--git-dir', bare, 'update-ref', '-m', `alfred merge ${branch}`, `refs/heads/${into}`, sha, baseHead]);
+    await gitTry(['--git-dir', bare, 'update-ref', '-d', 'refs/alfred/landing']);
+    if (!upd.ok) throw new HttpError(409, `base ${into} moved during the merge; try again`);
     if (deleteBranch) {
-      const del = await gitTry(['push', 'origin', '--delete', branch], tmp);
-      // The branch may already be gone; anything else is worth reporting via the log-less 500 path only if into-push worked.
-      void del;
+      // Only if nobody pushed more to it meanwhile (expected old value = what we merged from).
+      await gitTry(['--git-dir', bare, 'update-ref', '-d', `refs/heads/${branch}`, branchHead]);
     }
   } finally {
     await rm(tmp, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
@@ -103,13 +138,18 @@ export async function discardGoal(
   goal: { id: string; meta?: Record<string, any> },
   branchQ?: string,
 ): Promise<{ ok: true; branches: string[]; removed: string[]; kept: string[] }> {
+  try {
+    assertBranch(branchQ, 'branch');
+  } catch (e: any) {
+    throw new HttpError(400, e.message);
+  }
   const repo = resolveRepo(store, goal);
   const all = pushedBranches(store, goal.id).map((b) => b.branch);
   const branches = branchQ ? all.filter((b) => b === branchQ) : all;
 
   if (repo && branches.length) {
     const bare = repoHub.barePath(repo.name);
-    for (const b of branches) await gitTry(['--git-dir', bare, 'branch', '-D', b]);
+    for (const b of branches) await gitTry(['--git-dir', bare, 'branch', '-D', '--', b]);
   }
 
   const removed: string[] = [];
@@ -155,7 +195,7 @@ async function fastForwardLocal(local: string | undefined, bare: string, into: s
     if (status.trim()) return false;
     const head = await git(['rev-parse', '--abbrev-ref', 'HEAD'], local);
     if (head.trim() !== into) return false;
-    await git(['fetch', bare, into], local);
+    await git(['fetch', '--', bare, into], local);
     await git(['merge', '--ff-only', 'FETCH_HEAD'], local);
     return true;
   } catch {

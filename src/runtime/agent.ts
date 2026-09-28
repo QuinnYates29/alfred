@@ -26,6 +26,7 @@ import type { ToolRegistry } from './tools.js';
 import { parkIfNodeOffline } from './tools.js';
 import type { ModelRegistry } from '../models.js';
 import { DEFAULT_CONTEXT_WINDOW } from '../models.js';
+import { denyReason, toolCaps } from './caps.js';
 import { compactMessages, estimateRequest, nudgeMessage } from './compact.js';
 
 export interface RunOpts {
@@ -267,11 +268,36 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
     return persona.model ?? 'default';
   };
   const llmForCall = () => (o.models ? o.models.llm(modelRef()) : o.llm);
-  /** Per-model `deny` (config/models.yaml): only ever narrows the persona's tools; re-read per call. */
-  const deniedNow = (): Set<string> => o.models?.denied(modelRef()) ?? new Set();
+  /**
+   * Per-model `deny` (config/models.yaml): only ever narrows the persona's tools; re-read per call.
+   * Inherited: a spawned subtask is also bound by every ancestor's model deny, so picking a
+   * less-restricted model for a child can't escape a restriction.
+   */
+  const ancestorRefs = (): string[] => {
+    const refs: string[] = [];
+    const gm = o.store.getGoal(task!.goalId)?.meta?.model;
+    const seen = new Set<string>([taskId]);
+    let parentId = task!.parentTaskId ?? null;
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const p = o.store.getTask(parentId);
+      if (!p) break;
+      refs.push(typeof gm === 'string' && gm ? gm : o.store.getTaskModel?.(p.id) ?? o.personas.get(p.persona)?.model ?? 'default');
+      parentId = p.parentTaskId ?? null;
+    }
+    return refs;
+  };
+  const deniedNow = (): Set<string> => {
+    if (!o.models) return new Set();
+    const out = new Set(o.models.denied(modelRef()));
+    for (const ref of ancestorRefs()) for (const d of o.models.denied(ref)) out.add(d);
+    return out;
+  };
+  const blockedBy = (name: string, denied = deniedNow()): string | null =>
+    denied.size ? denyReason(denied, name, toolCaps(name, o.registry.get(name))) : null;
   const offeredSchemas = () => {
     const denied = deniedNow();
-    return denied.size ? schemas.filter((s) => !denied.has(s.name)) : schemas;
+    return denied.size ? schemas.filter((s) => !blockedBy(s.name, denied)) : schemas;
   };
 
   /** P8: per-call context budget — persona override, else 60 % of the model's window, capped at 24 k. */
@@ -508,8 +534,8 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         try {
           if (!toolSet.has(c.name)) {
             result = { ok: false, output: `unknown tool: ${c.name}` };
-          } else if (deniedNow().has(c.name)) {
-            result = { ok: false, output: `tool ${c.name} is not allowed on model ${o.models!.resolve(modelRef()).name}` };
+          } else if (blockedBy(c.name)) {
+            result = { ok: false, output: `tool ${c.name} is not allowed on model ${o.models!.resolve(modelRef()).name} (denied: ${blockedBy(c.name)})` };
           } else if (c.name === 'finish') {
             result = await doFinish(c);
             if (result.ok) control = { kind: 'return', task: o.store.getTask(taskId)! };

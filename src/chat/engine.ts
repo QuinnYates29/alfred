@@ -3,6 +3,8 @@ import type { LLM, LLMMessage, ToolContext, ToolResult } from '../runtime/contra
 import type { ModuleDeps } from '../modules.js';
 import { chatSystemPrompt } from './prompt.js';
 import { chatTools } from './tools.js';
+import { chatAsks } from '../powers/gate.js';
+import { denyReason, toolCaps } from '../runtime/caps.js';
 import type { ChatAction, ChatMessage, ChatStore, Thread } from './store.js';
 
 export class ChatBusyError extends Error {
@@ -86,6 +88,11 @@ export class ChatEngine {
     return this.cs.getThread(id);
   }
 
+  /** The thread's stored messages (the approval gate reads Quinn's own replies from here). */
+  threadMessages(threadId: string): ChatMessage[] {
+    return this.cs.messages(threadId);
+  }
+
   busy(threadId: string): boolean {
     return this.inflight.has(threadId);
   }
@@ -142,10 +149,15 @@ export class ChatEngine {
     let reply = '';
     let ok = true;
     let lastText = '';
+    const turnStart = Date.now();
     try {
       // Per-model deny (config/models.yaml) for the model chat runs on: not offered, and refused below.
       const denied = this.deps.models?.denied('planner') ?? new Set<string>();
-      const tools = chatTools(this.deps).filter((t) => !denied.has(t.schema.name));
+      // By name or by capability class (`class:exec` blocks every command-running tool).
+      const blocked = (t: { schema: { name: string }; caps?: any }) => !!denyReason(denied, t.schema.name, toolCaps(t.schema.name, t));
+      const all = chatTools(this.deps);
+      const deniedNames = new Set(all.filter(blocked).map((t) => t.schema.name));
+      const tools = all.filter((t) => !deniedNames.has(t.schema.name));
       const byName = new Map(tools.map((t) => [t.schema.name, t]));
       const system = `${chatSystemPrompt(this.deps)}\n\n${stateSnapshot(this.deps)}`;
       const messages: LLMMessage[] = this.cs
@@ -178,7 +190,7 @@ export class ChatEngine {
           let result: ToolResult;
           const tool = byName.get(c.name);
           if (!tool) {
-            result = { ok: false, output: denied.has(c.name) ? `tool ${c.name} is not allowed on this model` : `unknown tool: ${c.name}` };
+            result = { ok: false, output: deniedNames.has(c.name) || denied.has(c.name) ? `tool ${c.name} is not allowed on this model` : `unknown tool: ${c.name}` };
           } else {
             try {
               result = await tool.run(c.args ?? {}, ctx);
@@ -203,6 +215,12 @@ export class ChatEngine {
       // stop() already stored the interrupted note; the store may be closed by now.
       const now = Date.now();
       return { ok: false, message: { id: '', threadId, role: 'assistant', content: INTERRUPTED_REPLY, actions, createdAt: now } };
+    }
+    // What a "yes" would approve, verbatim from the gate — not the model's paraphrase of it.
+    const asked = chatAsks(threadId, turnStart);
+    if (asked.length) {
+      const lines = asked.map((a) => `- ${a.action}: ${a.detail}`);
+      reply += `\n\n**Needs your OK** — reply "yes" to run ${asked.length === 1 ? 'this' : 'all of these'}, or decide in the Inbox:\n${lines.join('\n')}`;
     }
     return { ok, message: this.cs.addMessage({ threadId, role: 'assistant', content: reply, actions }) };
   }

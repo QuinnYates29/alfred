@@ -75,15 +75,17 @@ export function wireLoudFailures(store: Store, notifier: Notifier): () => void {
       });
     } else if (e.kind === 'approval_requested') {
       // P20: approvals reach every sink (Slack renders Approve/Deny buttons from approvalId).
-      const data = e.data as { approvalId: string; action: string; detail: string };
+      const data = e.data as { approvalId: string; action: string; detail: string; info?: string; taskId?: string };
       const task = e.taskId ? store.getTask(e.taskId) : undefined;
+      const fromChat = !e.taskId && typeof data.taskId === 'string' && data.taskId.startsWith('chat:');
       void notifier.notify({
         level: 'warn',
         goalId: e.goalId,
         taskId: e.taskId ?? undefined,
-        title: `Approval needed: ${data.action}${task ? ` — ${task.title}` : ''}`,
+        title: `Approval needed: ${data.action}${task ? ` — ${task.title}` : fromChat ? ' — asked in chat' : ''}`,
         body: data.detail,
         approvalId: data.approvalId,
+        ...(data.info ? { info: data.info } : {}),
       });
     } else if (e.kind === 'goal_status') {
       const data = e.data as { status: string };

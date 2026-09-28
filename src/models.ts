@@ -5,6 +5,7 @@ import path from 'node:path';
 import { parse, stringify } from 'yaml';
 import type { LLM } from './runtime/contract.js';
 import { openaiLLM } from './runtime/openai.js';
+import { denyEntryError } from './runtime/caps.js';
 
 export interface ModelSpec {
   name: string;
@@ -16,7 +17,8 @@ export interface ModelSpec {
   contextWindow?: number;
   maxTokens?: number;
   temperature?: number;
-  /** Tools no agent may use while running on this model (only ever restricts; persona tools AND not-denied). */
+  /** Tools no agent may use while running on this model (only ever restricts; persona tools AND not-denied).
+   *  An entry is a tool name or `class:<cap>` (runtime/caps.ts), e.g. `class:exec`. */
   deny?: string[];
 }
 
@@ -94,7 +96,9 @@ export function loadModels(filePath: string, o?: { knownTools?: Iterable<string>
       for (const t of m.deny) {
         if (typeof t !== 'string' || !t) fail(`model ${m.name}: deny entries must be tool names`);
         if (UNDENIABLE_TOOLS.includes(t)) fail(`model ${m.name}: cannot deny "${t}" (tasks need it to end)`);
-        if (known && !known.has(t)) fail(`model ${m.name}: deny names unknown tool "${t}"`);
+        const classErr = denyEntryError(t);
+        if (classErr) fail(`model ${m.name}: ${classErr}`);
+        if (known && !t.startsWith('class:') && !known.has(t)) fail(`model ${m.name}: deny names unknown tool "${t}"`);
         if (!deny.includes(t)) deny.push(t);
       }
       if (deny.length) spec.deny = deny;

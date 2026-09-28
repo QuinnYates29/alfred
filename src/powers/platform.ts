@@ -1,5 +1,9 @@
 // P21a §2 — the `platform` tool: one op-based tool over the ops API (in-process HTTP).
 // Reads are free; mutating ops go through the approval gate (action `ops`).
+import { execFile } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModuleDeps } from '../modules.js';
 import { selfApi, apiError, clip, type ApiResult } from './api.js';
@@ -132,6 +136,54 @@ async function read(deps: ModuleDeps, op: string, a: any): Promise<ToolResult> {
   return { ok: false, output: `unknown op: ${op}` };
 }
 
+const INFO_CAP = 6000;
+
+/** A unified diff of a config file's current content → the proposed content (git diff --no-index). */
+export async function unifiedDiff(path: string, before: string, after: string): Promise<string> {
+  if (before === after) return `(no change to ${path})`;
+  const dir = await mkdtemp(join(tmpdir(), 'alfred-cfgdiff-'));
+  try {
+    await writeFile(join(dir, 'a'), before);
+    await writeFile(join(dir, 'b'), after);
+    const out = await new Promise<string>((resolve) => {
+      execFile(
+        'git',
+        ['diff', '--no-index', '--no-color', '--no-ext-diff', '-U3', '--', 'a', 'b'],
+        { cwd: dir, maxBuffer: 8 * 1024 * 1024 },
+        (_e, stdout) => resolve(String(stdout ?? '')),
+      );
+    });
+    // Drop git's own header lines; name the real file instead.
+    const body = out.split('\n').filter((l) => !/^(diff --git|index |--- |\+\+\+ |new file mode|deleted file mode)/.test(l)).join('\n');
+    const text = `--- ${path}\n+++ ${path} (proposed)\n${body}`.trimEnd();
+    return text.length > INFO_CAP ? `${text.slice(0, INFO_CAP)}\n… (diff truncated; ${text.length} chars)` : text;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** What Quinn sees for an approval that the detail can only fingerprint. */
+async function approvalInfo(deps: ModuleDeps, op: string, a: any): Promise<string | undefined> {
+  if (op === 'config_set') {
+    const path = str(a.path);
+    const cur = await selfApi(deps, 'GET', `/ops/config/file?path=${encodeURIComponent(path)}`);
+    const before = cur.ok && typeof cur.body?.content === 'string' ? cur.body.content : '';
+    const diff = await unifiedDiff(path, before, String(a.content));
+    return cur.ok ? diff : `(new file or unreadable: ${path})\n${diff}`;
+  }
+  if (op === 'automation') {
+    const lines = [
+      `name: ${str(a.name)}`,
+      `cron: ${str(a.cron)}`,
+      `title: ${str(a.title)}`,
+      `persona: ${a.persona ? str(a.persona) : '(default)'}`,
+      `spec:\n${a.spec ? str(a.spec) : '(none)'}`,
+    ].join('\n');
+    return lines.length > INFO_CAP ? `${lines.slice(0, INFO_CAP)}\n… (truncated)` : lines;
+  }
+  return undefined;
+}
+
 /** detail + the request that runs once it is approved. */
 function mutation(op: string, a: any): { detail: string; method: string; path: string; body: any } | string {
   const by = 'agent';
@@ -213,7 +265,6 @@ export function platformTool(deps: ModuleDeps): Tool {
           persona: { type: 'string' },
           spec: { type: 'string' },
           id: { type: 'string' },
-          confirm: { type: 'boolean', description: 'chat only, after Quinn agreed' },
         },
         required: ['op'],
       },
@@ -226,12 +277,19 @@ export function platformTool(deps: ModuleDeps): Tool {
         if (!WRITE_OPS.includes(op)) return { ok: false, output: `unknown op: ${op} (reads: ${READ_OPS.join(' ')}; changes: ${WRITE_OPS.join(' ')})` };
         const m = mutation(op, a);
         if (typeof m === 'string') return { ok: false, output: m };
-        return await gated({ deps, tool: ctx, confirm: a.confirm === true }, 'ops', m.detail, async () => {
-          const r = await selfApi(deps, m.method, m.path, m.body);
-          if (!r.ok) return fail(r);
-          const out = r.body && typeof r.body === 'object' && typeof r.body.output === 'string' ? r.body.output.trim() : '';
-          return { ok: true, output: clip(`done: ${m.detail}${out ? `\n${out}` : ''}`) };
-        });
+        const info = await approvalInfo(deps, op, a).catch(() => undefined);
+        return await gated(
+          { deps, tool: ctx },
+          'ops',
+          m.detail,
+          async () => {
+            const r = await selfApi(deps, m.method, m.path, m.body);
+            if (!r.ok) return fail(r);
+            const out = r.body && typeof r.body === 'object' && typeof r.body.output === 'string' ? r.body.output.trim() : '';
+            return { ok: true, output: clip(`done: ${m.detail}${out ? `\n${out}` : ''}`) };
+          },
+          info ? { info } : {},
+        );
       } catch (e: any) {
         return { ok: false, output: `error: ${e?.message ?? String(e)}` };
       }

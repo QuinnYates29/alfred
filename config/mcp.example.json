@@ -3,7 +3,8 @@
     "obsidian": {
       "url": "http://100.82.152.2:3556/mcp",
       "headers": { "Authorization": "Bearer ${OBSIDIAN_MCP_TOKEN}" },
-      "readOnly": true
+      "readOnly": true,
+      "envAllow": ["OBSIDIAN_MCP_TOKEN"]
     }
   }
 }

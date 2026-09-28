@@ -51,6 +51,9 @@ export function reviewRouter(deps: ModuleDeps): Router {
         strategy: b.strategy === 'squash' ? 'squash' : 'merge',
         message: q(b.message),
         deleteBranch: b.deleteBranch !== false,
+        // The commit + base the reviewer saw (Changes view / approved deploy): merged exactly, or refused.
+        sha: q(b.sha),
+        baseSha: q(b.baseSha),
       });
       res.json(out);
     }),

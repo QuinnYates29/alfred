@@ -208,12 +208,14 @@ export function buildDoor(store: Store, workRoot?: string): McpServer {
     'alfred_approve',
     {
       title: 'alfred_approve',
-      description: 'Decide a pending approval (a blocked task goes back to queued).',
+      description: 'Disabled: only Quinn decides approvals (dashboard Inbox or Slack). Always refuses.',
       inputSchema: { approvalId: z.string(), decision: z.enum(['approved', 'denied']) },
     },
-    guard(({ approvalId, decision }) => {
-      const a = store.decideApproval(approvalId, decision, 'claude');
-      return json({ ok: true, approval: a });
+    // Approvals are the safeguard against prompt-injected agents: a door client acting on text that
+    // agents wrote must not be able to approve anything. Kept as a named stub so clients get a clear
+    // refusal instead of "unknown tool".
+    guard(({ approvalId }) => {
+      throw new Error(`alfred_approve is disabled: approvals are decided only by Quinn in the dashboard Inbox or on Slack (approval ${approvalId})`);
     }),
   );
 
