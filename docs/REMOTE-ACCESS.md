@@ -39,8 +39,8 @@ Alternative with no certificate work: keep the ts.net URL and add a redirect pag
 - **Node** (the Mac as a workspace): enable it in the app's Settings, or `deploy/node-install-macos.sh` (README).
 - **Claude Code on the Mac**: `claude mcp add --transport http alfred https://gx10-de9a.tail542084.ts.net:8443/mcp --header "Authorization: Bearer <token>"`.
 
-## 4. Slack (later)
-Create a Slack app with Socket Mode on (no public URL needed): bot scopes `chat:write`, `commands`, `app_mentions:read`, `im:history`,
+## 4. Slack
+Fastest: api.slack.com/apps → Create New App → **From an app manifest** → paste `deploy/slack-manifest.yaml`. Or by hand: a Slack app with Socket Mode on (no public URL needed): bot scopes `chat:write`, `commands`, `app_mentions:read`, `im:history`,
 `im:write`; an app-level token with `connections:write`; a slash command `/alfred`; event subscriptions `app_mention`, `message.im`;
 interactivity on. Put `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_CHANNEL` and `SLACK_ALLOWED_USERS` (your Slack member id, e.g. `U0123ABCD`; comma-separate several) in `~/.config/alfred.env` and restart. Anyone not listed is refused, and the refusal message shows their id, so the easy way to find yours is to DM the bot once. Check with
 `GET /api/v1/slack/status` or System → Overview.
