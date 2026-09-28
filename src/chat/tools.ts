@@ -156,11 +156,12 @@ function approvalsTool(deps: ModuleDeps): Tool {
 
 /**
  * The chat tool set: the board module's tool (when present) + goals / start_goal / approvals,
- * + the P21 powers tools (platform, connectors, alfred_dev) when that module is loaded.
- * Read per turn: powers is built after chat.
+ * + the P21 powers tools (platform, connectors, alfred_dev) and comms tools (contacts, message, call)
+ * when those modules are loaded. Read per turn: powers and comms are built after chat.
  */
 export function chatTools(deps: ModuleDeps): Tool[] {
   const boardTools = deps.modules.board?.tools ?? [];
   const powerTools = deps.modules.powers?.tools ?? [];
-  return [...boardTools, goalsTool(deps), startGoalTool(deps), approvalsTool(deps), ...powerTools];
+  const commsTools = deps.modules.comms?.tools ?? [];
+  return [...boardTools, goalsTool(deps), startGoalTool(deps), approvalsTool(deps), ...powerTools, ...commsTools];
 }

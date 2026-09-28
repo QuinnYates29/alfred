@@ -1,0 +1,13 @@
+# Quinn's contacts, for the agents' `contacts`, `message` and `call` tools (P21b).
+# Copy to config/contacts.yaml (or edit in System → Contacts). Read fresh on every call.
+# Numbers: digits with an optional leading + (E.164, e.g. +15551234567); formatting is stripped.
+# Names are matched case-insensitively; a partial name must match exactly one contact.
+# Texting and calling always need Quinn's approval unless config/powers.yaml pre-approves the
+# recipient (autoApprove: - action: message  to: ["Mom"]).
+- name: Mom
+  phone: "+15550001111"
+  notes: prefers texts over calls
+- name: Sam Rivera
+  phone: "+15550002222"
+  imessage: sam@example.com     # iMessage handle (used when there is no phone)
+  email: sam@example.com

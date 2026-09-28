@@ -6,7 +6,38 @@ import path from 'node:path';
 export const PROTOCOL_VERSION = '1';
 export const OUTPUT_CAP = 8000;
 
-export type NodeOp = 'readFile' | 'writeFile' | 'listDir' | 'exec' | 'cancel' | 'ping';
+export type NodeOp = 'readFile' | 'writeFile' | 'listDir' | 'exec' | 'cancel' | 'ping' | CommsOp;
+
+/** P21b: people ops, served by a node started with --messages (caps `messages` + `calls`). */
+export type CommsOp = 'sendMessage' | 'placeCall';
+/** The cap a node must advertise for each comms op. */
+export const COMMS_CAP: Record<CommsOp, string> = { sendMessage: 'messages', placeCall: 'calls' };
+export interface CommsResult {
+  ok: boolean;
+  error?: string;
+}
+/** Longest text a message may carry (Twilio's SMS limit; Messages accepts it too). */
+export const MAX_MESSAGE_CHARS = 1600;
+
+/**
+ * A phone number the way the comms ops accept it: '+' and digits only (E.164-ish),
+ * after stripping the usual formatting (spaces, dashes, dots, parentheses — not newlines or tabs).
+ * Returns null for anything else.
+ */
+export function normalizePhone(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.trim().replace(/[ \u00a0().-]/g, '');
+  return /^\+?[0-9]{3,15}$/.test(s) ? s : null;
+}
+
+/** An iMessage handle: a phone number or an email address (no spaces, quotes or control characters). */
+export function normalizeHandle(v: unknown): string | null {
+  const phone = normalizePhone(v);
+  if (phone) return phone;
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  return s.length <= 254 && /^[^\s\x00-\x1f\x7f@"'\\<>]+@[^\s\x00-\x1f\x7f@"'\\<>]+\.[^\s\x00-\x1f\x7f@"'\\<>]+$/.test(s) ? s : null;
+}
 
 export interface HelloMsg {
   type: 'hello';

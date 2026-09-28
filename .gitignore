@@ -5,6 +5,7 @@ dist/
 .env
 config/models.local.yaml
 config/mcp.json
+config/contacts.yaml
 .dispatch/
 sidecar/.venv
 __pycache__/

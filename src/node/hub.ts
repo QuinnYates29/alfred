@@ -7,9 +7,11 @@ import path from 'node:path';
 import type { Server } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { NodeOfflineError, type WorkspaceBackend } from '../runtime/contract.js';
-import { encode, guardRoot, outsideRoots, parseMsg, tailOut, type ExecValue, type ResultMsg } from './protocol.js';
+import { encode, guardRoot, outsideRoots, parseMsg, tailOut, type CommsOp, type CommsResult, type ExecValue, type ResultMsg } from './protocol.js';
 
 const DEFAULT_CALL_TIMEOUT_MS = 60_000;
+/** P21b: Messages.app / the tel: handoff answer within seconds; don't hold a tool longer. */
+const COMMS_TIMEOUT_MS = 30_000;
 const PING_MS = 15_000;
 const MISS_LIMIT = 2;
 
@@ -231,6 +233,26 @@ export class NodeHub {
       } catch {
         /* socket dying */
       }
+    }
+  }
+
+  /** P21b: the first connected node advertising `cap` (e.g. 'messages', 'calls'), or null. */
+  withCap(cap: string): NodeInfo | null {
+    for (const c of this.nodes.values()) if (c.caps.includes(cap) && c.ws.readyState === c.ws.OPEN) return this.info(c.name);
+    return null;
+  }
+
+  /**
+   * P21b: run a comms op (sendMessage {to, text} / placeCall {to}) on a node. Never throws:
+   * an offline node, a timeout or a failed op is `{ok:false, error}`.
+   */
+  async call(node: string, op: CommsOp, args: Record<string, unknown>, timeoutMs = COMMS_TIMEOUT_MS): Promise<CommsResult> {
+    try {
+      const v = await this.rpc(node, op, args, { timeoutMs });
+      if (v && typeof v === 'object' && v.ok === true) return { ok: true };
+      return { ok: false, error: typeof v?.error === 'string' && v.error ? v.error : `${op} failed on ${node}` };
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? String(e) };
     }
   }
 

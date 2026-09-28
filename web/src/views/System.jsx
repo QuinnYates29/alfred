@@ -1,4 +1,4 @@
-// System: overview, services, qwen, logs, config, models, personas, nodes, repos, builds, connectors.
+// System: overview, services, qwen, logs, config, models, personas, nodes, repos, builds, connectors, contacts.
 // Legacy hashes #/personas, #/models, #/nodes land on those tabs (App.jsx maps them here).
 import { useRoute, href } from '../lib/router.js';
 import { Tabs } from '../ui/index.jsx';
@@ -13,15 +13,16 @@ import NodesTab from './system/NodesTab.jsx';
 import ReposTab from './system/ReposTab.jsx';
 import BuildsTab from './system/BuildsTab.jsx';
 import Connectors from './system/Connectors.jsx';
+import Contacts from './system/Contacts.jsx';
 import './System.css';
 
 const TABS = [
   ['overview', 'Overview'], ['services', 'Services'], ['qwen', 'Qwen'], ['logs', 'Logs'], ['config', 'Config'],
-  ['models', 'Models'], ['personas', 'Personas'], ['nodes', 'Nodes'], ['repos', 'Repos'], ['builds', 'Builds'], ['connectors', 'Connectors'],
+  ['models', 'Models'], ['personas', 'Personas'], ['nodes', 'Nodes'], ['repos', 'Repos'], ['builds', 'Builds'], ['connectors', 'Connectors'], ['contacts', 'Contacts'],
 ];
 const VIEWS = {
   overview: Overview, services: Services, qwen: QwenTab, logs: Logs, config: Config,
-  models: ModelsTab, personas: PersonasTab, nodes: NodesTab, repos: ReposTab, builds: BuildsTab, connectors: Connectors,
+  models: ModelsTab, personas: PersonasTab, nodes: NodesTab, repos: ReposTab, builds: BuildsTab, connectors: Connectors, contacts: Contacts,
 };
 
 export default function System({ tab }) {

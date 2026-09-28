@@ -1,11 +1,26 @@
 // P9 §4 — alfred-node: the laptop daemon. Dials OUT to the Alfred server,
 // serves fs/exec calls inside its roots, shows desktop notifications.
 // Depends only on `ws` + Node stdlib (it runs on the Mac via `npx tsx`).
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import WebSocket from 'ws';
-import { PROTOCOL_VERSION, encode, guardRoot, outsideRoots, parseMsg, tailOut, type CallMsg, type NodeMsg } from './protocol.js';
+import {
+  COMMS_CAP,
+  MAX_MESSAGE_CHARS,
+  PROTOCOL_VERSION,
+  encode,
+  guardRoot,
+  normalizeHandle,
+  normalizePhone,
+  outsideRoots,
+  parseMsg,
+  tailOut,
+  type CallMsg,
+  type CommsOp,
+  type CommsResult,
+  type NodeMsg,
+} from './protocol.js';
 
 export interface ConnectNodeOpts {
   /** ws:// or wss:// host[:port] (path is fixed: /api/nodes/connect). */
@@ -20,6 +35,12 @@ export interface ConnectNodeOpts {
   onNotify?: (n: { level: string; title: string; body: string; url?: string }) => void;
   /** P10: sandbox workspace location on this machine (must be inside roots). Default <first root>/alfred-sandbox. */
   sandbox?: string;
+  /** P21b: runs sendMessage/placeCall (caps `messages`/`calls`). Default: osascript → Messages.app / `open tel:` on macOS. */
+  comms?: CommsRunner;
+}
+
+export interface CommsRunner {
+  run(op: CommsOp, args: { to: string; text?: string }): Promise<CommsResult>;
 }
 
 export interface NodeHandle {
@@ -46,6 +67,63 @@ function defaultNotify(n: { level: string; title: string; body: string; url?: st
   } catch {
     /* a notification must never crash the node */
   }
+}
+
+// ---- P21b: texting and calling from the Mac -------------------------------------
+// The AppleScript is a FIXED string: recipient and text arrive as `on run argv` items,
+// passed as separate argv elements to osascript via execFile (no shell). User text is
+// never concatenated into a script. If osascript leaves a literal "--" in argv, skip it.
+export const MESSAGES_SCRIPT = [
+  'on run argv',
+  '  set i to 1',
+  '  if (count of argv) > 2 and item 1 of argv is "--" then set i to 2',
+  '  set theTo to item i of argv',
+  '  set theText to item (i + 1) of argv',
+  '  tell application "Messages"',
+  '    try',
+  '      set svc to 1st account whose service type = iMessage',
+  '      send theText to participant theTo of svc',
+  '    on error',
+  '      set svc to 1st account whose service type = SMS',
+  '      send theText to participant theTo of svc',
+  '    end try',
+  '  end tell',
+  'end run',
+].join('\n');
+
+/** The exact argv for each op (program + args) — exported for tests; no shell anywhere. */
+export function commsArgv(op: CommsOp, args: { to: string; text?: string }): [string, string[]] {
+  if (op === 'sendMessage') return ['osascript', ['-e', MESSAGES_SCRIPT, '--', args.to, args.text ?? '']];
+  return ['open', [`tel:${args.to}`]];
+}
+
+const defaultComms: CommsRunner = {
+  run(op, args) {
+    if (process.platform !== 'darwin') return Promise.resolve({ ok: false, error: `${op} needs macOS (Messages.app / iPhone handoff)` });
+    const [file, argv] = commsArgv(op, args);
+    return new Promise((resolve) => {
+      execFile(file, argv, { timeout: 25_000 }, (err, _stdout, stderr) => {
+        if (err) resolve({ ok: false, error: `${file} failed: ${String(stderr || err.message).trim().slice(0, 300)}` });
+        else resolve({ ok: true });
+      });
+    });
+  },
+};
+
+/** Validate a comms call on the node side too (the server validates first; the node trusts nothing). */
+async function runComms(op: CommsOp, args: any, caps: string[], runner: CommsRunner): Promise<CommsResult> {
+  if (!caps.includes(COMMS_CAP[op])) return { ok: false, error: `${op} is not enabled on this node (start alfred-node with --messages)` };
+  if (op === 'sendMessage') {
+    const to = normalizeHandle(args?.to);
+    if (!to) return { ok: false, error: `invalid recipient: ${String(args?.to ?? '')}` };
+    const text = args?.text;
+    if (typeof text !== 'string' || !text.trim()) return { ok: false, error: 'text is required' };
+    if (text.length > MAX_MESSAGE_CHARS || text.includes('\0')) return { ok: false, error: `text must be ≤ ${MAX_MESSAGE_CHARS} characters` };
+    return runner.run(op, { to, text });
+  }
+  const to = normalizePhone(args?.to);
+  if (!to) return { ok: false, error: `invalid phone number: ${String(args?.to ?? '')}` };
+  return runner.run(op, { to });
 }
 
 function runExec(callId: string, args: any): Promise<{ exitCode: number | null; output: string; timedOut: boolean }> {
@@ -96,8 +174,11 @@ function runExec(callId: string, args: any): Promise<{ exitCode: number | null; 
 // exec bookkeeping (call id → child, so `cancel` can kill the process group)
 const running = new Map<string, RunningChild>();
 
-function handleOp(callId: string, op: string, args: any): Promise<any> {
+function handleOp(callId: string, op: string, args: any, node: { caps: string[]; comms: CommsRunner }): Promise<any> {
   switch (op) {
+    case 'sendMessage':
+    case 'placeCall':
+      return runComms(op, args, node.caps, node.comms);
     case 'ping':
       return Promise.resolve({ pong: true });
     case 'readFile': {
@@ -154,6 +235,7 @@ export function connectNode(o: ConnectNodeOpts): NodeHandle {
   const caps = o.caps ?? ['fs', 'shell', 'git'];
   const reconnect = o.reconnect !== false;
   const onNotify = o.onNotify ?? defaultNotify;
+  const nodeCtx = { caps, comms: o.comms ?? defaultComms };
   rootsGlobal = o.roots.map((r) => path.resolve(r));
   const sandboxWant = path.resolve(
     (o.sandbox ?? `${process.env.HOME ?? '~'}${path.sep}alfred-sandbox`).replace(/^~(?=\/|$)/, process.env.HOME ?? '~'),
@@ -202,7 +284,7 @@ export function connectNode(o: ConnectNodeOpts): NodeHandle {
       if (msg.type !== 'call') return;
       const call = msg as CallMsg;
       Promise.resolve()
-        .then(() => handleOp(call.id, call.op, call.args))
+        .then(() => handleOp(call.id, call.op, call.args, nodeCtx))
         .then(
           (value) => send({ type: 'result', id: call.id, ok: true, value }),
           (e: any) => send({ type: 'result', id: call.id, ok: false, error: e?.message ?? String(e) }),
@@ -257,7 +339,7 @@ export function connectNode(o: ConnectNodeOpts): NodeHandle {
   };
 }
 
-// ---- CLI: alfred-node --server ws://host:port --token T --name macbook --root ~/code [--root …] [--dsh]
+// ---- CLI: alfred-node --server ws://host:port --token T --name macbook --root ~/code [--root …] [--dsh] [--messages]
 /* istanbul ignore next — daemon entry, exercised manually on the Mac */
 function cliMain(argv: string[]): void {
   const o: { url?: string; token?: string; name?: string; roots: string[]; caps: string[] } = {
@@ -273,13 +355,14 @@ function cliMain(argv: string[]): void {
     else if (a === '--root') o.roots.push(path.resolve(next().replace(/^~(?=\/|$)/, process.env.HOME ?? '~')));
     else if (a === '--dsh') o.caps.push('dsh', 'notify');
     else if (a === '--notify') { if (!o.caps.includes('notify')) o.caps.push('notify'); }
+    else if (a === '--messages') { for (const c of ['messages', 'calls']) if (!o.caps.includes(c)) o.caps.push(c); }
     else if (a === '--help' || a === '-h') {
-      console.log('usage: alfred-node --server ws(s)://host:port --token $ALFRED_TOKEN --name <name> --root <abs> [--root …] [--dsh]');
+      console.log('usage: alfred-node --server ws(s)://host:port --token $ALFRED_TOKEN --name <name> --root <abs> [--root …] [--dsh] [--notify] [--messages]');
       process.exit(0);
     }
   }
   if (!o.url || !o.name || o.roots.length === 0) {
-    console.error('usage: alfred-node --server ws(s)://host:port --token $ALFRED_TOKEN --name <name> --root <abs> [--root …] [--dsh]');
+    console.error('usage: alfred-node --server ws(s)://host:port --token $ALFRED_TOKEN --name <name> --root <abs> [--root …] [--dsh] [--notify] [--messages]');
     process.exit(2);
   }
   const token = o.token ?? process.env.ALFRED_TOKEN;
