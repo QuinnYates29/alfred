@@ -89,3 +89,18 @@
   .board-cols { min-height: 0; }
   .col-row, .field-row { grid-template-columns: 1fr 1fr; }
 }
+
+/* Drawer title: reads as a heading, becomes an input on hover/focus (skins style .input as glass boxes) */
+.item-title-input.input.bare {
+  font-family: var(--font-display); font-size: var(--t-xl); font-weight: 600; letter-spacing: 0.01em;
+  height: auto; padding: 6px 8px; margin-left: -8px; width: calc(100% + 8px);
+  background: transparent; border: 1px solid transparent; box-shadow: none;
+}
+.item-title-input.input.bare:hover { border-color: var(--line); }
+.item-title-input.input.bare:focus { border-color: var(--accent-line); background: var(--surface-2); }
+
+/* Phones: one column per swipe, snapping (Trello-style) */
+@media (max-width: 700px) {
+  .board-cols { scroll-snap-type: x mandatory; scroll-padding-left: var(--s-4); }
+  .bcol { scroll-snap-align: start; flex-basis: 85vw; min-width: 85vw; }
+}

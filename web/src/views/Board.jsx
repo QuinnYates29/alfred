@@ -202,6 +202,7 @@ export default function Board({ itemKey }) {
 
       {itemKey && (
         <ItemDrawer
+          key={itemKey /* fresh local edit state per item: switching items must not carry the old title over */}
           itemKey={itemKey}
           board={board}
           item={drawerItem}
