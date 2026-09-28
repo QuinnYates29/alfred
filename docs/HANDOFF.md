@@ -4,7 +4,7 @@
 Two reviews found (verified): agent shells run as quinna, unsandboxed, with ALFRED_TOKEN/SLACK_* in env and ~/.config/alfred.env readable →
 a prompt-injected agent can self-approve via the local API, rewrite config/powers.yaml, exfiltrate tokens; chat `confirm:true` is model-chosen;
 door alfred_approve; deploy not bound to reviewed sha; agents can push hub master; symlink escapes; no CSP; img/form in Markdown; langgraph bridge unauthenticated.
-SC MERGED + DEPLOYED 04:58 (verified: tailnet 200, evil Host 421, CSP live, SSE via tickets). Remaining fix branches (worktrees ~/repos/alfred-wt/): SA sa-sandbox (bwrap + env scrub + symlinks + Mac node sandbox-exec + installer argv),
+SC MERGED + DEPLOYED 04:58 (verified: tailnet 200, evil Host 421, CSP live, SSE via tickets). SA MERGED + DEPLOYED 05:01 (bwrap live, deck env has 0 secrets; residual risks: hub refs file-writable, shared localhost network, X11 abstract socket). Remaining fix branches (worktrees ~/repos/alfred-wt/): SA sa-sandbox (bwrap + env scrub + symlinks + Mac node sandbox-exec + installer argv),
 SB sb-approvals (chat confirm → real user "yes"/approval row, door approve removed, deploy sha binding + hub pre-receive hook, approval content shown,
 connector env allowlist, deny classes + inheritance), SC sc-hygiene (CSP, DOMPurify, token replaceState/timing-safe/SSE tickets, Host check,
 dispatch traversal, 0600 modes, secret redaction). Also U1 u1-self-update (Mac app self-update). Merge order: SA, SB, SC, U1; full suite after each.
