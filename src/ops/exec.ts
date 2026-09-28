@@ -30,6 +30,8 @@ export interface OpsCtx {
   dispatchDir: string;
   backupDir: string;
   repoRoot: string;
+  /** app/dist of the repo: the packed Mac app + latest.json (U1). */
+  appDistDir: string;
 }
 
 const realExec: ExecFn = (cmd, args, o) =>
@@ -90,6 +92,7 @@ export function makeCtx(deps: ModuleDeps): OpsCtx {
     dispatchDir: (extra.dispatchDir as string | undefined) ?? `${deps.repoRoot}/.dispatch`,
     backupDir: (extra.backupDir as string | undefined) ?? `${deps.repoRoot}/.alfred-backup`,
     repoRoot: deps.repoRoot,
+    appDistDir: (extra.appDistDir as string | undefined) ?? `${deps.repoRoot}/app/dist`,
   };
 }
 

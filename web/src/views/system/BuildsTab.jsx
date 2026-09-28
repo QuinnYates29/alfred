@@ -35,6 +35,54 @@ function JobDrawer({ name, onClose }) {
   );
 }
 
+/** U1 — the Mac app: last packed build (app/dist/latest.json) and a rebuild button. The app updates itself from it. */
+function MacAppCard() {
+  const { data, reload } = useResource('/api/ops/app/build', { interval: 10000, on: ['ops'] });
+  const [busy, setBusy] = useState(false);
+  const [showLog, setShowLog] = useState(false);
+  const { toast } = useToast();
+  const latest = data?.latest;
+  const running = Boolean(data?.running);
+
+  const build = async () => {
+    setBusy(true);
+    try {
+      await post('/api/ops/app/build', { confirm: true, by: 'dashboard' });
+      toast('Mac app build started', 'ok');
+      reload();
+    } catch (e) {
+      toast(e?.message ?? String(e), 'bad');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card pad" data-testid="mac-app-build">
+      <div className="row between" style={{ gap: 'var(--s-3)', flexWrap: 'wrap' }}>
+        <div className="stack" style={{ gap: 2 }}>
+          <strong>Mac app</strong>
+          <span className="faint xs">
+            {latest
+              ? <>v{latest.version} · build <span className="mono">{latest.build}</span> · <span className="mono">{latest.commit}</span>{latest.builtAt ? ` · ${timeAgo(Date.parse(latest.builtAt))}` : ''}</>
+              : 'no build yet'}
+            {running && ' · building…'}
+            {!running && data?.ok === false && ' · last build failed'}
+          </span>
+          <span className="faint xs">The app picks new builds up under Settings → Updates.</span>
+        </div>
+        <div className="row" style={{ gap: 'var(--s-2)' }}>
+          {data?.output && <Button size="sm" variant="ghost" onClick={() => setShowLog(!showLog)}>{showLog ? 'Hide log' : 'Log'}</Button>}
+          <Button size="sm" variant="primary" disabled={busy || running} onClick={build}>
+            {running ? <><Spinner /> Building…</> : 'Build Mac app'}
+          </Button>
+        </div>
+      </div>
+      {showLog && data?.output && <pre className="codeblock sys-diff-tail sys-log-tail" style={{ marginTop: 'var(--s-3)' }}>{data.output}</pre>}
+    </div>
+  );
+}
+
 const EMPTY_FORM = { name: '', branch: '', promptFile: '', check: '', attempts: 4, timeoutMin: 60 };
 
 function NewBuildModal({ onClose, onDone }) {
@@ -104,6 +152,7 @@ export default function BuildsTab() {
   const jobs = data ?? [];
   return (
     <div className="stack">
+      <MacAppCard />
       <div className="row between">
         <span className="faint xs">dispatch jobs run qwen-task.sh against a branch until the check passes</span>
         <Button size="sm" variant="primary" icon="plus" onClick={() => setCreating(true)}>New build</Button>

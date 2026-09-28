@@ -33,10 +33,16 @@ Recommended (tailnet-only, no ports opened to the internet):
 Alternative with no certificate work: keep the ts.net URL and add a redirect page on your site.
 
 ## 3. The Mac
-- **App** (menu bar + window + notifications + quick add): `app/README.md`.
-- **CLI**: the app's menu "Install command-line tool…", or copy `dist/alfred.mjs` (built with `npm run build:cli`) to `~/.local/bin/alfred`
-  and run `alfred login --url https://gx10-de9a.tail542084.ts.net:8443 --token <token>`.
-- **Node** (the Mac as a workspace): enable it in the app's Settings, or `deploy/node-install-macos.sh` (README).
+- **App** (menu bar + window + notifications + quick add): `app/README.md`. Install it once with `install-mac.sh`; after that it
+  updates itself: Settings → Updates (or the menu's "Update available — install") downloads the build the Spark last packed
+  (System → Builds → **Build Mac app**, or `alfred_dev deploy` when a change touched `app/`, `src/node/` or `src/cli*`),
+  verifies its sha256, swaps the bundle and restarts. The previous version is kept for "Roll back".
+- **CLI**: the app's "Install command-line tool…" (menu or Settings) copies it to `~/.local/bin/alfred` **and** writes
+  `~/.config/alfred/cli.json` with the app's URL + token — no separate login. By hand: copy `dist/alfred.mjs` (built with
+  `npm run build:cli`) and run `alfred login --url https://gx10-de9a.tail542084.ts.net:8443 --token <token>`.
+- **Node** (the Mac as a workspace): enable it in the app's Settings (it uses the app's token). If the old LaunchAgent from
+  `deploy/node-install-macos.sh` is installed, Settings offers "Use the app's built-in node instead of the LaunchAgent" (unloads it,
+  renames the plist to `.disabled`) — running both makes two nodes with the same name replace each other.
 - **Claude Code on the Mac**: `claude mcp add --transport http alfred https://gx10-de9a.tail542084.ts.net:8443/mcp --header "Authorization: Bearer <token>"`.
 
 ## 4. Slack

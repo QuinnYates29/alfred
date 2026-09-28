@@ -2,3 +2,4 @@ dist/
 node/
 assets/icon.icns
 cli/
+build.json
