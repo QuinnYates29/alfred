@@ -1,6 +1,8 @@
 // P1 — the agent loop. One task, one worker: claim → prompt → loop → outcome.
 // Every exit path is a task transition; runTask itself never rejects for
 // agent-level failures (tool errors, budgets, stalls, llm errors).
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   DEFAULT_WATCHDOG,
   NodeOfflineError,
@@ -14,6 +16,7 @@ import {
   type WorkspaceBackend,
 } from './contract.js';
 import { verifyAndComplete, defaultRunner } from '../gate.js';
+import { isReportCheck } from '../ops.js';
 import type { Store } from '../store.js';
 import {
   PARKED,
@@ -684,7 +687,18 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
 
   async function doFinish(c: ToolCall): Promise<ToolResult> {
     // P8: the compact result a parent sees via wait_subtasks.
-    o.store.setResult(taskId, String(c.args?.summary ?? '').trim().slice(0, 2000));
+    const summary = String(c.args?.summary ?? '').trim();
+    o.store.setResult(taskId, summary.slice(0, 2000));
+    // Report goals (no checks, no repo): the summary IS the deliverable — saved where the check looks.
+    if (task!.acceptance.some(isReportCheck)) {
+      try {
+        if (backend) await backend.writeFile(path.join(workspace, 'REPORT.md'), `${summary}\n`);
+        else writeFileSync(path.join(workspace, 'REPORT.md'), `${summary}\n`);
+        if (summary.length > 2000) o.store.appendNote(taskId, `REPORT (full, ${summary.length} chars) saved to REPORT.md`);
+      } catch {
+        /* the check will fail and say so */
+      }
+    }
     o.store.transition(taskId, 'verifying', { by: o.workerId });
     const runner: CheckRunner = backend
       ? async (check: AcceptanceCheck) => {

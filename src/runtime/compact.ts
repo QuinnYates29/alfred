@@ -68,6 +68,11 @@ function digestLines(dropped: LLMMessage[], isError: (id: string) => boolean): s
           ?.content.replace(/\s+/g, ' ')
           .trim()
           .slice(0, 160) ?? '';
+      // A note is what the agent chose to remember: keep it whole, not a 100-char preview.
+      if (tc.name === 'note' && typeof tc.args?.text === 'string') {
+        lines.push(`- NOTE: ${tc.args.text.trim().slice(0, 2000)}`);
+        continue;
+      }
       lines.push(`- ${tc.name}(${argsPreview(tc.args)}) → ${isError(tc.id) ? 'FAILED' : 'ok'}: ${out}`);
     }
   }
@@ -85,7 +90,9 @@ function buildDigest(dropped: LLMMessage[], isError: (id: string) => boolean, di
       ...lines,
     ].join('\n');
   while (lines.length > 0 && estimateTokens(render()) > digestCapTokens) {
-    lines.shift();
+    // drop the oldest tool-call line first; notes go last
+    const i = lines.findIndex((l) => !l.startsWith('- NOTE: '));
+    lines.splice(i >= 0 ? i : 0, 1);
     omitted += 1;
   }
   return render();

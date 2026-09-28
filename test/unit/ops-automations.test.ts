@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from '../../src/store.js';
-import { createGoalWithRoot, retryTask, goalSummary } from '../../src/ops.js';
+import { createGoalWithRoot, retryTask, goalSummary, REPORT_CHECK, REPORT_SPEC_NOTE } from '../../src/ops.js';
 import { Automations, validCron, cronMatches } from '../../src/automations.js';
 
 describe('ops.createGoalWithRoot', () => {
@@ -13,11 +13,16 @@ describe('ops.createGoalWithRoot', () => {
     const { goal, task } = createGoalWithRoot(store, { title: 'Do the thing', body: 'because' });
     expect(goal.status).toBe('active');
     expect(task.persona).toBe('alfred');
-    expect(task.spec).toBe('because'); // spec defaults to body
+    // no checks + no repo = a report goal: the default report check and the deliverable note
+    expect(task.spec).toBe(`because\n\n${REPORT_SPEC_NOTE}`); // spec defaults to body
+    expect(task.acceptance).toEqual([REPORT_CHECK]);
     expect(task.goalId).toBe(goal.id);
     expect(task.depth).toBe(0);
     const withRepo = createGoalWithRoot(store, { title: 'Repo thing', repo: '/tmp/x' });
     expect(withRepo.goal.meta.repo).toBe('/tmp/x');
+    expect(withRepo.task.acceptance).toEqual([]); // code goals keep needing real checks
+    const withChecks = createGoalWithRoot(store, { title: 'Checked', acceptance: [{ name: 't', cmd: 'true' }] });
+    expect(withChecks.task.acceptance).toEqual([{ name: 't', cmd: 'true' }]);
     expect(() => createGoalWithRoot(store, { title: '  ' })).toThrow(/title/);
   });
 });
@@ -34,7 +39,7 @@ describe('ops.retryTask', () => {
     expect(fresh.status).toBe('queued');
     expect(fresh.goalId).toBe(task.goalId);
     expect(fresh.persona).toBe(task.persona);
-    expect(fresh.spec).toBe('do it');
+    expect(fresh.spec).toBe(`do it\n\n${REPORT_SPEC_NOTE}`);
     expect(fresh.notes).toContain('halfway done');
     expect(fresh.notes).toContain('try again');
     expect(fresh.notes).toContain('boom');

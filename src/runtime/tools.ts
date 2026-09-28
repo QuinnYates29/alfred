@@ -298,8 +298,12 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
       }, ['text']),
       kind: 'write',
       run: safe((args, ctx) => {
-        ctx.progress(String(args.text ?? ''));
-        return { ok: true, output: 'noted' };
+        const text = String(args.text ?? '').trim();
+        if (!text) return { ok: false, output: 'text is required' };
+        ctx.progress(text.slice(0, 500));
+        // Persist it: task notes survive compaction and seed every retry ("Notes from previous attempts").
+        storeForTask(ctx.taskId)?.appendNote(ctx.taskId, `NOTE: ${text.slice(0, 4000)}`);
+        return { ok: true, output: 'noted (saved to the task notes)' };
       }),
     },
     control('finish', 'Declare the task complete; acceptance checks decide.', {

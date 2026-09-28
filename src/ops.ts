@@ -17,6 +17,21 @@ export interface CreateGoalWithRootInput {
   model?: string;
 }
 
+/**
+ * Goals with no acceptance checks and no repo (research, questions, "look into X") would always
+ * fail: the gate refuses to mark a check-less task done. They get this check instead — the
+ * deliverable is a report: the runtime writes the finish summary to REPORT.md, and it must be
+ * substantial. Checks still decide; code goals (repo) keep needing real checks.
+ */
+export const REPORT_CHECK: AcceptanceCheck = { name: 'report', cmd: 'test "$(wc -c < REPORT.md)" -ge 200' };
+export const REPORT_SPEC_NOTE =
+  'Deliverable: a report. When done, call finish with the COMPLETE report as the summary (it is saved to ' +
+  'REPORT.md and is what Quinn reads; at least a few paragraphs, with sources).';
+
+export function isReportCheck(c: AcceptanceCheck): boolean {
+  return c.name === REPORT_CHECK.name && c.cmd === REPORT_CHECK.cmd;
+}
+
 /** Create a goal plus its single root task in one call. */
 export function createGoalWithRoot(
   store: Store,
@@ -24,7 +39,8 @@ export function createGoalWithRoot(
 ): { goal: Goal; task: Task } {
   if (!input.title || !input.title.trim()) throw new Error('title is required');
   const body = input.body ?? '';
-  const acceptance = input.acceptance ?? [];
+  const reportGoal = !(input.acceptance ?? []).length && !input.repo;
+  const acceptance = reportGoal ? [REPORT_CHECK] : input.acceptance ?? [];
   const goal = store.createGoal({
     title: input.title,
     body,
@@ -36,7 +52,7 @@ export function createGoalWithRoot(
     goalId: goal.id,
     persona: input.persona ?? 'alfred',
     title: input.title,
-    spec: input.spec ?? body,
+    spec: reportGoal ? `${input.spec ?? body}\n\n${REPORT_SPEC_NOTE}` : input.spec ?? body,
     acceptance,
   });
   return { goal, task };

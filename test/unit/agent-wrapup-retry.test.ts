@@ -90,3 +90,37 @@ describe('transient model-server errors', () => {
     expect(calls).toBe(3);
   }, 30_000);
 });
+
+describe('report goals and notes', () => {
+  it('a check-less goal finishes when its finish summary (the report) is substantial; a thin one fails the gate', async () => {
+    const { createGoalWithRoot } = await import('../../src/ops.js');
+    const report = 'Jev is TypeSafe\'s System One model. '.repeat(10);
+    const good = createGoalWithRoot(store, { title: 'Research X', spec: 'research X', persona: 'researcher' });
+    const end = await runTask(good.task.id, opts(scriptedLLM([{ toolCalls: [call('finish', { summary: report })] }])));
+    expect(end.status).toBe('done');
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync(join(ws, 'REPORT.md'), 'utf8').trim()).toBe(report.trim());
+
+    const thin = createGoalWithRoot(store, { title: 'Research Y', spec: 'research Y', persona: 'researcher' });
+    const steps: Step[] = [{ toolCalls: [call('finish', { summary: 'done' })] }, { toolCalls: [call('give_up', { reason: 'x' })] }];
+    const end2 = await runTask(thin.task.id, opts(scriptedLLM(steps)));
+    expect(end2.status).not.toBe('done');
+  });
+
+  it('note persists to the task notes and survives compaction whole', async () => {
+    const long = 'FACT: ' + 'jev costs $0.042 per Mtok input; '.repeat(8);
+    const steps: Step[] = [{ toolCalls: [call('note', { text: long })] }, { toolCalls: [call('give_up', { reason: 'x' })] }];
+    const g = store.createGoal({ title: 'n' });
+    const t = store.createTask({ goalId: g.id, persona: 'researcher', title: 'N', spec: 's' });
+    await runTask(t.id, opts(scriptedLLM(steps)));
+    expect(store.getTask(t.id)!.notes).toContain(`NOTE: ${long.trim()}`);
+    const { compactMessages } = await import('../../src/runtime/compact.js');
+    const msgs: any[] = [{ role: 'user', content: 'brief' }];
+    for (let i = 0; i < 40; i++) {
+      msgs.push({ role: 'assistant', content: '', toolCalls: [{ id: `c${i}`, name: i === 0 ? 'note' : 'read_file', args: i === 0 ? { text: long } : { path: 'x'.repeat(50) } }] });
+      msgs.push({ role: 'tool', toolCallId: `c${i}`, name: 'read_file', content: 'y'.repeat(2000) });
+    }
+    const c = compactMessages('sys', [], msgs, 6000);
+    expect(c.digest).toContain(`NOTE: ${long.trim()}`);
+  });
+});
