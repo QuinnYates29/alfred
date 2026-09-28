@@ -60,6 +60,9 @@ mkdir -p "$HOME/Library/LaunchAgents"
   echo '  <key>StandardErrorPath</key><string>/tmp/alfred-node.err</string>'
   echo '  <key>EnvironmentVariables</key><dict>'
   echo "    <key>ALFRED_TOKEN</key><string>$TOKEN</string>"
+  # launchd starts agents with PATH=/usr/bin:/bin:/usr/sbin:/sbin, which has no Homebrew/nvm node:
+  # bake in the directory of the node found at install time.
+  echo "    <key>PATH</key><string>$(dirname "$(command -v node)"):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>"
   echo '  </dict>'
   echo '</dict></plist>'
 } > "$PLIST"
