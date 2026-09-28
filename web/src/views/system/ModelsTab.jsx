@@ -1,11 +1,15 @@
-// Models: the model table + role → model selects (POST /api/models/roles) + Reload.
+// Models: the model table + role → model selects (POST /api/models/roles) + Reload,
+// the local llama.cpp server's flags, and the tool permissions matrix (agents × models).
 import { useState } from 'react';
+import { QwenFlagsCard } from './Qwen.jsx';
+import Permissions from './Permissions.jsx';
 import { useResource } from '../../lib/live.jsx';
 import { post } from '../../api.js';
 import { Button, Empty, Spinner, useToast } from '../../ui/index.jsx';
 
 export default function ModelsTab() {
   const { data, error, loading, reload } = useResource('/api/models', { on: ['config_'] });
+  const qwen = useResource('/api/ops/qwen');
   const { toast } = useToast();
   const [busyRole, setBusyRole] = useState('');
   const [reloading, setReloading] = useState(false);
@@ -41,6 +45,10 @@ export default function ModelsTab() {
       setReloading(false);
     }
   };
+
+  // The model served by the local llama.cpp server (the ops qwen URL), else one named qwen-local.
+  const trim = (u) => String(u ?? '').replace(/\/+(v1)?\/*$/, '');
+  const local = models.find((m) => qwen.data && trim(m.baseUrl) === trim(qwen.data.url)) ?? models.find((m) => m.name === 'qwen-local');
 
   const optionsFor = (current) => {
     const names = models.map((m) => m.name);
@@ -101,6 +109,10 @@ export default function ModelsTab() {
           {!Object.keys(roles).length && <Empty title="No roles configured" />}
         </div>
       </div>
+
+      {local && qwen.data && <QwenFlagsCard data={qwen.data} reload={qwen.reload} title={`${local.name} — llama.cpp server flags`} />}
+
+      <Permissions />
     </div>
   );
 }

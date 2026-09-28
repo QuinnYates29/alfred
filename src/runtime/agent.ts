@@ -267,6 +267,12 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
     return persona.model ?? 'default';
   };
   const llmForCall = () => (o.models ? o.models.llm(modelRef()) : o.llm);
+  /** Per-model `deny` (config/models.yaml): only ever narrows the persona's tools; re-read per call. */
+  const deniedNow = (): Set<string> => o.models?.denied(modelRef()) ?? new Set();
+  const offeredSchemas = () => {
+    const denied = deniedNow();
+    return denied.size ? schemas.filter((s) => !denied.has(s.name)) : schemas;
+  };
 
   /** P8: per-call context budget — persona override, else 60 % of the model's window, capped at 24 k. */
   const contextBudget = (): number => {
@@ -421,7 +427,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
           resp = await llmForCall().chat({
             system: persona.system,
             messages,
-            tools: schemas,
+            tools: offeredSchemas(),
             maxTokens: persona.maxTokensPerTurn,
             signal: call.signal,
           });
@@ -502,6 +508,8 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         try {
           if (!toolSet.has(c.name)) {
             result = { ok: false, output: `unknown tool: ${c.name}` };
+          } else if (deniedNow().has(c.name)) {
+            result = { ok: false, output: `tool ${c.name} is not allowed on model ${o.models!.resolve(modelRef()).name}` };
           } else if (c.name === 'finish') {
             result = await doFinish(c);
             if (result.ok) control = { kind: 'return', task: o.store.getTask(taskId)! };

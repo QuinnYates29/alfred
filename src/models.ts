@@ -16,6 +16,8 @@ export interface ModelSpec {
   contextWindow?: number;
   maxTokens?: number;
   temperature?: number;
+  /** Tools no agent may use while running on this model (only ever restricts; persona tools AND not-denied). */
+  deny?: string[];
 }
 
 export interface ModelsConfig {
@@ -27,6 +29,8 @@ export class ModelConfigError extends Error {}
 
 export const DEFAULT_SLOTS = 3;
 export const DEFAULT_CONTEXT_WINDOW = 65536;
+/** Control tools a task needs to end; a model may not deny them. */
+export const UNDENIABLE_TOOLS = ['finish', 'give_up'];
 
 /** config/models.local.yaml wins if present (gitignored). */
 export function modelsConfigPath(dir = 'config'): string {
@@ -38,8 +42,12 @@ function fail(msg: string): never {
   throw new ModelConfigError(msg);
 }
 
-/** Reads + validates a models config. Violations → ModelConfigError. */
-export function loadModels(filePath: string): ModelsConfig {
+/**
+ * Reads + validates a models config. Violations → ModelConfigError.
+ * knownTools: when given, every `deny` entry must name one (the config editor passes the tool registry).
+ */
+export function loadModels(filePath: string, o?: { knownTools?: Iterable<string> }): ModelsConfig {
+  const known = o?.knownTools ? new Set(o.knownTools) : null;
   let doc: unknown;
   try {
     doc = parse(readFileSync(filePath, 'utf8'));
@@ -79,6 +87,17 @@ export function loadModels(filePath: string): ModelsConfig {
     if (m.temperature !== undefined && m.temperature !== null) {
       if (typeof m.temperature !== 'number') fail(`model ${m.name}: temperature must be a number`);
       spec.temperature = m.temperature;
+    }
+    if (m.deny !== undefined && m.deny !== null) {
+      if (!Array.isArray(m.deny)) fail(`model ${m.name}: deny must be a list of tool names`);
+      const deny: string[] = [];
+      for (const t of m.deny) {
+        if (typeof t !== 'string' || !t) fail(`model ${m.name}: deny entries must be tool names`);
+        if (UNDENIABLE_TOOLS.includes(t)) fail(`model ${m.name}: cannot deny "${t}" (tasks need it to end)`);
+        if (known && !known.has(t)) fail(`model ${m.name}: deny names unknown tool "${t}"`);
+        if (!deny.includes(t)) deny.push(t);
+      }
+      if (deny.length) spec.deny = deny;
     }
     models.push(spec);
   });
@@ -161,6 +180,11 @@ export class ModelRegistry {
 
   private path: string | undefined;
 
+  /** The file this registry was loaded from (and persists to), if any. */
+  configPath(): string | undefined {
+    return this.path;
+  }
+
   /** ref = model name, else role name; undefined → roles.default. Unknown → ModelConfigError. */
   resolve(ref?: string): ModelSpec {
     const key = ref ?? this.cfg.roles.default;
@@ -197,13 +221,23 @@ export class ModelRegistry {
     return llm;
   }
 
-  list(): { name: string; baseUrl: string; model: string; roles: string[] }[] {
+  list(): { name: string; baseUrl: string; model: string; roles: string[]; deny: string[] }[] {
     return this.cfg.models.map((m) => ({
       name: m.name,
       baseUrl: m.baseUrl,
       model: m.model,
       roles: Object.keys(this.cfg.roles).filter((r) => this.cfg.roles[r] === m.name),
+      deny: [...(m.deny ?? [])],
     }));
+  }
+
+  /** Tools denied on the model `ref` resolves to. Unknown ref → empty (the call itself fails elsewhere). */
+  denied(ref?: string): Set<string> {
+    try {
+      return new Set(this.resolve(ref).deny ?? []);
+    } catch {
+      return new Set();
+    }
   }
 
   roles(): Record<string, string> {

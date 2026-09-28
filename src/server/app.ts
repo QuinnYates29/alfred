@@ -116,6 +116,7 @@ function buildRouter(d: AppDeps): express.Router {
     const list = [...(d.personas?.values() ?? [])].map((p) => ({
       name: p.name,
       description: p.description,
+      model: p.model ?? 'default',
       tools: p.tools,
       canSpawn: p.canSpawn,
       promptBudgetTokens: p.promptBudgetTokens,
