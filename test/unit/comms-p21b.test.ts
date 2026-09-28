@@ -121,7 +121,18 @@ describe('node comms ops', () => {
     expect((await hub.call('mac', 'sendMessage', { to: '+15550001111', text: '' })).ok).toBe(false);
     expect((await hub.call('mac', 'sendMessage', { to: '+15550001111', text: 'x'.repeat(5000) })).ok).toBe(false);
     expect((await hub.call('gone', 'sendMessage', { to: '+15550001111', text: 'hi' })).ok).toBe(false);
+    expect((await hub.call('gone', 'sendMessage', { to: '+15550001111', text: 'hi' })).uncertain).toBeUndefined();
     expect(ran.length).toBe(n);
+  });
+
+  it('a node that drops after receiving the request reports UNCERTAIN (it may have sent), not a plain failure', async () => {
+    let dropper: { close(): void } | null = null;
+    const runner = { run: async () => { dropper!.close(); return new Promise<any>(() => {}); } }; // "sends", then the link dies
+    dropper = connectNode({ url, name: 'flaky', roots: [tmpdir()], caps: ['fs', 'messages'], reconnect: false, comms: runner });
+    await until(() => hub.list().some((x) => x.name === 'flaky'));
+    const r = await hub.call('flaky', 'sendMessage', { to: '+15550001111', text: 'hi' }, 5000);
+    expect(r).toMatchObject({ ok: false, uncertain: true });
+    expect(r.error).toMatch(/before confirming/);
   });
 });
 

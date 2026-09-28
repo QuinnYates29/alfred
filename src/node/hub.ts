@@ -247,12 +247,16 @@ export class NodeHub {
    * an offline node, a timeout or a failed op is `{ok:false, error}`.
    */
   async call(node: string, op: CommsOp, args: Record<string, unknown>, timeoutMs = COMMS_TIMEOUT_MS): Promise<CommsResult> {
+    const c = this.nodes.get(node);
+    if (!c || c.ws.readyState !== c.ws.OPEN) return { ok: false, error: `node ${node} offline` };
     try {
       const v = await this.rpc(node, op, args, { timeoutMs });
       if (v && typeof v === 'object' && v.ok === true) return { ok: true };
       return { ok: false, error: typeof v?.error === 'string' && v.error ? v.error : `${op} failed on ${node}` };
     } catch (e: any) {
-      return { ok: false, error: e?.message ?? String(e) };
+      // The request went out; the connection dropped or timed out before the node answered.
+      // It may well have happened (a text sent) — say so, so nobody retries into a duplicate.
+      return { ok: false, uncertain: true, error: `${node} got the request but disconnected before confirming (${e?.message ?? String(e)})` };
     }
   }
 

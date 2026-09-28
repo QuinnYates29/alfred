@@ -30,5 +30,14 @@ export function openThreadMap(store: Store, chat: () => ChatLike | undefined) {
     return t.id;
   }
 
-  return { resolve };
+  /** Start a fresh chat thread for this key ("new chat" in a DM). */
+  function reset(key: string): string {
+    const c = chat();
+    if (!c) throw new Error('chat is not available');
+    const t = c.createThread(`Slack: ${key}`);
+    putStmt.run(key, t.id);
+    return t.id;
+  }
+
+  return { resolve, reset };
 }

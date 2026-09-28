@@ -36,7 +36,7 @@ function testCtx(store: Store, o: Partial<HandlerCtx> = {}) {
     getBoard: () => openBoard(store) as any,
     getChat: () => chat,
     threads: openThreadMap(store, () => chat),
-    slackApi: { postMessage: async (b: any) => { apiPosts.push(b); } } as any,
+    slackApi: { postMessage: async (b: any) => { apiPosts.push(b); return null; }, update: async () => false } as any,
     postUrl: async (url, body) => { posts.push({ url, body }); },
     enqueue: (fn) => { jobs.push(fn().catch((e) => { errors.push(String(e?.message ?? e)); })); },
     setError: (m) => errors.push(m),
@@ -141,7 +141,8 @@ describe('events', () => {
     handleEvent(ctx, { type: 'app_mention', channel: 'C9', user: 'U1', text: '<@UBOT>  hi bot', ts: '5' });
     await flush();
     expect(sent[0].text).toBe('hi bot');
-    expect(apiPosts[0]).toMatchObject({ channel: 'C9', thread_ts: '5', text: 'echo:hi bot' });
+    expect(apiPosts[0].text).toContain('thinking'); // placeholder first; with no ts from Slack the reply is posted after it
+    expect(apiPosts.at(-1)).toMatchObject({ channel: 'C9', thread_ts: '5', text: 'echo:hi bot' });
   });
 });
 

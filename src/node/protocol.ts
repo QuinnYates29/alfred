@@ -15,6 +15,8 @@ export const COMMS_CAP: Record<CommsOp, string> = { sendMessage: 'messages', pla
 export interface CommsResult {
   ok: boolean;
   error?: string;
+  /** The request reached the node but no answer came back (disconnect/timeout): it may have happened. */
+  uncertain?: boolean;
 }
 /** Longest text a message may carry (Twilio's SMS limit; Messages accepts it too). */
 export const MAX_MESSAGE_CHARS = 1600;

@@ -169,7 +169,10 @@ function messageTool(deps: ModuleDeps): Tool {
             const node = nodeWith(deps, 'messages');
             if (node) {
               const res = await deps.nodes.call(node, 'sendMessage', { to: r.handle!, text });
-              record(deps, { kind: 'message', to: r.handle!, provider: `node:${node}`, ok: res.ok });
+              record(deps, { kind: 'message', to: r.handle!, provider: `node:${node}`, ok: res.ok, ...(res.uncertain ? { uncertain: true } : {}) });
+              if (res.uncertain) {
+                return { ok: false, output: `UNCONFIRMED: ${node} received the text for ${who(r)} but lost its connection before confirming — it may well have been sent. Do NOT retry; ask Quinn to check Messages first.` };
+              }
               return res.ok
                 ? { ok: true, output: `sent via ${node} (Messages) to ${who(r)}` }
                 : { ok: false, output: `sending via ${node} (Messages) failed: ${res.error ?? 'unknown error'}` };
@@ -244,7 +247,10 @@ function callTool(deps: ModuleDeps): Tool {
             const node = nodeWith(deps, 'calls');
             if (!node) return { ok: false, output: 'the Mac (alfred-node --messages) is no longer connected' };
             const res = await deps.nodes.call(node, 'placeCall', { to: r.number! });
-            record(deps, { kind: 'call', to: r.number!, provider: `node:${node}`, ok: res.ok });
+            record(deps, { kind: 'call', to: r.number!, provider: `node:${node}`, ok: res.ok, ...(res.uncertain ? { uncertain: true } : {}) });
+            if (res.uncertain) {
+              return { ok: false, output: `UNCONFIRMED: ${node} received the call request for ${who(r)} but lost its connection before confirming — the call may be ringing on the Mac. Do NOT retry; ask Quinn.` };
+            }
             return res.ok
               ? { ok: true, output: `call to ${who(r)} handed to ${node} (iPhone via FaceTime) — Quinn must click Call on the Mac to connect` }
               : { ok: false, output: `calling via ${node} failed: ${res.error ?? 'unknown error'}` };

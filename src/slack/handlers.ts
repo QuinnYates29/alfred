@@ -4,15 +4,18 @@ import type { Store } from '../store.js';
 import { PARKED } from '../types.js';
 import type { SlackApi } from './slackApi.js';
 import type { ChatLike } from './threadMap.js';
+import { actionsFooter, toMrkdwn } from './format.js';
 
 export interface HandlerCtx {
   store: Store;
   getBoard(): { createItem(i: { title: string }, by: string): { key: string; title: string } } | undefined;
   getChat(): ChatLike | undefined;
-  threads: { resolve(key: string): string };
+  threads: { resolve(key: string): string; reset(key: string): string };
   slackApi: SlackApi | undefined;
   postUrl(url: string, body: any): Promise<void>;
   enqueue(fn: () => Promise<void>): void;
+  /** Serial per key (one Slack conversation), parallel across keys. Falls back to enqueue. */
+  enqueueFor?(key: string, fn: () => Promise<void>): void;
   setError(msg: string): void;
   /** Slack user ids allowed to use the bot (SLACK_ALLOWED_USERS). Everyone else is refused. */
   allowedUsers: ReadonlySet<string>;
@@ -101,7 +104,7 @@ export function handleSlash(ctx: HandlerCtx, payload: Payload): Payload {
     ctx.enqueue(async () => {
       const threadId = ctx.threads.resolve(key);
       const reply = await (chat as any).send(threadId, text);
-      if (responseUrl) await ctx.postUrl(responseUrl, { text: reply.content });
+      if (responseUrl) await ctx.postUrl(responseUrl, { text: `${toMrkdwn(String(reply?.content ?? ''))}${actionsFooter(reply?.actions)}` });
     });
     return { text: 'On it…' };
   } catch (e) {
@@ -110,19 +113,21 @@ export function handleSlash(ctx: HandlerCtx, payload: Payload): Payload {
   }
 }
 
-/** `events_api` envelope: DMs and app_mention go to the chat engine, replied in-thread. */
+/**
+ * `events_api` envelope — Slack as a second chat window:
+ * - a DM is ONE continuous conversation with alfred (like the dashboard chat), answered where it
+ *   was asked (top level, or inside the Slack thread if the message was in one); "new chat" starts over;
+ * - an @mention in a channel is a conversation per Slack thread, answered in that thread.
+ * A "thinking…" placeholder is posted right away and replaced by the reply (chat.update).
+ */
 export function handleEvent(ctx: HandlerCtx, event: Payload): void {
   try {
     const type = event?.type;
     let text: string | undefined;
+    const dm = type === 'message' && event.channel_type === 'im';
     if (type === 'app_mention') {
       text = String(event.text ?? '').replace(/^<@[A-Z0-9]+>\s*/i, '').trim();
-    } else if (
-      type === 'message' &&
-      event.channel_type === 'im' &&
-      !event.bot_id &&
-      !event.subtype
-    ) {
+    } else if (dm && !event.bot_id && !event.subtype) {
       text = String(event.text ?? '').trim();
     } else {
       return;
@@ -133,14 +138,33 @@ export function handleEvent(ctx: HandlerCtx, event: Payload): void {
       ctx.enqueue(async () => { await ctx.slackApi?.postMessage({ channel, thread_ts: root, text: refusal(event.user) }); });
       return;
     }
-    const key = `slack:${channel}:${root}`;
-    ctx.enqueue(async () => {
+    const key = dm ? `slack:dm:${channel}` : `slack:${channel}:${root}`;
+    const where = dm && !event.thread_ts ? {} : { thread_ts: root };
+    if (dm && /^(new chat|new conversation|start over|reset)$/i.test(text)) {
+      ctx.threads.reset(key);
+      ctx.enqueue(async () => { await ctx.slackApi?.postMessage({ channel, ...where, text: 'Started a new conversation.' }); });
+      return;
+    }
+    const run = async () => {
       const chat = ctx.getChat();
       if (!chat || !ctx.slackApi) return;
-      const threadId = ctx.threads.resolve(key);
-      const reply = await (chat as any).send(threadId, text);
-      await ctx.slackApi.postMessage({ channel, thread_ts: root, text: reply.content });
-    });
+      const api = ctx.slackApi;
+      const placeholder = await api.postMessage({ channel, ...where, text: '_:hourglass_flowing_sand: thinking…_' });
+      const deliver = async (body: string) => {
+        if (placeholder && (await api.update({ channel, ts: placeholder, text: body }))) return;
+        await api.postMessage({ channel, ...where, text: body });
+      };
+      try {
+        const threadId = ctx.threads.resolve(key);
+        const reply = await (chat as any).send(threadId, text);
+        await deliver(`${toMrkdwn(String(reply?.content ?? '')) || '_(no reply)_'}${actionsFooter(reply?.actions)}`);
+      } catch (e) {
+        await deliver(`:warning: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    };
+    // turns of different conversations run side by side; one conversation stays in order
+    if (ctx.enqueueFor) ctx.enqueueFor(key, run);
+    else ctx.enqueue(run);
   } catch (e) {
     ctx.setError(`slack event: ${e instanceof Error ? e.message : String(e)}`);
   }

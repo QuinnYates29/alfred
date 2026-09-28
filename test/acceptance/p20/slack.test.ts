@@ -40,6 +40,7 @@ async function world(o: { withBoard?: boolean; env?: Record<string, string> } = 
     const body = init?.body ? JSON.parse(init.body) : null;
     posted.push({ url: u, body, auth: init?.headers?.authorization ?? init?.headers?.Authorization });
     if (u.endsWith('/apps.connections.open')) return new Response(JSON.stringify({ ok: true, url: `ws://127.0.0.1:${port}/socket` }));
+    if (u.endsWith('/chat.postMessage')) return new Response(JSON.stringify({ ok: true, ts: `9.${posted.length}` }));
     return new Response(JSON.stringify({ ok: true }));
   }) as any;
   const sent: { threadId: string; text: string }[] = [];
@@ -144,23 +145,38 @@ describe('socket mode', () => {
     expect(w.sent[0].threadId).toBe('th-1');
   });
 
-  it('answers DMs and mentions in thread, reusing the chat thread per Slack thread', async () => {
+  it('treats a DM as one conversation (placeholder → reply), mentions per Slack thread, and "new chat" starts over', async () => {
     const w = await world();
     await until(() => w.connections === 1);
     const ev = (event: any) => w.envelope('events_api', { event });
+    const posts = () => w.posted.filter(p => p.url.endsWith('/chat.postMessage')).map(p => p.body);
+    const updates = () => w.posted.filter(p => p.url.endsWith('/chat.update')).map(p => p.body);
     ev({ type: 'message', channel_type: 'im', channel: 'D1', user: 'U1', text: 'hello', ts: '100.1' });
     ev({ type: 'message', channel_type: 'im', channel: 'D1', bot_id: 'B1', text: 'my own echo', ts: '100.2' });
     ev({ type: 'message', channel_type: 'im', channel: 'D1', subtype: 'message_changed', text: 'edit', ts: '100.3' });
-    await until(() => w.posted.filter(p => p.url.endsWith('/chat.postMessage')).length >= 1);
+    await until(() => updates().length >= 1);
+    // top-level DM: answered at top level — a "thinking…" placeholder, then replaced by the reply
+    expect(posts()[0]).toMatchObject({ channel: 'D1' });
+    expect(posts()[0].thread_ts).toBeUndefined();
+    expect(posts()[0].text).toContain('thinking');
+    expect(updates()[0]).toMatchObject({ channel: 'D1', ts: expect.any(String), text: 'echo:hello' });
+    // a later DM (here inside a Slack thread) continues the SAME conversation, answered in that thread
     ev({ type: 'message', channel_type: 'im', channel: 'D1', user: 'U1', text: 'follow up', ts: '100.4', thread_ts: '100.1' });
     ev({ type: 'app_mention', channel: 'C7', user: 'U1', text: '<@UBOT> status please', ts: '200.1' });
-    await until(() => w.posted.filter(p => p.url.endsWith('/chat.postMessage')).length >= 3);
-    const posts = w.posted.filter(p => p.url.endsWith('/chat.postMessage')).map(p => p.body);
-    expect(posts[0]).toMatchObject({ channel: 'D1', thread_ts: '100.1', text: 'echo:hello' });
-    expect(posts.map(p => p.text)).toContain('echo:status please');
-    expect(w.sent.map(s => s.text)).toEqual(['hello', 'follow up', 'status please']);
-    expect(w.sent[0].threadId).toBe(w.sent[1].threadId);
-    expect(w.sent[2].threadId).not.toBe(w.sent[0].threadId);
+    await until(() => updates().length >= 3);
+    expect(posts().find(p => p.channel === 'D1' && p.thread_ts === '100.1')).toBeTruthy();
+    expect(posts().find(p => p.channel === 'C7')).toMatchObject({ thread_ts: '200.1' });
+    expect(updates().map(u => u.text)).toEqual(expect.arrayContaining(['echo:follow up', 'echo:status please']));
+    expect(w.sent.map(s => s.text)).toEqual(expect.arrayContaining(['hello', 'follow up', 'status please']));
+    const tid = (t: string) => w.sent.find(s => s.text === t)!.threadId;
+    expect(tid('follow up')).toBe(tid('hello'));
+    expect(tid('status please')).not.toBe(tid('hello'));
+    // "new chat" starts a fresh conversation for the DM
+    ev({ type: 'message', channel_type: 'im', channel: 'D1', user: 'U1', text: 'new chat', ts: '300.1' });
+    await until(() => posts().some(p => /new conversation/i.test(p.text)));
+    ev({ type: 'message', channel_type: 'im', channel: 'D1', user: 'U1', text: 'fresh', ts: '300.2' });
+    await until(() => w.sent.some(s => s.text === 'fresh'));
+    expect(tid('fresh')).not.toBe(tid('hello'));
   });
 
   it('reconnects after a disconnect and stays off without tokens', async () => {

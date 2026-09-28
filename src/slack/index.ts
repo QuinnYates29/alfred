@@ -42,6 +42,12 @@ export function createSlackModule(deps: ModuleDeps): AlfredModule {
       setError(String(e?.message ?? e));
     });
   };
+  const lanes = new Map<string, Promise<void>>();
+  const enqueueFor = (key: string, fn: () => Promise<void>) => {
+    const next = (lanes.get(key) ?? Promise.resolve()).then(fn).catch((e) => setError(String(e?.message ?? e)));
+    lanes.set(key, next);
+    void next.finally(() => { if (lanes.get(key) === next) lanes.delete(key); });
+  };
   const slackApi = deps.env.SLACK_BOT_TOKEN
     ? createSlackApi({
         botToken: deps.env.SLACK_BOT_TOKEN,
@@ -60,12 +66,15 @@ export function createSlackModule(deps: ModuleDeps): AlfredModule {
     slackApi,
     postUrl,
     enqueue,
+    enqueueFor,
     setError,
     allowedUsers: new Set((deps.env.SLACK_ALLOWED_USERS ?? '').split(',').map((u) => u.trim()).filter(Boolean)),
   };
 
   const onEnvelope = (env: { envelope_id?: string; type?: string; payload?: any }) => {
     const { type, payload } = env;
+    // types only — never content — so "is Slack reaching alfred?" is answerable from the journal
+    console.log(`[slack] ${type}${payload?.event?.type ? `/${payload.event.type}` : payload?.type ? `/${payload.type}` : ''}`);
     if (type === 'interactive') {
       handleInteractive(ctx, payload ?? {});
       return undefined;
