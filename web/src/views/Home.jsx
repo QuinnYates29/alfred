@@ -119,6 +119,7 @@ export default function Home() {
   const goalsRes = useResource('/api/goals', { on: ['goal_', 'transition', 'task_created'] });
   const approvals = useResource('/api/approvals?status=pending', { on: ['approval_'] });
   const items = useResource('/api/items?label=needs-attention', { on: ['item_'] });
+  const allItems = useResource('/api/items', { on: ['item_'] }); // Due soon covers every open item, not just flagged ones
   const goals = goalsRes.data ?? [];
   const detailIds = goals.filter(needsDetail).slice(0, 8).map((g) => g.id);
   const details = useGoalDetails(detailIds, { interval: 15_000 });
@@ -126,7 +127,7 @@ export default function Home() {
 
   const rows = attentionRows({ approvals: approvals.data ?? [], items: items.data ?? [], goals, details });
   const running = runningGoals(goals, details);
-  const due = dueSoon(items.data ?? []);
+  const due = dueSoon(allItems.data ?? []);
   const recent = goals;
 
   return (
