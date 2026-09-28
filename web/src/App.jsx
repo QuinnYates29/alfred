@@ -119,10 +119,12 @@ function Shell() {
   useEffect(() => {
     const on = (e) => {
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName) || e.target?.isContentEditable;
+      // single-key shortcuts only without modifiers: ⌘C / Ctrl+C must stay copy
+      const bare = !e.metaKey && !e.ctrlKey && !e.altKey;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); palette(); }
-      else if (!typing && !dialog && e.key === 'c') { e.preventDefault(); newItem(); }
-      else if (!typing && !dialog && e.key === 'g') { e.preventDefault(); newGoal(); }
-      else if (!typing && !dialog && e.key === '/') { e.preventDefault(); palette(); }
+      else if (bare && !typing && !dialog && e.key === 'c') { e.preventDefault(); newItem(); }
+      else if (bare && !typing && !dialog && e.key === 'g') { e.preventDefault(); newGoal(); }
+      else if (bare && !typing && !dialog && e.key === '/') { e.preventDefault(); palette(); }
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);

@@ -1,9 +1,9 @@
 // #/goal/<id>[/<tab>] — goal header (status, meta, actions) + Overview / Transcript / Changes / Files.
 import { useCallback, useMemo, useState } from 'react';
 import { useResource } from '../lib/live.jsx';
-import { href } from '../lib/router.js';
+import { go, href } from '../lib/router.js';
 import { dateTime, duration } from '../lib/format.js';
-import { post } from '../api.js';
+import { del, post } from '../api.js';
 import { Button, Icon, StatusChip, Tabs, Empty, Spinner, Field, Modal, useToast, useAction } from '../ui/index.jsx';
 import { rootTask, stoppable } from './goal/model.js';
 import OverviewTab from './goal/OverviewTab.jsx';
@@ -17,7 +17,7 @@ const TABS = [['', 'Overview'], ['transcript', 'Transcript'], ['changes', 'Chang
 export default function GoalDetail({ id, tab = '' }) {
   const live = useCallback((ev) => ev.goalId === id, [id]);
   const { data, error, loading } = useResource(id ? `/api/goals/${id}` : null, { on: live });
-  const { toast } = useToast();
+  const { toast, confirm } = useToast();
   const act = useAction();
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState('');
@@ -110,6 +110,15 @@ export default function GoalDetail({ id, tab = '' }) {
           {root && (
             <Button icon="comment" variant="ghost" onClick={() => setNoteOpen(true)}>Add note</Button>
           )}
+          <Button icon="trash" variant="ghost" data-testid="goal-delete" title="Delete this goal"
+            disabled={tasks.some((t) => t.status === 'running' || t.status === 'verifying')}
+            onClick={async () => {
+              if (!(await confirm({ title: `Delete “${goal.title}”?`, body: 'The goal, its tasks, transcript and approvals are removed for good. Branches and workspaces on disk are kept.', ok: 'Delete', danger: true }))) return;
+              try { await del(`/api/goals/${goal.id}`); toast('Goal deleted', 'ok'); go('/goals'); }
+              catch (e) { toast(e?.message ?? String(e), 'bad'); }
+            }}>
+            Delete
+          </Button>
         </div>
       </div>
 

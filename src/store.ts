@@ -119,6 +119,9 @@ export interface Store {
   listGoals(): Goal[];
   /** Shallow-merge patch into the goal's meta; returns the updated goal. */
   setGoalMeta(goalId: string, patch: Record<string, any>): Goal;
+  /** Permanently delete a goal with its tasks, events and approvals. Refuses while a task is
+   * running or verifying (stop it first). Emits a system `goal_deleted` event. */
+  deleteGoal(goalId: string): void;
   createTask(input: CreateTaskInput): Task;
   getTask(id: string): Task | undefined;
   /** P7: the per-task model name/role set at creation (spawn_subagent `model`), if any. */
@@ -639,6 +642,23 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     return goalFromRow(updated);
   }
 
+  const deleteGoalTxn = db.transaction((goalId: string) => {
+    db.prepare('DELETE FROM approvals WHERE goalId = ?').run(goalId);
+    db.prepare('DELETE FROM events WHERE goalId = ?').run(goalId);
+    db.prepare('DELETE FROM tasks WHERE goalId = ?').run(goalId);
+    db.prepare('DELETE FROM goals WHERE id = ?').run(goalId);
+  });
+
+  function deleteGoal(goalId: string): void {
+    const row = getGoalRow(goalId);
+    if (!row) throw new Error(`no such goal: ${goalId}`);
+    const busy = listTasks(goalId).filter((t) => t.status === 'running' || t.status === 'verifying');
+    if (busy.length) throw new Error(`goal has ${busy.length} running task(s): stop them first`);
+    const g = goalFromRow(row);
+    deleteGoalTxn(goalId);
+    emit('', null, 'goal_deleted', { goalId, title: g.title, slug: g.slug });
+  }
+
   function createTask(input: CreateTaskInput): Task {
     const goal = getGoalRow(input.goalId);
     if (!goal) throw new Error(`no such goal: ${input.goalId}`);
@@ -1128,6 +1148,7 @@ export function openStore(path: string, opts?: { now?: () => number }): Store {
     getGoal,
     listGoals,
     setGoalMeta,
+    deleteGoal,
     createTask,
     getTask,
     getTaskModel,

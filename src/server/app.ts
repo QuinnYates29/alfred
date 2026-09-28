@@ -43,6 +43,8 @@ export const EVENT_KINDS: { kind: string; meaning: string }[] = [
   { kind: 'goal_created', meaning: 'A goal was created (data: title, slug).' },
   { kind: 'goal_status', meaning: 'A goal moved between active/done/failed (data: status).' },
   { kind: 'goal_meta', meaning: 'Goal meta was patched (data: patch).' },
+  { kind: 'notice', meaning: 'An agent sent Quinn a notification via the notify tool (system event; data: level, title, body).' },
+  { kind: 'goal_deleted', meaning: 'A goal and its tasks/events/approvals were deleted (system event; data: goalId, title, slug).' },
   { kind: 'task_created', meaning: 'A task was created under a goal (data: title, persona).' },
   { kind: 'transition', meaning: 'A task changed status (data: from, to, reason, by).' },
   { kind: 'turn', meaning: 'One agent LLM turn finished (data: tokens, toolCalls).' },
@@ -157,6 +159,17 @@ function buildRouter(d: AppDeps): express.Router {
 
   const findGoal = (idOrSlug: string) =>
     d.store.getGoal(idOrSlug) ?? d.store.listGoals().find((g) => g.slug === idOrSlug);
+
+  r.delete('/goals/:id', (req, res) => {
+    const goal = findGoal(req.params.id);
+    if (!goal) return send(res, 404, { error: 'no such goal' });
+    try {
+      d.store.deleteGoal(goal.id);
+    } catch (e: any) {
+      return send(res, 409, { error: e?.message ?? String(e) });
+    }
+    res.json({ ok: true, deleted: goal.id });
+  });
 
   r.get('/goals/:id', (req, res) => {
     const goal = findGoal(req.params.id);

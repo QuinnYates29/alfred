@@ -25,6 +25,8 @@ function nodeArgs(settings, script = SCRIPT) {
     ...(n.roots || []).flatMap((r) => ['--root', r]),
     ...(n.dsh ? ['--dsh'] : []),
     ...(n.messages ? ['--messages'] : []),
+    // the app shows notifications itself (Electron, from the event stream): no duplicates from the node
+    '--no-notify',
   ];
 }
 

@@ -59,6 +59,9 @@ function decide(ev, ctx) {
       if (m.role !== 'assistant' || !n.chat || ctx.windowFocused) return null;
       return out({ kind: 'chat', title: 'alfred', body: m.content || '', url: `/chat/${data.threadId}` });
     }
+    case 'notice':
+      // an agent's notify tool: always shown (it was sent to Quinn on purpose)
+      return out({ kind: data.level === 'warn' ? 'attention' : 'notice', title: data.title || 'alfred', body: data.body || '', url: '/' });
     default:
       return null;
   }

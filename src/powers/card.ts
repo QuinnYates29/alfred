@@ -13,6 +13,7 @@ const LINES: [string, string][] = [
   ['platform', 'run the Spark: status, stats, services, qwen, logs, config, models, nodes, repos, automations.'],
   ['connectors', 'MCP connectors in config/mcp.json: list, add, remove, reconnect.'],
   ['alfred_dev', 'change alfred/the dashboard itself: propose → Quinn reviews → deploy.'],
+  ['notify', 'notify Quinn himself (Slack channel + Mac notification); no approval needed. NOT a connector.'],
   ['contacts', "look up Quinn's contacts."],
   ['message', 'text someone (iMessage/SMS).'],
   ['call', 'phone someone.'],
@@ -32,6 +33,9 @@ export function capabilityCard(deps: ModuleDeps): string {
     /* no node hub */
   }
   out.push(`Nodes online: ${cap(nodes.join(', ') || 'none (Spark only)', 300)}`);
+  // Slack is built in (not an MCP connector): Quinn talks to you there, and notify posts there.
+  const slack = (deps.modules?.slack as any)?.status?.() ?? null;
+  if (deps.env?.SLACK_BOT_TOKEN || slack) out.push(`Slack: built in${deps.env?.SLACK_CHANNEL ? ' (notify posts to Quinn’s alfred channel)' : ''}; Quinn can DM you or use /alfred.`);
 
   const status = deps.hub?.status() ?? [];
   const up = status.filter((s) => s.ok).map((s) => `${s.name} (${s.tools.length} tools)`);

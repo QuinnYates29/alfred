@@ -353,7 +353,8 @@ export function connectNode(o: ConnectNodeOpts): NodeHandle {
 function cliMain(argv: string[]): void {
   const o: { url?: string; token?: string; name?: string; roots: string[]; caps: string[] } = {
     roots: [],
-    caps: ['fs', 'shell', 'git'],
+    // macOS: desktop notifications on by default (--no-notify when the Mac app shows them itself)
+    caps: process.platform === 'darwin' ? ['fs', 'shell', 'git', 'notify'] : ['fs', 'shell', 'git'],
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -364,14 +365,15 @@ function cliMain(argv: string[]): void {
     else if (a === '--root') o.roots.push(path.resolve(next().replace(/^~(?=\/|$)/, process.env.HOME ?? '~')));
     else if (a === '--dsh') o.caps.push('dsh', 'notify');
     else if (a === '--notify') { if (!o.caps.includes('notify')) o.caps.push('notify'); }
+    else if (a === '--no-notify') o.caps = o.caps.filter((c) => c !== 'notify');
     else if (a === '--messages') { for (const c of ['messages', 'calls']) if (!o.caps.includes(c)) o.caps.push(c); }
     else if (a === '--help' || a === '-h') {
-      console.log('usage: alfred-node --server ws(s)://host:port --token $ALFRED_TOKEN --name <name> --root <abs> [--root …] [--dsh] [--notify] [--messages]');
+      console.log('usage: alfred-node --server ws(s)://host:port --token $ALFRED_TOKEN --name <name> --root <abs> [--root …] [--dsh] [--notify|--no-notify] [--messages]');
       process.exit(0);
     }
   }
   if (!o.url || !o.name || o.roots.length === 0) {
-    console.error('usage: alfred-node --server ws(s)://host:port --token $ALFRED_TOKEN --name <name> --root <abs> [--root …] [--dsh] [--notify] [--messages]');
+    console.error('usage: alfred-node --server ws(s)://host:port --token $ALFRED_TOKEN --name <name> --root <abs> [--root …] [--dsh] [--notify|--no-notify] [--messages]');
     process.exit(2);
   }
   const token = o.token ?? process.env.ALFRED_TOKEN;

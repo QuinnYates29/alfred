@@ -9,12 +9,13 @@ import { capabilityCard } from './card.js';
 import { Connectors, connectorsRouter, connectorsTool } from './connectors.js';
 import { platformTool } from './platform.js';
 import { alfredDevTool } from './dev.js';
+import { notifyTool } from './notify.js';
 
 /** Each running instance's tools, by its store (for the unbound stubs below). */
 const bound = new WeakMap<Store, Tool[]>();
 
 function buildTools(deps: ModuleDeps, conns: Connectors): Tool[] {
-  return [platformTool(deps), connectorsTool(deps, conns), alfredDevTool(deps)];
+  return [platformTool(deps), connectorsTool(deps, conns), alfredDevTool(deps), notifyTool(deps)];
 }
 
 export function createPowersModule(deps: ModuleDeps): AlfredModule {

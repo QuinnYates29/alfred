@@ -130,7 +130,8 @@ export default function ItemDrawer({ itemKey, board, item, goalStatus, onClose, 
             <div className="row" style={{ gap: 'var(--s-2)' }}>
               <span className="key">{it.key}</span>
               {it.archived && <span className="chip">archived</span>}
-              <Menu align="right" trigger={<Button variant="ghost" size="sm" icon="more" aria-label="Item actions" title="More" />} items={headMenu} />
+              <Button variant="ghost" size="sm" icon="trash" aria-label="Delete item" title="Delete item" onClick={deleteItem} />
+              <Menu align="right" trigger={<Button variant="ghost" size="sm" icon="more" aria-label="Item actions" title="More (archive, delete…)" />} items={headMenu} />
             </div>
           </div>
         }

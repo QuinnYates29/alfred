@@ -197,13 +197,5 @@
 :root[data-skin] .tabs .tab.active { border-bottom-color: var(--accent); text-shadow: var(--glow-text); }
 :root[data-skin] .alert-banner { background: linear-gradient(90deg, var(--bad-soft), transparent); border-bottom-color: color-mix(in srgb, var(--bad) 35%, transparent); }
 
-/* the sweep: one slow scan line across the page (JARVIS, Mark 42) */
+/* (the animated scan line was removed: Quinn found it distracting) */
 :root[data-skin='jarvis'] .content, :root[data-skin='mark42'] .content { position: relative; }
-:root[data-skin='jarvis'] .main::before, :root[data-skin='mark42'] .main::before {
-  content: ''; position: fixed; left: var(--sidebar-w); right: 0; top: 0; height: 120px; pointer-events: none; z-index: 1;
-  background: linear-gradient(180deg, transparent, var(--accent-soft) 50%, transparent);
-  opacity: 0.35; animation: sweep 9s linear infinite;
-}
-@keyframes sweep { from { transform: translateY(-140px); } to { transform: translateY(110vh); } }
-@media (max-width: 860px) { :root[data-skin] .main::before { left: 0; } }
-@media (prefers-reduced-motion: reduce) { :root[data-skin] .main::before { display: none; } }
