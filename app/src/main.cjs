@@ -11,6 +11,8 @@ const { decide, createNotifier } = require('./notify.cjs');
 const { buildMenu, computeState, createTray } = require('./tray.cjs');
 const { submitQuick } = require('./quick.cjs');
 const { createNodeRunner, SCRIPT: NODE_SCRIPT } = require('./node.cjs');
+const updater = require('./update.cjs');
+const macSetup = require('./mac-setup.cjs');
 
 const TEST = process.env.ALFRED_APP_TEST === '1';
 const IS_MAC = process.platform === 'darwin';
@@ -33,6 +35,20 @@ let trayState = null;
 let pausedUntil = 0;
 let quitting = false;
 let queue = Promise.resolve();
+let updateTimer = null;
+const BUNDLE_ID_DEFAULT = 'net.popotomodem.alfred';
+/** Self-update state (U1): what we are, what the server has, whether it is newer. */
+const upd = {
+  current: updater.currentBuild(undefined, app.getVersion()),
+  latest: null,
+  available: false,
+  checking: false,
+  installing: false,
+  lastCheck: null,
+  error: null,
+  status: '',
+  notifiedBuild: null,
+};
 
 const api = createApi(() => settings);
 const goalTitles = new Map();
@@ -181,7 +197,7 @@ function openSettings() {
   }
   settingsWin = new BrowserWindow({
     width: 560,
-    height: 720,
+    height: 800,
     resizable: true,
     minimizable: false,
     title: 'Alfred Settings',
@@ -245,7 +261,7 @@ function showQuick() {
 const notifier = createNotifier({
   testMode: TEST,
   dir: CONFIG_DIR,
-  onClick: (route) => showMain(route),
+  onClick: (route) => (route === 'settings:updates' ? openSettings() : showMain(route)),
   onAction: (id, action) => void notificationAction(id, action).catch(() => {}),
 });
 
@@ -321,6 +337,7 @@ const trayActions = {
   },
   settings: () => openSettings(),
   installCli: () => void installCli(),
+  installUpdate: () => void installUpdateFlow(),
   quit: () => app.quit(),
 };
 
@@ -344,7 +361,8 @@ async function refreshTray() {
       ]);
     }
   }
-  trayState = computeState({ goals, approvals, stats, live, paused: isPaused(), node: nodeRunner.state() });
+  const update = upd.available && upd.latest ? { version: upd.latest.version, build: upd.latest.build } : null;
+  trayState = computeState({ goals, approvals, stats, live, paused: isPaused(), node: nodeRunner.state(), update });
   try {
     tray?.update(trayState, trayActions);
   } catch (e) {
@@ -366,30 +384,158 @@ const nodeRunner = createNodeRunner({
 });
 
 async function installCli() {
-  const src = path.join(__dirname, '..', 'cli', 'alfred.mjs');
-  if (!fs.existsSync(src)) {
-    await dialog.showMessageBox({
-      type: 'warning',
-      message: 'The command-line tool is not bundled in this build.',
-      detail: 'app/cli/alfred.mjs is produced by `npm run build:cli` in the alfred repo; rebuild the app after running it.',
-    });
-    return;
-  }
   try {
-    const bin = path.join(os.homedir(), '.local', 'bin');
-    fs.mkdirSync(bin, { recursive: true });
-    const dest = path.join(bin, 'alfred');
-    fs.copyFileSync(src, dest);
-    fs.chmodSync(dest, 0o755);
-    const cfgDir = path.join(os.homedir(), '.config', 'alfred');
-    fs.mkdirSync(cfgDir, { recursive: true, mode: 0o700 });
-    const cfg = path.join(cfgDir, 'cli.json');
-    fs.writeFileSync(cfg, JSON.stringify({ url: settings.url, token: settings.token }, null, 2) + '\n', { mode: 0o600 });
-    fs.chmodSync(cfg, 0o600);
-    await dialog.showMessageBox({ type: 'info', message: `Installed ${dest}`, detail: 'Make sure ~/.local/bin is on your PATH.' });
+    const out = macSetup.installCli({ src: path.join(__dirname, '..', 'cli', 'alfred.mjs'), url: settings.url, token: settings.token });
+    await dialog.showMessageBox({
+      type: 'info',
+      message: `Installed ${out.bin}`,
+      detail: `${out.config} now holds this app's server URL and token, so \`alfred\` needs no login. Make sure ~/.local/bin is on your PATH.`,
+    });
+    return { ok: true, ...out };
   } catch (e) {
-    await dialog.showMessageBox({ type: 'error', message: 'Could not install the command-line tool', detail: e?.message ?? String(e) });
+    if (e?.code === 'NO_CLI') {
+      await dialog.showMessageBox({
+        type: 'warning',
+        message: 'The command-line tool is not bundled in this build.',
+        detail: 'app/cli/alfred.mjs is produced by `npm run build:cli` in the alfred repo; rebuild the app after running it.',
+      });
+    } else {
+      await dialog.showMessageBox({ type: 'error', message: 'Could not install the command-line tool', detail: e?.message ?? String(e) });
+    }
+    return { ok: false, error: e?.message ?? String(e) };
   }
+}
+
+/** Unload + disable the old LaunchAgent node and turn on the built-in one (prefilled from the agent's args). */
+async function useBuiltInNode() {
+  const info = macSetup.launchAgentInfo();
+  if (!info) return { ok: false, error: 'no LaunchAgent installed' };
+  const r = await macSetup.disableLaunchAgent();
+  if (!r.ok) return r;
+  const prev = settings;
+  const n = prev.node;
+  saveSettings({
+    ...prev,
+    node: {
+      ...n,
+      enabled: true,
+      name: info.name || n.name,
+      roots: n.roots.length ? n.roots : info.roots,
+      dsh: n.dsh || info.dsh,
+      messages: n.messages || info.messages,
+    },
+  });
+  applySettings(prev);
+  const warn = [r.warning, settings.node.roots.length ? null : 'add at least one root folder so the node can start'].filter(Boolean).join('; ');
+  return { ok: true, disabled: r.disabled, ...(warn ? { warning: warn } : {}) };
+}
+
+// ---------------------------------------------------------------- self-update (U1)
+
+function updateView() {
+  const exe = app.getPath('exe');
+  return {
+    current: upd.current,
+    latest: upd.latest,
+    available: upd.available,
+    checking: upd.checking,
+    installing: upd.installing,
+    lastCheck: upd.lastCheck,
+    error: upd.error,
+    status: upd.status,
+    supported: IS_MAC,
+    packaged: app.isPackaged,
+    canRollback: IS_MAC && Boolean(updater.previousBundle(exe)),
+    auto: settings.updates.auto,
+  };
+}
+
+async function checkForUpdates({ notify = false } = {}) {
+  if (!settingsStore.isConfigured(settings)) {
+    upd.error = 'connect to the server first';
+    return updateView();
+  }
+  upd.checking = true;
+  try {
+    upd.latest = await api.request('GET', '/api/v1/app/latest', undefined, { timeoutMs: 15_000 });
+    upd.error = null;
+  } catch (e) {
+    upd.latest = null;
+    upd.error = e?.status === 404 ? 'no Mac build on the server yet' : e?.message ?? String(e);
+  } finally {
+    upd.checking = false;
+    upd.lastCheck = Date.now();
+  }
+  upd.available = IS_MAC && updater.isNewer(upd.latest, upd.current);
+  if (upd.available && notify && upd.notifiedBuild !== upd.latest.build) {
+    upd.notifiedBuild = upd.latest.build;
+    try {
+      notifier.show({
+        kind: 'update',
+        title: 'Alfred update available',
+        body: `${upd.latest.version} (build ${upd.latest.build}, ${upd.latest.commit}) — open Settings to install`,
+        url: 'settings:updates',
+      });
+    } catch {
+      /* notifications are a nicety */
+    }
+  }
+  scheduleTray(50);
+  return updateView();
+}
+
+function scheduleUpdateChecks() {
+  clearInterval(updateTimer);
+  updateTimer = null;
+  if (TEST || !IS_MAC || !app.isPackaged || !settings.updates.auto) return;
+  updateTimer = setInterval(() => void checkForUpdates({ notify: true }), updater.CHECK_EVERY_MS);
+}
+
+function ownBundleId() {
+  try {
+    const b = updater.bundlePathFrom(app.getPath('exe'));
+    return (b && updater.readBundleId(b)) || BUNDLE_ID_DEFAULT;
+  } catch {
+    return BUNDLE_ID_DEFAULT;
+  }
+}
+
+function updateDeps() {
+  return {
+    conf: () => ({ url: settings.url, token: settings.token }),
+    exePath: app.getPath('exe'),
+    bundleId: ownBundleId(),
+    logFile: path.join(CONFIG_DIR, 'update.log'),
+    onStatus: (t) => {
+      upd.status = t;
+    },
+    quit: () => {
+      quitting = true;
+      setTimeout(() => app.quit(), 300);
+    },
+  };
+}
+
+async function installUpdateFlow() {
+  if (!IS_MAC) return { ok: false, error: 'updates are for macOS' };
+  if (upd.installing) return { ok: false, error: 'an update is already in progress' };
+  await checkForUpdates();
+  if (!upd.available) return { ok: false, error: upd.error || 'already up to date' };
+  upd.installing = true;
+  const r = await updater.installUpdate({ ...updateDeps(), latest: upd.latest });
+  if (!r.ok) {
+    upd.installing = false;
+    upd.status = '';
+    upd.error = r.error;
+    if (!TEST) void dialog.showMessageBox({ type: 'error', message: 'Update failed', detail: r.error });
+  }
+  return r;
+}
+
+function rollbackFlow() {
+  const r = updater.rollback(updateDeps());
+  if (!r.ok) upd.error = r.error;
+  return r;
 }
 
 // ---------------------------------------------------------------- settings side effects
@@ -429,6 +575,7 @@ function applySettings(prev) {
   applyShortcut();
   applyLoginItem();
   nodeRunner.apply(settings);
+  scheduleUpdateChecks();
   scheduleTray(50);
 }
 
@@ -446,7 +593,13 @@ function registerIpc() {
   ipcMain.handle('settings:get', (e) => {
     if (!fromAppPage(e)) throw new Error('forbidden');
     const { bounds: _b, ...s } = settings;
-    return { ...s, node: { ...s.node, bundled: fs.existsSync(NODE_SCRIPT) }, nodeState: nodeRunner.state() };
+    return {
+      ...s,
+      node: { ...s.node, bundled: fs.existsSync(NODE_SCRIPT) },
+      nodeState: nodeRunner.state(),
+      launchAgent: IS_MAC ? macSetup.launchAgentInfo() : null,
+      cliBundled: fs.existsSync(path.join(__dirname, '..', 'cli', 'alfred.mjs')),
+    };
   });
 
   ipcMain.handle('settings:save', (e, s) => {
@@ -459,6 +612,7 @@ function registerIpc() {
         ...incoming,
         notify: { ...prev.notify, ...(incoming.notify || {}) },
         node: { ...prev.node, ...(incoming.node || {}) },
+        updates: { ...prev.updates, ...(incoming.updates || {}) },
         bounds: prev.bounds,
       });
       applySettings(prev);
@@ -483,6 +637,17 @@ function registerIpc() {
       return { ok: false, error: msg };
     }
   });
+
+  const appOnly = (fn) => (e, ...args) => {
+    if (!fromAppPage(e)) throw new Error('forbidden');
+    return fn(...args);
+  };
+  ipcMain.handle('update:status', appOnly(() => updateView()));
+  ipcMain.handle('update:check', appOnly(() => checkForUpdates()));
+  ipcMain.handle('update:install', appOnly(() => installUpdateFlow()));
+  ipcMain.handle('update:rollback', appOnly(() => rollbackFlow()));
+  ipcMain.handle('cli:install', appOnly(() => installCli()));
+  ipcMain.handle('node:useBuiltIn', appOnly(() => useBuiltInNode()));
 
   if (TEST) {
     ipcMain.handle('test:notificationAction', (_e, approvalId, action) => notificationAction(String(approvalId), String(action)));
@@ -543,6 +708,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     quitting = true;
     clearInterval(pollTimer);
+    clearInterval(updateTimer);
     clearTimeout(trayTimer);
     events?.close();
     nodeRunner.stop();
@@ -569,5 +735,8 @@ if (!app.requestSingleInstanceLock()) {
     nodeRunner.apply(settings);
     void refreshTray();
     pollTimer = setInterval(() => void refreshTray(), POLL_MS);
+    // U1: check for a newer build on launch (then every 6 h) — packaged macOS builds only, never in tests.
+    scheduleUpdateChecks();
+    if (updateTimer) setTimeout(() => void checkForUpdates({ notify: true }), 20_000);
   });
 }

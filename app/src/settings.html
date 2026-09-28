@@ -26,11 +26,20 @@
   .status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
   .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .banner { border: 1px solid var(--bad); color: var(--bad); border-radius: 8px; padding: 8px 10px; margin: 0 0 14px; }
+  .banner[hidden] { display: none; }
+  .kv { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  button[hidden] { display: none; }
 </style>
 </head>
 <body>
 <h1>Alfred</h1>
 <p class="lead">Connect to Alfred on the Spark. Everything runs there; this app shows the dashboard, notifies you and adds things quickly.</p>
+
+<div id="tokenLost" class="banner" hidden>The token could not be read back from the keychain (this happens once after an update,
+  because the new version is signed differently). Paste it again and Save — and when macOS asks about “Alfred Safe Storage”,
+  click <b>Always Allow</b> so it is not asked again.</div>
 
 <fieldset>
   <legend>Server</legend>
@@ -54,6 +63,21 @@
   <label class="check"><input id="launchAtLogin" type="checkbox"> Launch at login</label>
   <label class="row"><span>Quick-add shortcut</span><input id="shortcut" type="text" spellcheck="false"></label>
   <div class="hint">Electron accelerator, e.g. CommandOrControl+Shift+Space.</div>
+  <div class="btns"><button id="cli" type="button">Install command-line tool…</button></div>
+  <div id="cliStatus" class="hint">Copies <code>alfred</code> to ~/.local/bin and writes ~/.config/alfred/cli.json with this app's URL and token — no separate login.</div>
+</fieldset>
+
+<fieldset id="updates">
+  <legend>Updates</legend>
+  <div class="kv" id="upCurrent">…</div>
+  <div class="kv" id="upLatest"></div>
+  <label class="check"><input id="up_auto" type="checkbox"> Check automatically (on launch and every 6 hours)</label>
+  <div class="btns">
+    <button id="upCheck" type="button">Check now</button>
+    <button id="upInstall" type="button" class="primary" hidden>Update now</button>
+    <button id="upRollback" type="button" hidden>Roll back to previous version</button>
+  </div>
+  <div id="upStatus" class="status"></div>
 </fieldset>
 
 <fieldset>
@@ -64,6 +88,10 @@
   <label class="check"><input id="node_dsh" type="checkbox"> Allow desktop shell (dsh) + notifications</label>
   <label class="check"><input id="node_messages" type="checkbox"> Let agents text (Messages) and hand calls to my iPhone — each one still needs my approval</label>
   <div id="nodeStatus" class="hint"></div>
+  <div id="agentBox" hidden>
+    <div class="hint">The old LaunchAgent node (<code>com.alfred.node</code>) is installed: with the built-in node on too, the Mac connects twice and the two keep replacing each other.</div>
+    <div class="btns"><button id="useBuiltIn" type="button">Use the app's built-in node instead of the LaunchAgent</button></div>
+  </div>
 </fieldset>
 
 <div class="actions">
@@ -91,8 +119,26 @@
         dsh: $('node_dsh').checked,
         messages: $('node_messages').checked,
       },
+      updates: { auto: $('up_auto').checked },
     };
   }
+
+  const fmtBuild = (b) => b && b.build ? `${b.version} · build ${b.build}${b.commit ? ' · ' + b.commit : ''}` : null;
+  function showUpdates(u) {
+    $('upCurrent').textContent = 'This app: ' + (fmtBuild(u.current) || `${u.current.version || '?'} (development build)`);
+    $('upLatest').textContent = u.latest ? 'On the server: ' + fmtBuild(u.latest) + (u.latest.builtAt ? ' · ' + new Date(u.latest.builtAt).toLocaleString() : '') : '';
+    $('upInstall').hidden = !u.available || u.installing;
+    $('upRollback').hidden = !u.canRollback || u.installing;
+    let text = '', cls = '';
+    if (!u.supported) text = 'Updates are for macOS.';
+    else if (u.installing) text = u.status || 'Installing…';
+    else if (u.checking) text = 'Checking…';
+    else if (u.error) { text = '⚠ ' + u.error; cls = 'bad'; }
+    else if (u.available) { text = 'A newer build is available.'; cls = 'ok'; }
+    else if (u.lastCheck) { text = 'Up to date.'; cls = 'ok'; }
+    setStatus($('upStatus'), text, cls);
+  }
+  async function refreshUpdates() { showUpdates(await N.updateStatus()); }
 
   async function init() {
     const s = await N.getSettings();
@@ -109,8 +155,48 @@
     const st = s.nodeState;
     $('nodeStatus').textContent = !s.node.bundled ? 'This build has no bundled node (npm run build:node before packaging).'
       : st ? `Node ${st.name}: ${st.running ? 'running' : 'stopped'}${st.error ? ' (' + st.error + ')' : ''}` : 'Node: off';
+    $('up_auto').checked = !s.updates || s.updates.auto !== false;
+    $('tokenLost').hidden = !s.tokenLost;
+    $('agentBox').hidden = !s.launchAgent;
+    await refreshUpdates();
     if (!s.url || !s.token) $(s.url ? 'token' : 'url').focus();
   }
+
+  $('upCheck').onclick = async () => {
+    setStatus($('upStatus'), 'Checking…');
+    showUpdates(await N.checkUpdate());
+  };
+  $('upInstall').onclick = async () => {
+    $('upInstall').disabled = true;
+    const poll = setInterval(() => refreshUpdates().catch(() => {}), 500);
+    setStatus($('upStatus'), 'Downloading…');
+    const r = await N.installUpdate();
+    clearInterval(poll);
+    $('upInstall').disabled = false;
+    if (!r.ok) { await refreshUpdates(); setStatus($('upStatus'), '⚠ ' + r.error, 'bad'); }
+    else setStatus($('upStatus'), 'Installing — Alfred will restart…', 'ok');
+  };
+  $('upRollback').onclick = async () => {
+    if (!confirm('Quit Alfred and switch back to the previous version?')) return;
+    const r = await N.rollbackUpdate();
+    setStatus($('upStatus'), r.ok ? 'Rolling back — Alfred will restart…' : '⚠ ' + r.error, r.ok ? 'ok' : 'bad');
+  };
+  $('cli').onclick = async () => {
+    const r = await N.installCli();
+    setStatus($('cliStatus'), r.ok ? `Installed ${r.bin}; ${r.config} written.` : '⚠ ' + r.error, r.ok ? 'ok' : 'bad');
+  };
+  $('useBuiltIn').onclick = async () => {
+    const r = await N.useBuiltInNode();
+    if (!r.ok) return setStatus($('nodeStatus'), '⚠ ' + r.error, 'bad');
+    $('agentBox').hidden = true;
+    const s = await N.getSettings();
+    $('node_enabled').checked = Boolean(s.node.enabled);
+    $('node_name').value = s.node.name || '';
+    $('node_roots').value = (s.node.roots || []).join('\n');
+    $('node_dsh').checked = Boolean(s.node.dsh);
+    $('node_messages').checked = Boolean(s.node.messages);
+    setStatus($('nodeStatus'), `LaunchAgent disabled (${r.disabled}); built-in node on.` + (r.warning ? ' Note: ' + r.warning : ''), r.warning ? 'bad' : 'ok');
+  };
 
   $('show').onclick = () => {
     const t = $('token');

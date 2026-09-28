@@ -14,6 +14,7 @@ function defaults() {
     launchAtLogin: false,
     shortcut: 'CommandOrControl+Shift+Space',
     node: { enabled: false, name: 'macbook', roots: [], dsh: false, messages: false },
+    updates: { auto: true },
     bounds: null,
   };
 }
@@ -61,6 +62,7 @@ function merge(raw) {
       messages: typeof n.messages === 'boolean' ? n.messages : d.node.messages,
     };
   }
+  if (isObj(raw.updates) && typeof raw.updates.auto === 'boolean') out.updates = { auto: raw.updates.auto };
   if (isObj(raw.bounds) && ['x', 'y', 'width', 'height'].every((k) => Number.isFinite(raw.bounds[k]))) {
     out.bounds = { x: raw.bounds.x, y: raw.bounds.y, width: raw.bounds.width, height: raw.bounds.height };
   }
@@ -80,8 +82,10 @@ function load(dir = configDir(), safe = electronSafeStorage()) {
     try {
       s.token = safe ? safe.decryptString(Buffer.from(raw.tokenEnc, 'base64')) : '';
     } catch {
-      s.token = ''; // keychain refused (e.g. the app was re-signed): ask again in Settings
+      s.token = ''; // keychain refused (e.g. the app was re-signed by an update): ask again in Settings
     }
+    // Not persisted (merge() drops it): tells the settings window why the token field is empty.
+    if (!s.token) s.tokenLost = true;
   }
   return s;
 }

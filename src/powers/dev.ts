@@ -12,6 +12,8 @@ import { gated, powersRoot } from './gate.js';
 const AREAS = ['web', 'server', 'app', 'cli'] as const;
 /** A deploy restarts alfred only when the merged diff touched what the running process loaded. */
 const RESTART_RE = /^(src|personas|config)\//;
+/** …and rebuilds the Mac app (Settings → Updates then offers it) when it touched what the app bundles. */
+export const APP_REBUILD_RE = /^(app\/|src\/node\/|src\/cli)/;
 
 export function devAcceptance(area?: string): AcceptanceCheck[] {
   return [
@@ -105,7 +107,34 @@ async function deploy(deps: ModuleDeps, goalId: string, pin?: DeployPin | null):
   }
   steps.push('build-web: ok');
 
-  if (!files.some((f) => RESTART_RE.test(f))) {
+  const needRestart = files.some((f) => RESTART_RE.test(f));
+  if (files.some((f) => APP_REBUILD_RE.test(f))) {
+    const app = await selfApi(deps, 'POST', '/ops/app/build', { confirm: true, by: 'agent' });
+    if (!app.ok && app.status !== 409) {
+      steps.push(`mac-app: build failed to start (${apiError(app)})`);
+      return say(false);
+    }
+    steps.push(app.ok ? 'mac-app: rebuilding (the app offers it under Settings → Updates)' : 'mac-app: a build was already running');
+    // A restart kills the build (same service cgroup): wait for it first.
+    if (needRestart) {
+      const pollMs = Number(deps.extra?.appBuildPollMs ?? 5000);
+      const end = Date.now() + 35 * 60_000;
+      for (;;) {
+        const st = await selfApi(deps, 'GET', '/ops/app/build');
+        if (!st.ok || !st.body?.running) {
+          steps.push(st.ok && st.body?.ok === false ? 'mac-app: build failed (see Builds → Mac app)' : 'mac-app: built');
+          break;
+        }
+        if (Date.now() > end) {
+          steps.push('mac-app: still building after 35 min; restarting anyway');
+          break;
+        }
+        await new Promise((r) => setTimeout(r, pollMs));
+      }
+    }
+  }
+
+  if (!needRestart) {
     steps.push('restart: not needed (no src/, personas/ or config/ changes)');
     return say(true);
   }
@@ -120,7 +149,7 @@ export function alfredDevTool(deps: ModuleDeps): Tool {
     schema: {
       name: 'alfred_dev',
       description:
-        "Change alfred itself. propose{title,spec,area}: a coder goal on a branch. status{goal}. deploy{goal} (needs approval): merge, rebuild web, restart if server code changed.",
+        "Change alfred itself. propose{title,spec,area}: a coder goal on a branch. status{goal}. deploy{goal} (needs approval): merge, rebuild web (+ Mac app if app/ changed), restart if server code changed.",
       parameters: {
         type: 'object',
         properties: {

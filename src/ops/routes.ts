@@ -12,6 +12,7 @@ import { CONFIG_PATH_RE, listConfigFiles, putConfigFile, redactConfigContent, re
 import { envRedactor } from '../redact.js';
 import { getDispatch, launchDispatch, listDispatch } from './dispatch.js';
 import { createRepo, listReposWithBranches } from './repos.js';
+import { registerAppRoutes } from './app-updates.js';
 
 function err(res: Response, status: number, message: string): void {
   res.status(status).json({ error: message });
@@ -257,6 +258,9 @@ export function buildOpsRouter(deps: ModuleDeps): express.Router {
       res.status(ok ? 200 : 500).json({ ok, output: tail2(`${out.stdout}${out.stderr}`) });
     }),
   );
+
+  // ---- U1 Mac app: latest build, download, rebuild ----
+  registerAppRoutes(r, ctx, h, logOp);
 
   return r;
 }

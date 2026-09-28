@@ -8,7 +8,7 @@ const clip = (s, n) => {
 };
 
 /** State from the API responses: goals (GET /goals summaries), pending approvals, stats (or null). */
-function computeState({ goals, approvals, stats, live, paused, node }) {
+function computeState({ goals, approvals, stats, live, paused, node, update }) {
   let running = 0;
   let parked = 0;
   const attentionGoals = [];
@@ -30,12 +30,13 @@ function computeState({ goals, approvals, stats, live, paused, node }) {
     attentionGoals,
     paused: Boolean(paused),
     node: node || null,
+    update: update || null,
   };
 }
 
 /**
  * Pure: the Electron menu template for `state`. `act` (optional) supplies the click handlers:
- * { open(route?), quickAdd(), newGoal(), decide(id, 'approved'|'denied'), togglePause(), settings(), installCli(), quit() }.
+ * { open(route?), quickAdd(), newGoal(), decide(id, 'approved'|'denied'), togglePause(), settings(), installCli(), installUpdate(), quit() }.
  * Returns plain objects ({label, enabled?, type?, submenu?, click?, accelerator?, checked?}).
  */
 function buildMenu(state, act = {}) {
@@ -52,6 +53,7 @@ function buildMenu(state, act = {}) {
     if (line) items.push({ label: line, enabled: false });
   }
   if (s.node) items.push({ label: `Node: ${s.node.name} ${s.node.running ? 'running' : 'stopped'}`, enabled: false });
+  if (s.update) items.push({ label: `Update available — install (${clip(s.update.version, 20)})`, ...on(act.installUpdate) });
   items.push({ type: 'separator' });
 
   items.push({ label: 'Open Alfred', accelerator: 'CommandOrControl+O', ...on(act.open) });

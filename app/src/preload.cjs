@@ -12,4 +12,11 @@ contextBridge.exposeInMainWorld('alfredNative', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (s) => ipcRenderer.invoke('settings:save', s),
   testConnection: (s) => ipcRenderer.invoke('settings:test', s),
+  // U1 — updates, CLI, built-in node (main.cjs refuses these from anything but the app's own pages)
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  rollbackUpdate: () => ipcRenderer.invoke('update:rollback'),
+  installCli: () => ipcRenderer.invoke('cli:install'),
+  useBuiltInNode: () => ipcRenderer.invoke('node:useBuiltIn'),
 });
