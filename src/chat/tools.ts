@@ -4,6 +4,7 @@ import type { AcceptanceCheck, TaskStatus } from '../types.js';
 import { createGoalWithRoot, resolveGoal } from '../ops.js';
 import type { ModuleDeps } from '../modules.js';
 import { gated } from '../powers/gate.js';
+import { webFetchTool, webSearchTool } from '../runtime/web.js';
 
 const cap = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s);
 
@@ -171,5 +172,5 @@ export function chatTools(deps: ModuleDeps): Tool[] {
   const boardTools = deps.modules.board?.tools ?? [];
   const powerTools = deps.modules.powers?.tools ?? [];
   const commsTools = deps.modules.comms?.tools ?? [];
-  return [...boardTools, goalsTool(deps), startGoalTool(deps), approvalsTool(deps), ...powerTools, ...commsTools];
+  return [...boardTools, goalsTool(deps), startGoalTool(deps), approvalsTool(deps), webSearchTool(), webFetchTool(), ...powerTools, ...commsTools];
 }

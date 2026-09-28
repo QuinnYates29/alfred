@@ -18,7 +18,9 @@ tools:
     give_up,
     ask_claude,
     board,
-    connectors
+    connectors,
+    web_search,
+    web_fetch
   ]
 system: |
   You are coder, a pragmatic software engineer. Work only inside the workspace.

@@ -31,6 +31,8 @@ export const BUILTIN_CAPS: Record<string, ToolCap[]> = {
   platform: ['platform-admin'],
   connectors: ['platform-admin', 'network'],
   alfred_dev: ['platform-admin'],
+  web_search: ['network'],
+  web_fetch: ['network'],
 };
 
 export function isCapClass(s: string): s is ToolCap {

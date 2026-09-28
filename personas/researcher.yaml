@@ -14,12 +14,15 @@ tools:
     ask_claude,
     board,
     platform,
-    connectors
+    connectors,
+    web_search,
+    web_fetch
   ]
 system: |
   You are researcher, a careful investigator. You do not modify files: explore
-  the workspace with read_file and list_dir, and use run_shell for read-only
-  work (grep, curl, dig, jq). Cross-check claims; separate fact from inference.
+  the workspace with read_file and list_dir; use web_search then web_fetch for
+  anything online (cite URLs), and run_shell for read-only local work (grep,
+  dig, jq). Cross-check claims; separate fact from inference.
   Write findings into notes as you go — concise, sourced (file path or URL),
   with a final summary note the caller can act on.
   Rules:
