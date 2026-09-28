@@ -1,15 +1,12 @@
 # HANDOFF: state of the alfred build (keep this current)
 
-## RESUME HERE (2026-09-27 22:15) — orchestrator state
-**Live:** alfred user service restarted on master (22:0x). Slack configured + connected (SLACK_* in ~/.config/alfred.env, allowlist set).
-tailscale serve https:8443 → :8790 is up (Quinn ran it). Mac node `macbook` connected (roots ~/code). ALFRED_DASHBOARD_URL set.
-**Merged on master:** scaffold, P17a shell+skins, P13 board API, P14 ops, P15 review, P16 chat, P17b board UI, P17c goals UI, P17e system UI, P20 slack (+allowlist), P21a powers (Claude), P18 mac app (Claude; zip app/dist/Alfred-mac-arm64.zip, no CLI bundled until P19), P21b comms (Claude) + orchestrator security fixes (notify AppleScript argv, message text not logged).
-Orchestrator fixes tonight: useResource stale-route race; Services render loop; phone layouts; restart hang (server.close waited on SSE → closeAllConnections + 10 s hard exit);
-SSE flush on open (tailscale serve held the stream 15 s); Mac node/CLI shim run node+tsx directly (launchd PATH / nvm); headless Chromium kept off NVIDIA (Mesa/lavapipe env).
-**Running:** Qwen P17d home/inbox/chat UI, Qwen P19 CLI (attempt 3; 1 test left after attempt 2).
-**Queue:** empty. After P19 merges: `npm run build:cli`, copy to app/cli/alfred.mjs, re-run `npm --prefix app run pack:mac`.
-**Known UI gap:** Inbox is still the legacy P5 view (old styling) until P17d merges; then delete web/src/legacy.
-**Final steps:** screenshots in all skins, delete legacy views, `npm run build:cli`, `npm --prefix app run pack:mac`, README/API docs, custom domain later.
+## RESUME HERE (2026-09-27 23:15) — BUILD COMPLETE
+All phases merged on master (scaffold, P13–P21); full suite green (355 + 6 app tests, tsc clean). No worktrees, no dispatch running.
+**Live:** alfred user service on master; Slack connected (allowlist); tailscale serve :8443; Mac node `macbook`; ALFRED_DASHBOARD_URL set.
+**Artifacts:** `app/dist/Alfred-mac-arm64.zip` (unsigned; install via install-mac.sh; bundles the CLI) · `dist/alfred.mjs` (CLI).
+**Who built what:** Qwen via DSH: P13, P14, P15, P16, P17b, P17c, P17d, P17e, P19, P20. Claude subagents: P21a, P18, P21b. Orchestrator: scaffold, P17a, fixes listed in git log.
+**Needs a real Mac to verify:** notification Approve/Deny, keychain prompt, global shortcut/login item, Messages send + SMS fallback, tel: handoff (FaceTime "Calls from iPhone"), Automation permission prompt.
+**Later (Quinn):** custom domain alfred.popotomodem.com (docs/REMOTE-ACCESS.md §2), optional Twilio creds, config/powers.yaml pre-approvals, config/contacts.yaml.
 
 ## 2026-09-27 — Control-surface build (Quinn: "everything controllable from the Mac")
 Goal set by Quinn: build all of it now; he sets up Slack + the Mac node afterward. Native Mac app + quick CLI backup + a website on the tailnet
