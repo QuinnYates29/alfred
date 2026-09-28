@@ -59,13 +59,42 @@ export function slackSink(o: {
         return;
       }
       if (o.botToken && o.channel) {
+        const body: Record<string, any> = { channel: o.channel, text };
+        // P20: approval notices get Approve/Deny buttons (bot mode only).
+        if (n.approvalId) {
+          body.blocks = [
+            {
+              type: 'section',
+              text: { type: 'mrkdwn', text: `*${n.title}*\n\`\`\`\n${n.body}\n\`\`\`` },
+            },
+            {
+              type: 'actions',
+              elements: [
+                {
+                  type: 'button',
+                  action_id: 'approve',
+                  value: n.approvalId,
+                  style: 'primary',
+                  text: { type: 'plain_text', text: 'Approve' },
+                },
+                {
+                  type: 'button',
+                  action_id: 'deny',
+                  value: n.approvalId,
+                  style: 'danger',
+                  text: { type: 'plain_text', text: 'Deny' },
+                },
+              ],
+            },
+          ];
+        }
         const res = await doFetch('https://slack.com/api/chat.postMessage', {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
             authorization: `Bearer ${o.botToken}`,
           },
-          body: JSON.stringify({ channel: o.channel, text }),
+          body: JSON.stringify(body),
         });
         const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
         if (!res.ok) throw new Error(`slack api failed: HTTP ${res.status}`);
