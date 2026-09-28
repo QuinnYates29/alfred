@@ -111,3 +111,21 @@ export function dropBefore(list, hitId, before) {
   const j = before ? i : i + 1;
   return arr[j] ? arr[j].id : null;
 }
+
+/**
+ * Optimistically reposition an item in a flat item list (the shape useResource holds):
+ * set its columnId and place it right before item id `beforeId` (null = end of that column).
+ */
+export function rememberDrop(items, moved, columnId, beforeId) {
+  const arr = (items ?? []).filter((x) => x.id !== moved.id);
+  const at = beforeId != null ? arr.findIndex((x) => x.id === beforeId) : -1;
+  const next = { ...moved, columnId };
+  if (at >= 0) {
+    arr.splice(at, 0, next);
+  } else {
+    let last = -1;
+    arr.forEach((x, i) => { if (x.columnId === columnId) last = i; });
+    arr.splice(last + 1, 0, next);
+  }
+  return arr;
+}
