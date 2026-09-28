@@ -182,7 +182,7 @@ function messageTool(deps: ModuleDeps): Tool {
               ? { ok: true, output: `sent via Twilio SMS to ${who(r)}${res.sid ? ` (${res.sid})` : ''}` }
               : { ok: false, output: res.error ?? 'Twilio send failed' };
           },
-          { to: policyTo(deps, 'message', r) },
+          { to: policyTo(deps, 'message', r), logDetail: `message to ${who(r)} (${text.length} chars)` },
         );
       } catch (e: any) {
         return { ok: false, output: `error: ${e?.message ?? String(e)}` };
@@ -249,7 +249,7 @@ function callTool(deps: ModuleDeps): Tool {
               ? { ok: true, output: `call to ${who(r)} handed to ${node} (iPhone via FaceTime) — Quinn must click Call on the Mac to connect` }
               : { ok: false, output: `calling via ${node} failed: ${res.error ?? 'unknown error'}` };
           },
-          { to: policyTo(deps, 'call', r) },
+          { to: policyTo(deps, 'call', r), logDetail: `call to ${who(r)}${say ? ' (with spoken message)' : ''}` },
         );
       } catch (e: any) {
         return { ok: false, output: `error: ${e?.message ?? String(e)}` };

@@ -41,6 +41,9 @@ export interface GateOpts {
   info?: string;
   /** For policy rules with `to` (message/call). */
   to?: string;
+  /** What the `power` event log records instead of `detail` (e.g. a message without its text).
+   *  The approval itself still carries the full detail for Quinn to read. */
+  logDetail?: string;
 }
 
 /** `<root>`: tests pass a temp root in extra.repoRoot. */
@@ -108,7 +111,7 @@ export async function gated(
   const store = deps.store;
   const taskId = tool.taskId;
   const chat = taskId.startsWith('chat:');
-  const base = { action, detail, ...(chat ? {} : { taskId }) };
+  const base = { action, detail: o.logDetail ?? detail, ...(chat ? {} : { taskId }) };
   const key = `${taskId}\n${detail}`;
 
   const go = async (extra: Record<string, any>) => {

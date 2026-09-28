@@ -50,12 +50,21 @@ export interface NodeHandle {
 
 type RunningChild = ReturnType<typeof spawn>;
 
+const NOTIFY_SCRIPT = [
+  'on run argv',
+  '  set xs to argv',
+  '  if (count of xs) > 0 and item 1 of xs is "--" then set xs to rest of xs',
+  '  display notification (item 2 of xs) with title "Alfred" subtitle (item 1 of xs)',
+  'end run',
+].join('\n');
+
 function defaultNotify(n: { level: string; title: string; body: string; url?: string }): void {
   try {
     if (process.platform === 'darwin') {
-      const title = `${n.title}`.replace(/"/g, "'");
-      const body = `${n.body}${n.url ? ` — ${n.url}` : ''}`.replace(/"/g, "'");
-      const child = spawn('osascript', ['-e', `display notification "${body}" with title "Alfred" subtitle "${title}"`]);
+      // Fixed script; title/body arrive as argv (never spliced into AppleScript: a trailing
+      // backslash or quote in a goal title would otherwise turn the rest into code).
+      const body = `${n.body}${n.url ? ` — ${n.url}` : ''}`;
+      const child = spawn('osascript', ['-e', NOTIFY_SCRIPT, '--', `${n.title}`, body]);
       child.on('error', () => {});
       child.unref();
     } else {
