@@ -39,6 +39,22 @@
 .chat-dots i:nth-child(3) { animation-delay: 0.4s; }
 @keyframes chat-blink { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
 
+/* Thinking bubble: dots + a live label ("alfred is using contacts…"). */
+.chat-thinking-bubble {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  color: var(--fg-2); font-size: 0.92em; border-style: dashed; border-color: var(--accent-line);
+}
+.chat-thinking .chat-dots i { background: var(--accent); }
+.chat-thinking .chat-face { animation: chat-breathe 2.4s ease-in-out infinite; }
+.chat-thinking-label { animation: chat-fade-in 0.25s ease-out; }
+@keyframes chat-breathe { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 3px var(--accent-soft); } }
+@keyframes chat-fade-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .chat-dots i { opacity: 0.6; }
+}
+
+.chat-composer.busy .chat-input { border-color: var(--accent-line); }
+
 .chat-actions { display: flex; flex-wrap: wrap; gap: var(--s-1); }
 .chat-action { display: inline-flex; flex-direction: column; align-items: flex-start; gap: var(--s-1); }
 .chat-action-out { max-width: 32rem; max-height: 12rem; margin: 0; }

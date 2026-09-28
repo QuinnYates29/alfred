@@ -66,6 +66,7 @@ export const EVENT_KINDS: { kind: string; meaning: string }[] = [
   { kind: 'item_comment', meaning: "Comment on a board item (goalId ''; data: boardId, key, commentId, author)." },
   { kind: 'board_updated', meaning: "Board columns/fields/name changed (goalId ''; data: boardId)." },
   { kind: 'chat_message', meaning: "A chat message was stored (goalId ''; data: threadId, message)." },
+  { kind: 'chat_progress', meaning: "A chat turn's progress (goalId ''; data: threadId, phase thinking|tool|done|error, tool?, turn?); every turn ends with done or error." },
   { kind: 'ops', meaning: "An ops action ran (goalId ''; data: action, target, ok, by)." },
   { kind: 'goal_merged', meaning: 'A goal branch was merged in the hub (data: branch, into, sha).' },
   { kind: 'goal_discarded', meaning: 'A goal branch was discarded (data: branches).' },
