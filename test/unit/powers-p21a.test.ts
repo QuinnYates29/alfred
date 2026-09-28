@@ -8,7 +8,9 @@ import { openStore, type Store } from '../../src/store.js';
 import { ToolRegistry } from '../../src/runtime/tools.js';
 import type { ModuleDeps } from '../../src/modules.js';
 import type { ToolContext } from '../../src/runtime/contract.js';
-import { autoApproved, gated, loadPolicy } from '../../src/powers/gate.js';
+import { autoApproved, clearChatAsks, gated, loadPolicy } from '../../src/powers/gate.js';
+import { RepoHub } from '../../src/git/hub.js';
+import { execFileSync } from 'node:child_process';
 import { validateConnector, Connectors } from '../../src/powers/connectors.js';
 import { platformTool } from '../../src/powers/platform.js';
 import { alfredDevTool, devAcceptance } from '../../src/powers/dev.js';
@@ -18,6 +20,10 @@ let root: string;
 let deps: ModuleDeps;
 let fetched: { method: string; url: string; body: any }[];
 let replies: Record<string, { status: number; body: any }>;
+/** The fake chat thread the gate reads (only USER messages here count as Quinn's OK). */
+let thread: { id: string; role: 'user' | 'assistant'; content: string; createdAt: number }[];
+let seq = 0;
+const say = (role: 'user' | 'assistant', content: string) => thread.push({ id: `m${String(++seq).padStart(6, '0')}`, role, content, createdAt: Date.now() });
 
 function ctxFor(taskId: string): ToolContext {
   return { taskId, goalId: '', workspace: root, persona: 'alfred', signal: new AbortController().signal, acceptance: [], progress: () => {} };
@@ -35,6 +41,8 @@ beforeEach(() => {
   mkdirSync(join(root, 'config'), { recursive: true });
   fetched = [];
   replies = {};
+  thread = [];
+  clearChatAsks();
   const selfFetch = async (url: string, init: any) => {
     const path = url.replace('http://self/api/v1', '');
     fetched.push({ method: init?.method ?? 'GET', url: path, body: init?.body ? JSON.parse(init.body) : undefined });
@@ -43,7 +51,8 @@ beforeEach(() => {
   };
   deps = {
     store, registry: new ToolRegistry(), env: {}, repoRoot: root, personasDir: 'personas', workRoot: root,
-    nodes: { list: () => [] } as any, repoHub: {} as any, deckState: { url: null }, modules: {}, personas: new Map(),
+    nodes: { list: () => [] } as any, repoHub: {} as any, deckState: { url: null },
+    modules: { chat: { name: 'chat', chat: { threadMessages: () => thread } } as any }, personas: new Map(),
     extra: { repoRoot: root, selfFetch }, selfUrl: 'http://self', token: 'tok',
   };
 });
@@ -75,16 +84,23 @@ describe('powers policy', () => {
 });
 
 describe('gate', () => {
-  it('asks in chat without confirm, runs with it; a goal task parks and spends an approval once', async () => {
+  it('asks in chat; only a later user "yes" runs it (once); a goal task parks and spends an approval once', async () => {
     let runs = 0;
     const run = async () => ({ ok: true, output: `ran ${++runs}` });
+    say('user', 'restart qwen please');
     const asked = await gated({ deps, tool: ctxFor('chat:x') }, 'ops', 'd1', run);
     expect(asked.ok).toBe(false);
     expect(asked.park).toBeUndefined();
-    expect((await gated({ deps, tool: ctxFor('chat:x'), confirm: true }, 'ops', 'd1', run)).ok).toBe(true);
+    expect(asked.output).toContain('needs Quinn’s OK');
+    // no new user message yet: asking again doesn't run it
+    expect((await gated({ deps, tool: ctxFor('chat:x'), confirm: true } as any, 'ops', 'd1', run)).ok).toBe(false);
+    say('assistant', 'Shall I?');
+    say('user', 'Yes!');
+    expect((await gated({ deps, tool: ctxFor('chat:x') }, 'ops', 'd1', run)).ok).toBe(true);
+    // spent: the same yes doesn't run it twice
+    expect((await gated({ deps, tool: ctxFor('chat:x') }, 'ops', 'd1', run)).ok).toBe(false);
     const t = task();
-    // confirm is only honoured in chat
-    const parked = await gated({ deps, tool: ctxFor(t.id), confirm: true }, 'ops', 'd1', run);
+    const parked = await gated({ deps, tool: ctxFor(t.id) }, 'ops', 'd1', run);
     expect(parked.park?.status).toBe('blocked');
     const [ap] = store.approvals({ status: 'pending', taskId: t.id });
     store.decideApproval(ap!.id, 'approved', 'quinn');
@@ -92,7 +108,7 @@ describe('gate', () => {
     expect((await gated({ deps, tool: ctxFor(t.id) }, 'ops', 'd1', run)).park).toBeTruthy();
     expect(runs).toBe(2);
     const outcomes = store.allEvents().filter((e) => e.kind === 'power').map((e) => e.data.outcome);
-    expect(outcomes).toEqual(['asked', 'ran', 'parked', 'ran', 'parked']);
+    expect(outcomes).toEqual(['asked', 'asked', 'ran', 'asked', 'parked', 'ran', 'parked']);
   });
 
   it('re-asks when the bound content changed after approval', async () => {
@@ -115,10 +131,10 @@ describe('gate', () => {
 
 describe('connector validation', () => {
   it('accepts stdio and http servers', () => {
-    expect(validateConnector({ name: 'fs', command: 'npx', args: ['-y', 'server'], env: { TOKEN: '${T}' } }))
-      .toEqual({ name: 'fs', cfg: { command: 'npx', args: ['-y', 'server'], env: { TOKEN: '${T}' } } });
+    expect(validateConnector({ name: 'fs', command: 'npx', args: ['-y', 'server'], env: { TOKEN: '${T}' }, envAllow: ['T'] }))
+      .toEqual({ name: 'fs', cfg: { command: 'npx', args: ['-y', 'server'], env: { TOKEN: '${T}' }, envAllow: ['T'] } });
     expect(validateConnector({ name: 'w', url: 'https://h/mcp', headers: { Authorization: 'Bearer x' } }).cfg)
-      .toEqual({ url: 'https://h/mcp', headers: { Authorization: 'Bearer x' } });
+      .toEqual({ url: 'https://h/mcp', headers: { Authorization: 'Bearer x' }, envAllow: [] });
   });
 
   it.each([
@@ -167,25 +183,36 @@ describe('platform tool', () => {
   it('binds config_set approvals to a sha256 of the content', async () => {
     const t = task();
     const tool = platformTool(deps);
+    replies['GET /ops/config/file'] = { status: 200, body: { path: 'config/alfred.yaml', content: 'a: 0\n' } };
     const r = await tool.run({ op: 'config_set', path: 'config/alfred.yaml', content: 'a: 1\n' }, ctxFor(t.id));
     expect(r.park).toBeTruthy();
     const hash = createHash('sha256').update('a: 1\n').digest('hex');
     const [ap] = store.approvals({ status: 'pending', taskId: t.id });
     expect(ap!.detail).toBe(`config:config/alfred.yaml sha256=${hash}`);
+    // Quinn sees the change itself, as a unified diff against the current file
+    expect(ap!.info).toContain('--- config/alfred.yaml');
+    expect(ap!.info).toContain('+a: 1');
+    expect(ap!.info).toContain('-a: 0');
     store.decideApproval(ap!.id, 'approved', 'quinn');
     // different content → a different detail → not approved
     expect((await tool.run({ op: 'config_set', path: 'config/alfred.yaml', content: 'a: 2\n' }, ctxFor(t.id))).park).toBeTruthy();
-    expect(fetched).toHaveLength(0);
+    expect(fetched.filter((f) => f.method !== 'GET')).toHaveLength(0);
     const ok = await tool.run({ op: 'config_set', path: 'config/alfred.yaml', content: 'a: 1\n' }, ctxFor(t.id));
     expect(ok.ok).toBe(true);
-    expect(fetched[0]).toMatchObject({ method: 'PUT', url: '/ops/config/file', body: { path: 'config/alfred.yaml', content: 'a: 1\n', confirm: true } });
+    expect(fetched.filter((f) => f.method !== 'GET')[0]).toMatchObject({ method: 'PUT', url: '/ops/config/file', body: { path: 'config/alfred.yaml', content: 'a: 1\n', confirm: true } });
   });
 
   it('validates qwen_set and reports route errors as text', async () => {
     const tool = platformTool(deps);
     expect((await tool.run({ op: 'qwen_set', slots: 4, ctx: 1024 }, ctxFor('chat:x'))).ok).toBe(false);
     replies['POST /ops/qwen'] = { status: 409, body: { error: 'tasks are running on the model' } };
-    const r = await tool.run({ op: 'qwen_set', slots: 4, confirm: true }, ctxFor('chat:x'));
+    expect((await tool.run({ op: 'qwen_set', slots: 4, confirm: true }, ctxFor('chat:x'))).ok).toBe(false);
+    expect(fetched).toHaveLength(0);
+    // approved in the Inbox (the chat ask has an approval row)
+    const [row] = store.approvals({ status: 'pending', taskId: 'chat:x' });
+    expect(row!.detail).toBe('qwen:slots=4');
+    store.decideApproval(row!.id, 'approved', 'dashboard');
+    const r = await tool.run({ op: 'qwen_set', slots: 4 }, ctxFor('chat:x'));
     expect(r).toMatchObject({ ok: false, output: 'http 409: tasks are running on the model' });
     expect(fetched[0]!.body).toMatchObject({ slots: 4, confirm: true });
   });
@@ -198,19 +225,42 @@ describe('alfred_dev', () => {
   });
 
   it('deploys an approved alfred goal: merge → build-web → restart when src changed', async () => {
+    // a real hub: the approval names the branch head and base head read from its refs
+    const hub = new RepoHub({ root: join(root, 'git') });
+    deps.repoHub = hub;
+    const src = join(root, 'src-repo');
+    const g = (args: string[], cwd = src) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
+    mkdirSync(src);
+    g(['init', '-q', '-b', 'master']);
+    writeFileSync(join(src, 'a.txt'), '1');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+    const baseSha = g(['rev-parse', 'HEAD']);
+    await hub.ensure('alfred', src);
     const tool = alfredDevTool(deps);
     expect((await tool.run({ op: 'propose', title: 'Tweak', spec: 's', area: 'bogus' }, ctxFor('chat:x'))).ok).toBe(false);
     expect((await tool.run({ op: 'propose', title: 'Tweak', spec: 's', area: 'server' }, ctxFor('chat:x'))).ok).toBe(true);
-    const goal = store.listGoals().find((g) => g.title === 'Tweak')!;
+    const goal = store.listGoals().find((x) => x.title === 'Tweak')!;
     const other = store.createGoal({ title: 'elsewhere', meta: { repo: 'other' } } as any);
-    expect((await tool.run({ op: 'deploy', goal: other.slug, confirm: true }, ctxFor('chat:x'))).output).toContain('not an alfred change');
+    expect((await tool.run({ op: 'deploy', goal: other.slug }, ctxFor('chat:x'))).output).toContain('not an alfred change');
+
+    // the goal's branch in the hub
+    g(['checkout', '-q', '-b', 'alfred/tweak/1']);
+    writeFileSync(join(src, 'a.txt'), '2');
+    g(['commit', '-q', '-am', 'change']);
+    const head = g(['rev-parse', 'HEAD']);
+    g(['push', '-q', hub.barePath('alfred'), 'alfred/tweak/1']);
+    const t0 = store.listTasks(goal.id)[0]!;
+    store.appendEvent(goal.id, t0.id, 'pushed', { branch: 'alfred/tweak/1', sha: 'stale-sha-from-event' });
 
     replies[`GET /goals/${goal.id}/changes`] = { status: 200, body: { files: [{ path: 'src/x.ts' }] } };
     replies[`POST /goals/${goal.id}/merge`] = { status: 200, body: { ok: true, into: 'master', sha: 'abcdef123456' } };
     const t = task();
     expect((await tool.run({ op: 'deploy', goal: goal.slug }, ctxFor(t.id))).park).toBeTruthy();
     expect(fetched).toHaveLength(0);
-    store.decideApproval(store.approvals({ status: 'pending', taskId: t.id })[0]!.id, 'approved', 'quinn');
+    const [ap] = store.approvals({ status: 'pending', taskId: t.id });
+    expect(ap!.detail).toBe(`deploy:${goal.slug} alfred/tweak/1@${head} onto master@${baseSha}`);
+    store.decideApproval(ap!.id, 'approved', 'quinn');
     const r = await tool.run({ op: 'deploy', goal: goal.slug }, ctxFor(t.id));
     expect(r.ok).toBe(true);
     expect(fetched.map((f) => `${f.method} ${f.url}`)).toEqual([
@@ -219,19 +269,19 @@ describe('alfred_dev', () => {
       'POST /ops/alfred/build-web',
       'POST /ops/services/alfred/restart',
     ]);
+    // the merge is pinned to exactly the approved commits
+    expect(fetched[1]!.body).toMatchObject({ confirm: true, branch: 'alfred/tweak/1', sha: head, into: 'master', baseSha });
     expect(r.output).toMatch(/merge: ok[\s\S]*build-web: ok[\s\S]*restart/);
 
-    // web-only change: no restart; a failed merge stops the chain
+    // a new commit on the branch → a different detail → the old approval doesn't cover it
+    writeFileSync(join(src, 'a.txt'), '3');
+    g(['commit', '-q', '-am', 'more']);
+    g(['push', '-q', hub.barePath('alfred'), 'alfred/tweak/1']);
+    const t2 = task();
     fetched = [];
-    replies[`GET /goals/${goal.id}/changes`] = { status: 200, body: { files: [{ path: 'web/src/App.jsx' }] } };
-    const web = await tool.run({ op: 'deploy', goal: goal.slug, confirm: true }, ctxFor('chat:x'));
-    expect(web.output).toContain('restart: not needed');
-    expect(fetched.map((f) => f.url)).not.toContain('/ops/services/alfred/restart');
-    fetched = [];
-    replies[`POST /goals/${goal.id}/merge`] = { status: 409, body: { error: 'merge conflict' } };
-    const bad = await tool.run({ op: 'deploy', goal: goal.slug, confirm: true }, ctxFor('chat:x'));
-    expect(bad).toMatchObject({ ok: false });
-    expect(fetched.map((f) => f.url)).toEqual([`/goals/${goal.id}/changes`, `/goals/${goal.id}/merge`]);
+    expect((await tool.run({ op: 'deploy', goal: goal.slug }, ctxFor(t2.id))).park).toBeTruthy();
+    expect(store.approvals({ status: 'pending', taskId: t2.id })[0]!.detail).toContain(g(['rev-parse', 'HEAD']));
+    expect(fetched).toHaveLength(0);
     expect(existsSync(root)).toBe(true);
   });
 });

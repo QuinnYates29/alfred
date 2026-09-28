@@ -1,5 +1,6 @@
 // P4 §3 + P11 — the HTTP API. Every route lives under /api/v1; /api is an alias.
 // Token auth (when set): `Authorization: Bearer <token>` or `?token=`.
+import { toolCaps } from '../runtime/caps.js';
 import express, { type Express, type Request, type Response } from 'express';
 import { existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -105,6 +106,7 @@ function buildRouter(d: AppDeps): express.Router {
         name: t.schema.name,
         description: t.schema.description,
         kind: t.kind,
+        caps: toolCaps(t.schema.name, t),
         parameters: t.schema.parameters,
       })),
     );
@@ -226,7 +228,8 @@ function buildRouter(d: AppDeps): express.Router {
     const decision = String(req.body?.decision ?? '');
     if (decision !== 'approved' && decision !== 'denied') return send(res, 400, { error: 'decision must be approved|denied' });
     try {
-      res.json(d.store.decideApproval(req.params.id, decision, String(req.body?.by ?? 'dashboard')));
+      // `by` is set here, never from the body: a caller must not be able to claim to be someone else.
+      res.json(d.store.decideApproval(req.params.id, decision, 'dashboard'));
     } catch (e: any) {
       const msg = e?.message ?? String(e);
       send(res, /no such approval/i.test(msg) ? 404 : 409, { error: msg });

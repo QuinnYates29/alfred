@@ -82,7 +82,7 @@ Tools (all names exact; every result is JSON text):
 | `alfred_fail` | `taskId, reason` | → failed |
 | `alfred_retry` | `taskId, note?` | for a failed/stopped task: a new queued task, same goal/parent/persona/spec/acceptance, notes = old notes + note. Returns the new id. |
 | `alfred_create_goal` | `title, body?, persona, spec, acceptance[], repo?` | goal (meta.repo) + one root task |
-| `alfred_approve` | `approvalId, decision: approved\|denied` | decideApproval by `claude` |
+| `alfred_approve` | `approvalId, decision: approved\|denied` | **disabled** — always refuses; only Quinn decides approvals (Inbox / Slack) |
 
 Errors → MCP `isError: true` with a message. Never crash the server.
 Ship `bin/alfred-door` (bash: `exec npx --prefix <repo> tsx <repo>/src/door/server.ts`) and document in README:

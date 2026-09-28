@@ -31,8 +31,27 @@ export function desktopSink(o?: { exec?: (cmd: string, args: string[]) => Promis
   };
 }
 
+/**
+ * Slack mrkdwn escaping for text agents may have written: `&<>` are escaped (so `<!channel>`,
+ * `<!here>`, `<@U…>` and `<url|label>` can't ping or fake links), and backticks are replaced by a
+ * look-alike so the text can't close a code block and fake the card around it.
+ */
+export function slackEscape(s: string): string {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/`/g, 'ˋ');
+}
+
+/** Escaped + capped for a section block (Slack limits a text object to 3000 chars). */
+function block(s: string, n: number): string {
+  const e = slackEscape(s);
+  return e.length > n ? `${e.slice(0, n)}…` : e;
+}
+
 function slackText(n: Notice, dashboardUrl?: string): string {
-  const parts = [`${EMOJI[n.level]} ${n.title}`, n.body];
+  const parts = [`${EMOJI[n.level]} ${slackEscape(n.title)}`, slackEscape(n.body)];
   if (dashboardUrl && n.goalId) parts.push(`${dashboardUrl}/#/goal/${n.goalId}`);
   return parts.join('\n');
 }
@@ -62,11 +81,16 @@ export function slackSink(o: {
         const body: Record<string, any> = { channel: o.channel, text };
         // P20: approval notices get Approve/Deny buttons (bot mode only).
         if (n.approvalId) {
+          // Title and detail are agent-influenced: escaped, and the detail stays inside its code block.
+          const title = block(n.title, 300).replace(/[*_~]/g, (c) => `\u200b${c}`);
           body.blocks = [
             {
               type: 'section',
-              text: { type: 'mrkdwn', text: `*${n.title}*\n\`\`\`\n${n.body}\n\`\`\`` },
+              text: { type: 'mrkdwn', text: `*${title}*\n\`\`\`\n${block(n.body, 2500)}\n\`\`\`` },
             },
+            ...(n.info
+              ? [{ type: 'section', text: { type: 'mrkdwn', text: `\`\`\`\n${block(n.info, 2900)}\n\`\`\`` } }]
+              : []),
             {
               type: 'actions',
               elements: [

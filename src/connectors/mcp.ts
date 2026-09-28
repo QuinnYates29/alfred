@@ -17,6 +17,10 @@ export interface McpServerConfig {
   readOnly?: boolean;
   /** write-like tool names still exposed on a readOnly server */
   allowWrite?: string[];
+  /** Environment variables this server's `${VAR}` placeholders may expand. When present, ONLY these
+   *  expand (connectors added through alfred always carry it). Absent = a hand-written legacy entry:
+   *  any variable except the reserved ones. ALFRED_*, SLACK_*, TWILIO_* never expand. */
+  envAllow?: string[];
 }
 
 export interface McpConfig {
@@ -216,14 +220,33 @@ export class McpHub {
   }
 }
 
-function substitute(value: any, env: Record<string, string | undefined>): any {
+/** alfred's own secrets: never expanded into a connector's url/args/headers/env. */
+export const RESERVED_ENV_RE = /^(ALFRED_|SLACK_|TWILIO_)/;
+export const PLACEHOLDER_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+/** Every `${VAR}` named anywhere in a value. */
+export function placeholders(value: unknown, out = new Set<string>()): Set<string> {
+  if (typeof value === 'string') for (const m of value.matchAll(PLACEHOLDER_RE)) out.add(m[1]!);
+  else if (Array.isArray(value)) value.forEach((v) => placeholders(v, out));
+  else if (value && typeof value === 'object') Object.values(value).forEach((v) => placeholders(v, out));
+  return out;
+}
+
+/** May this server expand `${name}`? */
+export function envAllowed(cfg: { envAllow?: unknown }, name: string): boolean {
+  if (RESERVED_ENV_RE.test(name)) return false;
+  if (Array.isArray(cfg.envAllow)) return cfg.envAllow.includes(name);
+  return true;
+}
+
+function substitute(value: any, env: Record<string, string | undefined>, allow: (v: string) => boolean): any {
   if (typeof value === 'string') {
-    return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, v) => env[v] ?? '');
+    return value.replace(PLACEHOLDER_RE, (_, v) => (allow(v) ? env[v] ?? '' : ''));
   }
-  if (Array.isArray(value)) return value.map((v) => substitute(v, env));
+  if (Array.isArray(value)) return value.map((v) => substitute(v, env, allow));
   if (value && typeof value === 'object') {
     const out: Record<string, any> = {};
-    for (const [k, v] of Object.entries(value)) out[k] = substitute(v, env);
+    for (const [k, v] of Object.entries(value)) out[k] = substitute(v, env, allow);
     return out;
   }
   return value;
@@ -239,5 +262,10 @@ export function loadMcpConfig(path: string, env: Record<string, string | undefin
     return empty;
   }
   const servers = raw && typeof raw.servers === 'object' && raw.servers !== null ? raw.servers : {};
-  return substitute({ servers }, env) as McpConfig;
+  const out: Record<string, McpServerConfig> = {};
+  for (const [name, cfg] of Object.entries(servers as Record<string, any>)) {
+    const c = cfg && typeof cfg === 'object' ? cfg : {};
+    out[name] = substitute(c, env, (v) => envAllowed(c, v));
+  }
+  return { servers: out };
 }

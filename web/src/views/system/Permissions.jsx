@@ -12,6 +12,14 @@ const GROUPS = [
   ['Platform', ['board', 'platform', 'connectors', 'alfred_dev', 'notify']],
   ['People', ['contacts', 'message', 'call']],
 ];
+/** Capability classes (src/runtime/caps.ts): a model's `class:exec` blocks every tool that runs commands. */
+const CLASSES = [
+  ['exec', 'anything that runs commands'],
+  ['fs-write', 'anything that writes files'],
+  ['network', 'anything that reaches the network'],
+  ['people', 'anything that contacts people'],
+  ['platform-admin', 'anything that changes alfred itself'],
+];
 /** Tasks need these to end; a model may not deny them (the server refuses too). */
 const UNDENIABLE = ['finish', 'give_up'];
 
@@ -49,12 +57,21 @@ export default function Permissions() {
     ['Other', tools.data.map((t) => t.name).filter((n) => !grouped.has(n)).sort()],
   ].filter(([, names]) => names.length);
   const describe = Object.fromEntries(tools.data.map((t) => [t.name, t.description]));
+  const capsOf = Object.fromEntries(tools.data.map((t) => [t.name, t.caps ?? []]));
+  /** The deny entry (tool name or class:x) that blocks `tool` in a model's deny set, or null. */
+  const denyHit = (set, tool) => {
+    if (!set) return null;
+    if (set.has(tool)) return tool;
+    const c = (capsOf[tool] ?? []).find((x) => set.has(`class:${x}`));
+    return c ? `class:${c}` : null;
+  };
 
   /** persona.model is a role or a model name → the model it runs on. */
   const modelOf = (ref) => roles[ref] ?? (mlist.some((m) => m.name === ref) ? ref : roles.default);
   const blockedBy = (persona, tool) => {
     const m = modelOf(persona.model ?? 'default');
-    return mDraft[m]?.has(tool) ? m : null;
+    const hit = denyHit(mDraft[m], tool);
+    return hit ? (hit === tool ? m : `${m} (${hit})`) : null;
   };
 
   const flip = (setter, draft, key, tool) => {
@@ -86,7 +103,12 @@ export default function Permissions() {
       const kept = (p.tools ?? []).filter((t) => pDraft[p.name].has(t));
       body.personas[p.name] = [...kept, ...order.filter((t) => pDraft[p.name].has(t) && !kept.includes(t))];
     }
-    for (const m of changedM) body.models[m.name] = order.filter((t) => mDraft[m.name].has(t));
+    for (const m of changedM) {
+      body.models[m.name] = [
+        ...CLASSES.map(([c]) => `class:${c}`).filter((c) => mDraft[m.name].has(c)),
+        ...order.filter((t) => mDraft[m.name].has(t)),
+      ];
+    }
     setSaving(true);
     try {
       const out = await post('/api/ops/permissions', body);
@@ -125,6 +147,21 @@ export default function Permissions() {
               </tr>
             </thead>
             <tbody>
+              <tr key="g-classes" className="sys-perm-group"><td colSpan={1 + plist.length + mlist.length}>Capability classes (per model)</td></tr>
+              {CLASSES.map(([c, label]) => (
+                <tr key={`class-${c}`} data-testid={`perm-class-${c}`}>
+                  <td className="small" title={`deny: class:${c} — blocks ${label}, whatever the tool is called`}>
+                    <span className="mono">class:{c}</span> <span className="faint xs">{label}</span>
+                  </td>
+                  {plist.map((p) => <td key={p.name} className="faint xs">—</td>)}
+                  {mlist.map((m) => (
+                    <td key={m.name} className="sys-perm-model">
+                      <input type="checkbox" checked={!(mDraft[m.name]?.has(`class:${c}`))}
+                        aria-label={`model ${m.name} class ${c}`} onChange={() => flip(setMDraft, mDraft, m.name, `class:${c}`)} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
               {groups.map(([g, names]) => [
                 <tr key={`g-${g}`} className="sys-perm-group"><td colSpan={1 + plist.length + mlist.length}>{g}</td></tr>,
                 ...names.map((t) => (
@@ -140,7 +177,8 @@ export default function Permissions() {
                       );
                     })}
                     {mlist.map((m) => (
-                      <td key={m.name} className="sys-perm-model">
+                      <td key={m.name} className={`sys-perm-model${!mDraft[m.name]?.has(t) && denyHit(mDraft[m.name], t) ? ' sys-perm-blocked' : ''}`}
+                        title={!mDraft[m.name]?.has(t) && denyHit(mDraft[m.name], t) ? `blocked by ${denyHit(mDraft[m.name], t)}` : undefined}>
                         <input type="checkbox" checked={!(mDraft[m.name]?.has(t))} disabled={UNDENIABLE.includes(t)}
                           aria-label={`model ${m.name} ${t}`} onChange={() => flip(setMDraft, mDraft, m.name, t)} />
                       </td>
@@ -156,7 +194,7 @@ export default function Permissions() {
           {plist.map((p) => {
             const m = modelOf(p.model ?? 'default');
             const all = [...(pDraft[p.name] ?? [])];
-            const blocked = all.filter((t) => mDraft[m]?.has(t));
+            const blocked = all.filter((t) => denyHit(mDraft[m], t));
             return (
               <div key={p.name} className="xs">
                 <span className="key">{p.name}</span> <span className="faint">on {m}:</span> {all.length - blocked.length} tools
@@ -166,7 +204,7 @@ export default function Permissions() {
           })}
           {(() => {
             const m = modelOf('planner');
-            const blocked = [...(mDraft[m] ?? [])];
+            const blocked = [...(mDraft[m] ?? [])]; // names and class:x entries
             return (
               <div className="xs"><span className="key">chat</span> <span className="faint">on {m} (planner):</span>
                 {blocked.length ? <span className="sys-bad"> blocked {blocked.join(', ')}</span> : ' no model restrictions'}</div>

@@ -3,6 +3,7 @@
 import type { Store, Repo } from '../store.js';
 import type { RepoHub } from '../git/hub.js';
 import { git, gitTry } from './git.js';
+import { validBranchName } from '../git/refs.js';
 
 export const DIFF_CAP = 200_000;
 export const FILE_DIFF_CAP = 1_000_000;
@@ -72,6 +73,9 @@ export interface ChangesResult {
   files: { path: string; status: string; additions: number; deletions: number }[];
   diff: string;
   truncated: boolean;
+  /** Hub head of the shown branch and of the base: what a merge of this view must land exactly. */
+  head?: string | null;
+  baseSha?: string | null;
 }
 
 export async function getChanges(
@@ -93,18 +97,24 @@ export async function getChanges(
   };
   if (!repo || branches.length === 0) return out;
 
+  if (branchQ !== undefined && !validBranchName(branchQ)) return out;
   const base = await resolveBase(repoHub, repo.name, repo);
   const branch = branchQ ? branches.find((b) => b.branch === branchQ)?.branch ?? branchQ : branches[0].branch;
   out.base = base;
-  if (!base) return out;
+  if (!base || !validBranchName(branch) || !validBranchName(base)) return out;
 
   const bare = repoHub.barePath(repo.name);
-  const range = `${base}...${branch}`;
+  // Pin both ends to shas read once, so the diff, the commits and head/baseSha all describe the same thing.
+  const [head, baseSha] = await Promise.all([repoHub.headSha(repo.name, branch), repoHub.headSha(repo.name, base)]);
+  out.head = head;
+  out.baseSha = baseSha;
+  if (!head || !baseSha) return out;
+  const range = `${baseSha}...${head}`;
   const [logRes, namesRes, numRes, diffRes] = await Promise.all([
-    gitTry(['--git-dir', bare, 'log', '--reverse', '--format=%H\x1f%an <%ae>\x1f%cI\x1f%s', range]),
-    gitTry(['--git-dir', bare, 'diff', '--name-status', range]),
-    gitTry(['--git-dir', bare, 'diff', '--numstat', range]),
-    gitTry(['--git-dir', bare, 'diff', range]),
+    gitTry(['--git-dir', bare, 'log', '--reverse', '--format=%H\x1f%an <%ae>\x1f%cI\x1f%s', range, '--']),
+    gitTry(['--git-dir', bare, 'diff', '--name-status', range, '--']),
+    gitTry(['--git-dir', bare, 'diff', '--numstat', range, '--']),
+    gitTry(['--git-dir', bare, 'diff', range, '--']),
   ]);
   if (!logRes.ok || !namesRes.ok) return out; // unknown base/branch → nothing to show
 
@@ -141,6 +151,7 @@ export async function getFileDiff(
   const base = await resolveBase(repoHub, repo.name, repo);
   if (!base) return { file, diff: '' };
   const branch = branchQ ? branches.find((b) => b.branch === branchQ)?.branch ?? branchQ : branches[0].branch;
+  if (!validBranchName(branch) || !validBranchName(base)) return { file, diff: '' };
   const res = await gitTry([
     '--git-dir', repoHub.barePath(repo.name), 'diff', `${base}...${branch}`, '--', file,
   ]);

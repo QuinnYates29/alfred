@@ -61,7 +61,7 @@ describe('door tools', () => {
     expect(store.getTask(retry.json.taskId)!.leaseOwner).toBe('claude');
   });
 
-  it('claim from blocked lands in running with a workspace; approve unblocks', async () => {
+  it('claim from blocked lands in running with a workspace; the door cannot approve', async () => {
     const { store, call } = await linked();
     const g = store.createGoal({ title: 'g' });
     const t = store.createTask({ goalId: g.id, persona: 'coder', title: 't' });
@@ -74,10 +74,12 @@ describe('door tools', () => {
     expect(c.json.task.status).toBe('running');
     expect(typeof c.json.workspace).toBe('string');
 
-    if (ap) {
-      const d = await call('alfred_approve', { approvalId: ap.id, decision: 'approved' });
-      expect(d.isError).toBe(false);
-    }
+    const ap2 = store.requestApproval(t.id, 'git push', 'git push origin main');
+    const d = await call('alfred_approve', { approvalId: ap2.id, decision: 'approved' });
+    expect(d.isError).toBe(true);
+    expect(d.text).toMatch(/disabled/);
+    expect(store.approvals({ status: 'pending' }).map((a) => a.id)).toContain(ap2.id);
+    void ap;
   });
 
   it('unknown ids and goals error instead of crashing', async () => {

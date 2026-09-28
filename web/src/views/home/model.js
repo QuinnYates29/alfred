@@ -51,7 +51,7 @@ export function attentionRows({ approvals = [], items = [], goals = [], details 
   for (const a of approvals) {
     rows.push({
       key: `ap-${a.id}`, kind: 'approval', icon: 'check', title: a.action || 'Approval request',
-      sub: a.detail, goalId: a.goalId, href: goalHref(a.goalId), approval: a,
+      sub: a.detail, goalId: a.goalId, href: a.goalId ? goalHref(a.goalId) : '/inbox', approval: a,
     });
   }
   for (const g of goals) {

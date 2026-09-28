@@ -5,6 +5,7 @@ import { PARKED } from '../types.js';
 import type { SlackApi } from './slackApi.js';
 import type { ChatLike } from './threadMap.js';
 import { actionsFooter, toMrkdwn } from './format.js';
+import { slackEscape } from '../notify/sinks.js';
 
 export interface HandlerCtx {
   store: Store;
@@ -64,7 +65,7 @@ export function handleInteractive(ctx: HandlerCtx, payload: Payload): void {
           const verb = decision === 'approved' ? 'Approved' : 'Denied';
           await ctx.postUrl(responseUrl, {
             replace_original: true,
-            text: `${decision === 'approved' ? '✅' : '❌'} ${verb} by ${userName(payload)}: ${a.detail}`,
+            text: `${decision === 'approved' ? '✅' : '❌'} ${verb} by ${userName(payload)}: ${slackEscape(a.detail)}`,
           });
         }
       } catch (e) {

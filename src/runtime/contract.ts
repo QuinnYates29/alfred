@@ -83,6 +83,9 @@ export interface Tool {
   schema: ToolSchema;
   /** 'control' tools (finish, give_up, ask_claude, spawn_subagent, wait_subtasks) are handled by the runtime. */
   kind: 'read' | 'write' | 'exec' | 'control';
+  /** Capability classes (see runtime/caps.ts) — a model's `deny: [class:exec]` blocks every tool with 'exec'.
+   *  Optional: built-in tools are classified by name in caps.ts. */
+  caps?: import('./caps.js').ToolCap[];
   run(args: any, ctx: ToolContext): Promise<ToolResult>;
 }
 

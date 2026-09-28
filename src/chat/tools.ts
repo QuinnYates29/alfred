@@ -1,8 +1,9 @@
 // P16 §4 — the chat tool set. Errors are results, never throws.
-import type { Tool, ToolResult } from '../runtime/contract.js';
+import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { AcceptanceCheck, TaskStatus } from '../types.js';
 import { createGoalWithRoot, resolveGoal } from '../ops.js';
 import type { ModuleDeps } from '../modules.js';
+import { gated } from '../powers/gate.js';
 
 const cap = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s);
 
@@ -81,75 +82,82 @@ function startGoalTool(deps: ModuleDeps): Tool {
         required: ['title', 'spec'],
       },
     },
-    async run(args: any): Promise<ToolResult> {
+    async run(args: any, ctx?: ToolContext): Promise<ToolResult> {
       const { store } = deps;
       const persona = String(args?.persona ?? 'alfred');
       if (deps.personas && deps.personas.size > 0 && !deps.personas.has(persona)) {
         return { ok: false, output: `unknown persona: ${persona}` };
       }
-      let goal, task;
-      try {
-        ({ goal, task } = createGoalWithRoot(store, {
-          title: String(args?.title ?? ''),
-          body: String(args?.spec ?? ''),
-          spec: String(args?.spec ?? ''),
-          persona,
-          acceptance: Array.isArray(args?.acceptance) ? args.acceptance as AcceptanceCheck[] : undefined,
-          repo: args?.repo ? String(args.repo) : undefined,
-        }));
-      } catch (e: any) {
-        return { ok: false, output: e?.message ?? String(e) };
-      }
-      if (args?.node) store.setGoalMeta(goal.id, { node: String(args.node) });
-      if (args?.item) {
-        const board = (deps.modules.board as any)?.board;
-        if (board) {
-          try {
-            board.linkGoal(String(args.item), goal.id);
-          } catch (e: any) {
-            return { ok: false, output: `started goal ${goal.slug} (${persona}) but linking item ${args.item} failed: ${e?.message ?? e}` };
-          }
-        }
-      }
-      return { ok: true, output: `started goal ${goal.slug} (${persona})` };
+      const start = () => startGoal(deps, args, persona);
+      // Acceptance commands run as shell on the Spark (or the node); a node or an unregistered repo
+      // points the work somewhere new. Those need Quinn's OK, shown verbatim.
+      const acceptance = Array.isArray(args?.acceptance) ? (args.acceptance as any[]) : [];
+      const repo = args?.repo ? String(args.repo) : '';
+      const node = args?.node ? String(args.node) : '';
+      const knownRepo = !repo || !!store.getRepo(repo) || store.listRepos().some((r) => Object.values(r.paths ?? {}).includes(repo));
+      if (!acceptance.length && !node && knownRepo) return start();
+      const parts = [`start_goal "${String(args?.title ?? '')}" persona=${persona}`];
+      if (repo) parts.push(`repo=${repo}${knownRepo ? '' : ' (new)'}`);
+      if (node) parts.push(`node=${node}`);
+      for (const c of acceptance) parts.push(`acceptance ${String(c?.name ?? '')}: ${String(c?.cmd ?? '')}`);
+      if (!ctx) return { ok: false, output: `needs Quinn’s OK: start_goal: ${parts.join('\n')}` };
+      return gated({ deps, tool: ctx }, 'start_goal', parts.join('\n'), start);
     },
   };
 }
 
+async function startGoal(deps: ModuleDeps, args: any, persona: string): Promise<ToolResult> {
+  const { store } = deps;
+  let goal;
+  try {
+    ({ goal } = createGoalWithRoot(store, {
+      title: String(args?.title ?? ''),
+      body: String(args?.spec ?? ''),
+      spec: String(args?.spec ?? ''),
+      persona,
+      acceptance: Array.isArray(args?.acceptance) ? args.acceptance as AcceptanceCheck[] : undefined,
+      repo: args?.repo ? String(args.repo) : undefined,
+    }));
+  } catch (e: any) {
+    return { ok: false, output: e?.message ?? String(e) };
+  }
+  if (args?.node) store.setGoalMeta(goal.id, { node: String(args.node) });
+  if (args?.item) {
+    const board = (deps.modules.board as any)?.board;
+    if (board) {
+      try {
+        board.linkGoal(String(args.item), goal.id);
+      } catch (e: any) {
+        return { ok: false, output: `started goal ${goal.slug} (${persona}) but linking item ${args.item} failed: ${e?.message ?? e}` };
+      }
+    }
+  }
+  return { ok: true, output: `started goal ${goal.slug} (${persona})` };
+}
+
 function approvalsTool(deps: ModuleDeps): Tool {
   return {
-    kind: 'write',
+    kind: 'read',
     schema: {
       name: 'approvals',
-      description: 'Human approvals: op list|approve|deny (id required for approve/deny).',
+      description: 'Pending human approvals (list). Only Quinn decides them — in the Inbox, on Slack, or by replying "yes" in chat.',
       parameters: {
         type: 'object',
         properties: {
-          op: { type: 'string', enum: ['list', 'approve', 'deny'] },
-          id: { type: 'string', description: 'approval id (from list)' },
+          op: { type: 'string', enum: ['list'] },
         },
         required: ['op'],
       },
     },
     async run(args: any): Promise<ToolResult> {
       const { store } = deps;
-      const op = String(args?.op ?? '');
+      const op = String(args?.op ?? 'list');
       if (op === 'list') {
         const rows = store.approvals({ status: 'pending' });
         if (!rows.length) return { ok: true, output: 'no pending approvals' };
-        return { ok: true, output: rows.map((a) => `${a.id} ${a.action} — ${cap(a.detail, 200)} (task ${a.taskId.slice(0, 8)})`).join('\n') };
+        return { ok: true, output: rows.map((a) => `${a.id} ${a.action} — ${cap(a.detail, 200)} (${a.taskId.startsWith('chat:') ? 'chat' : `task ${a.taskId.slice(0, 8)}`})`).join('\n') };
       }
-      if (op === 'approve' || op === 'deny') {
-        const id = String(args?.id ?? '');
-        if (!id) return { ok: false, output: 'id is required' };
-        try {
-          store.decideApproval(id, op === 'approve' ? 'approved' : 'denied', 'chat');
-          return { ok: true, output: `${op} ${id}` };
-        } catch (e: any) {
-          return { ok: false, output: e?.message ?? String(e) };
-        }
-      }
-      return { ok: false, output: `unknown op: ${op}` };
+      return { ok: false, output: `only Quinn can ${op} approvals: ask him to decide it in the Inbox or on Slack` };
     },
   };
 }

@@ -5,7 +5,7 @@ import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModuleDeps } from '../modules.js';
 import type { AcceptanceCheck } from '../types.js';
 import { createGoalWithRoot, resolveGoal } from '../ops.js';
-import { pushedBranches } from '../review/changes.js';
+import { pushedBranches, resolveBase, resolveRepo } from '../review/changes.js';
 import { selfApi, apiError } from './api.js';
 import { gated, powersRoot } from './gate.js';
 
@@ -57,13 +57,41 @@ function status(deps: ModuleDeps, ref: string): ToolResult {
   return { ok: true, output: out.join('\n') };
 }
 
-async function deploy(deps: ModuleDeps, goalId: string): Promise<ToolResult> {
+// ---- SB (approval integrity): a deploy approval names the exact commits; the merge lands exactly those.
+
+export interface DeployPin {
+  branch: string;
+  sha: string;
+  base: string;
+  baseSha: string;
+}
+
+/** The goal's branch head and its base head, read from the hub refs (not from `pushed` events). */
+export async function deployPin(deps: ModuleDeps, goal: { id: string; meta?: Record<string, any> }): Promise<DeployPin | null> {
+  const repo = resolveRepo(deps.store, goal);
+  const branch = pushedBranches(deps.store, goal.id)[0]?.branch;
+  if (!repo || !branch) return null;
+  const base = await resolveBase(deps.repoHub, repo.name, repo);
+  if (!base) return null;
+  const [sha, baseSha] = await Promise.all([deps.repoHub.headSha(repo.name, branch), deps.repoHub.headSha(repo.name, base)]);
+  return sha && baseSha ? { branch, sha, base, baseSha } : null;
+}
+
+export function deployDetail(slug: string, pin: DeployPin | null): string {
+  return pin ? `deploy:${slug} ${pin.branch}@${pin.sha} onto ${pin.base}@${pin.baseSha}` : `deploy:${slug}`;
+}
+// ---- end SB
+
+async function deploy(deps: ModuleDeps, goalId: string, pin?: DeployPin | null): Promise<ToolResult> {
   const steps: string[] = [];
   const say = (ok: boolean) => ({ ok, output: steps.join('\n') });
   const changes = await selfApi(deps, 'GET', `/goals/${encodeURIComponent(goalId)}/changes`);
   const files: string[] = changes.ok ? (changes.body?.files ?? []).map((f: any) => String(f.path)) : [];
 
-  const merge = await selfApi(deps, 'POST', `/goals/${encodeURIComponent(goalId)}/merge`, { confirm: true });
+  const merge = await selfApi(deps, 'POST', `/goals/${encodeURIComponent(goalId)}/merge`, {
+    confirm: true,
+    ...(pin ? { branch: pin.branch, sha: pin.sha, into: pin.base, baseSha: pin.baseSha } : {}), // SB: exactly what was approved
+  });
   if (!merge.ok) {
     steps.push(`merge: failed (${apiError(merge)})`);
     return say(false);
@@ -101,7 +129,6 @@ export function alfredDevTool(deps: ModuleDeps): Tool {
           spec: { type: 'string' },
           area: { type: 'string', enum: [...AREAS] },
           goal: { type: 'string', description: 'goal id or slug' },
-          confirm: { type: 'boolean', description: 'chat only, after Quinn agreed' },
         },
         required: ['op'],
       },
@@ -116,14 +143,11 @@ export function alfredDevTool(deps: ModuleDeps): Tool {
           const goal = resolveGoal(deps.store, String(a.goal ?? ''));
           if (!goal) return { ok: false, output: `no such goal: ${a.goal ?? ''}` };
           if (goal.meta?.repo !== 'alfred') return { ok: false, output: `${goal.slug} is not an alfred change (repo ${goal.meta?.repo ?? 'none'})` };
-          // Bound to the pushed branch heads: new commits after approval need a fresh OK.
-          const heads = pushedBranches(deps.store, goal.id).map((b) => `${b.branch}@${b.sha}`).join(',');
-          return await gated(
-            { deps, tool: ctx, confirm: a.confirm === true },
-            'deploy',
-            `deploy:${goal.slug}`,
-            () => deploy(deps, goal.id),
-            { bind: heads, ...(heads ? { info: heads } : {}) },
+          // SB: the detail names the hub's branch head + base head; the merge lands exactly those, and a
+          // moved base or new commits mean a different detail — a fresh OK.
+          const pin = await deployPin(deps, goal);
+          return await gated({ deps, tool: ctx }, 'deploy', deployDetail(goal.slug, pin), async () =>
+            pin ? deploy(deps, goal.id, pin) : { ok: false, output: `nothing to deploy: ${goal.slug} has no branch in the hub yet` },
           );
         }
         return { ok: false, output: `unknown op: ${op}` };

@@ -113,6 +113,8 @@ export interface Notice {
   body: string;
   /** P20: set when the notice is about a pending approval (sinks may render Approve/Deny). */
   approvalId?: string;
+  /** What the approver needs to see besides the detail (a diff, a spec, a connector config). */
+  info?: string;
   /** P13+: deep link (dashboard URL) for the notice, when known. */
   url?: string;
 }

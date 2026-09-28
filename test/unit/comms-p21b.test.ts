@@ -182,16 +182,27 @@ describe('comms module: policy, chat, routes', () => {
     expect(ev.at(-1)!.data).toEqual({ kind: 'message', to: '+15550001111', provider: 'node:mac', ok: true });
   });
 
-  it('in chat asks first, runs with confirm:true; refuses ambiguous/unknown recipients up front', async () => {
+  it('in chat asks first, runs only after Quinn says yes (a model confirm flag is ignored); refuses ambiguous/unknown recipients up front', async () => {
+    const { openChatStore } = await import('../../src/chat/store.js');
+    const cs = openChatStore(alfred.store);
+    const th = cs.createThread('call dad');
+    cs.addMessage({ threadId: th.id, role: 'user', content: 'call dad' });
     const n = sent.length;
-    const ask = await tool('call').run({ to: 'dad' }, ctx('chat:1'));
+    const ask = await tool('call').run({ to: 'dad' }, ctx(`chat:${th.id}`));
     expect(ask.ok).toBe(false);
     expect(ask.output).toMatch(/needs Quinn’s OK: call: call to Dad \(\+15550004444\)/);
     expect(sent.length).toBe(n);
-    const ok = await tool('call').run({ to: 'dad', confirm: true }, ctx('chat:1'));
+    // the model can't approve its own call
+    expect((await tool('call').run({ to: 'dad', confirm: true }, ctx(`chat:${th.id}`))).ok).toBe(false);
+    expect(sent.length).toBe(n);
+    cs.addMessage({ threadId: th.id, role: 'assistant', content: 'Shall I call Dad?' });
+    cs.addMessage({ threadId: th.id, role: 'user', content: 'yes' });
+    const ok = await tool('call').run({ to: 'dad' }, ctx(`chat:${th.id}`));
     expect(ok.ok).toBe(true);
     expect(ok.output).toMatch(/click Call/);
     expect(sent.at(-1)).toEqual({ op: 'placeCall', args: { to: '+15550004444' } });
+    // single use
+    expect((await tool('call').run({ to: 'dad' }, ctx(`chat:${th.id}`))).ok).toBe(false);
     expect((await tool('message').run({ to: 'Grandma', text: 'hi' }, ctx('chat:1'))).output).toMatch(/no contact/);
     expect((await tool('call').run({ to: 'Mom', say: 'hi' }, ctx('chat:1'))).output).toMatch(/Twilio/);
   });

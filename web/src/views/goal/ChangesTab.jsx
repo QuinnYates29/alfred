@@ -20,7 +20,7 @@ function DiffView({ diff }) {
   );
 }
 
-function MergeDialog({ goalId, branch, branches, base, onClose }) {
+function MergeDialog({ goalId, branch, branches, base, head, baseSha, onClose }) {
   const [strategy, setStrategy] = useState('merge');
   const [into, setInto] = useState(base ?? 'main');
   const [delBranch, setDelBranch] = useState(false);
@@ -33,7 +33,9 @@ function MergeDialog({ goalId, branch, branches, base, onClose }) {
     setBusy(true);
     setConflicts(null);
     try {
-      const r = await post(`/api/goals/${goalId}/merge`, { confirm: true, branch, into, strategy, deleteBranch: delBranch });
+      // Merge exactly the commit shown here; onto the base it was diffed against (else the server refuses).
+      const pin = { ...(head ? { sha: head } : {}), ...(baseSha && into === base ? { baseSha } : {}) };
+      const r = await post(`/api/goals/${goalId}/merge`, { confirm: true, branch, into, strategy, deleteBranch: delBranch, ...pin });
       toast(`Merged into ${r.into ?? into} (${String(r.sha ?? '').slice(0, 8)})`, 'ok');
       onClose(true);
     } catch (e) {
@@ -168,7 +170,7 @@ export default function ChangesTab({ id }) {
       </div>
 
       {merging && (
-        <MergeDialog goalId={id} branch={branch} branches={(data.branches ?? []).map((b) => b.branch)} base={data.base} onClose={() => setMerging(false)} />
+        <MergeDialog goalId={id} branch={branch} branches={(data.branches ?? []).map((b) => b.branch)} base={data.base} head={data.head} baseSha={data.baseSha} onClose={() => setMerging(false)} />
       )}
     </div>
   );

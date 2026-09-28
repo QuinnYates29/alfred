@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import express, { type Request, type Response } from 'express';
 import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModuleDeps } from '../modules.js';
-import { loadMcpConfig, type McpServerConfig } from '../connectors/mcp.js';
+import { loadMcpConfig, placeholders, RESERVED_ENV_RE, type McpServerConfig } from '../connectors/mcp.js';
 import { gated, powersRoot, sha256 } from './gate.js';
 
 export interface ConnectorInfo {
@@ -49,6 +49,36 @@ function strMap(v: unknown, what: string, keyRe: RegExp): Record<string, string>
   return Object.keys(out).length ? out : undefined;
 }
 
+/** `envAllow`: the env vars this connector's placeholders may expand (never alfred's own secrets). */
+function envAllowList(v: unknown): string[] {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.length > 32) throw new Error('envAllow must be a list of environment variable names');
+  const out: string[] = [];
+  for (const x of v) {
+    if (typeof x !== 'string' || !ENV_KEY_RE.test(x)) throw new Error(`invalid envAllow entry: ${String(x)}`);
+    if (RESERVED_ENV_RE.test(x)) throw new Error(`envAllow may not name ${x}: ALFRED_*, SLACK_* and TWILIO_* are alfred's own secrets`);
+    if (!out.includes(x)) out.push(x);
+  }
+  return out;
+}
+
+/** Placeholders must be listed in envAllow and must not name alfred's own secrets. */
+function checkPlaceholders(cfg: McpServerConfig): void {
+  for (const v of placeholders({ args: cfg.args, env: cfg.env, url: cfg.url, headers: cfg.headers })) {
+    if (RESERVED_ENV_RE.test(v)) throw new Error(`\${${v}} is not allowed: ALFRED_*, SLACK_* and TWILIO_* are alfred's own secrets`);
+    if (!(cfg.envAllow ?? []).includes(v)) throw new Error(`\${${v}} is used but not listed in envAllow`);
+  }
+}
+
+/** What Quinn sees when asked to approve a connector: placeholders first, then the full config. */
+export function connectorApprovalInfo(name: string, cfg: McpServerConfig): string {
+  const vars = [...placeholders(cfg)];
+  const head = vars.length
+    ? `⚠ ENV PLACEHOLDERS — this connector will receive the values of: ${vars.map((v) => `\${${v}}`).join(', ')}`
+    : 'no env placeholders';
+  return `${head}\nconnector ${name}: ${JSON.stringify(cfg, null, 2)}`.slice(0, 4000);
+}
+
 /** Validates an add request. Returns the name and the server config to store. Throws Error(reason). */
 export function validateConnector(input: any): { name: string; cfg: McpServerConfig } {
   const name = typeof input?.name === 'string' ? input.name : '';
@@ -65,7 +95,9 @@ export function validateConnector(input: any): { name: string; cfg: McpServerCon
     }
     if (input.headers) throw new Error('headers are for http connectors');
     const env = strMap(input.env, 'env', ENV_KEY_RE);
-    return { name, cfg: { command, ...(args.length ? { args: args.map(String) } : {}), ...(env ? { env } : {}) } };
+    const cfg: McpServerConfig = { command, ...(args.length ? { args: args.map(String) } : {}), ...(env ? { env } : {}), envAllow: envAllowList(input.envAllow) };
+    checkPlaceholders(cfg);
+    return { name, cfg };
   }
   let url: URL;
   try {
@@ -76,7 +108,12 @@ export function validateConnector(input: any): { name: string; cfg: McpServerCon
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('url must be http(s)');
   if (input.args || input.env) throw new Error('args and env are for stdio connectors');
   const headers = strMap(input.headers, 'headers', HEADER_KEY_RE);
-  return { name, cfg: { url: url.toString(), ...(headers ? { headers } : {}) } };
+  // Keep the placeholders as typed (URL parsing percent-encodes `${`/`}`).
+  const raw = String(input.url);
+  const cfg: McpServerConfig = { url: placeholders(raw).size ? raw : url.toString(), ...(headers ? { headers } : {}), envAllow: envAllowList(input.envAllow) };
+  if (/[\s"'<>\\^`{|}]/.test(raw.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g, ''))) throw new Error(`invalid url: ${raw}`);
+  checkPlaceholders(cfg);
+  return { name, cfg };
 }
 
 export class Connectors {
@@ -249,9 +286,9 @@ export function connectorsTool(deps: ModuleDeps, conns: Connectors): Tool {
           command: { type: 'string' },
           args: { type: 'array', items: { type: 'string' } },
           env: { type: 'object' },
+          envAllow: { type: 'array', items: { type: 'string' }, description: 'env vars ${VAR} placeholders may use' },
           url: { type: 'string' },
           headers: { type: 'object' },
-          confirm: { type: 'boolean', description: 'chat only, after Quinn agreed' },
         },
         required: ['op'],
       },
@@ -259,7 +296,7 @@ export function connectorsTool(deps: ModuleDeps, conns: Connectors): Tool {
     async run(args: any, ctx: ToolContext): Promise<ToolResult> {
       const a = args ?? {};
       const op = String(a.op ?? '');
-      const gate = { deps, tool: ctx, confirm: a.confirm === true };
+      const gate = { deps, tool: ctx };
       try {
         if (op === 'list') {
           const list = conns.list();
@@ -286,7 +323,7 @@ export function connectorsTool(deps: ModuleDeps, conns: Connectors): Tool {
               return { ok: true, output: `saved ${v.name} to config/mcp.json; ${fmt(c)}` };
             },
             // The approval is bound to this exact config: the same name with another command is re-asked.
-            { bind: sha256(shown), info: shown.slice(0, 1000) },
+            { bind: sha256(shown), info: connectorApprovalInfo(v.name, v.cfg) },
           );
         }
         if (op === 'remove') {

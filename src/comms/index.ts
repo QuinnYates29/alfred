@@ -143,7 +143,6 @@ function messageTool(deps: ModuleDeps): Tool {
         properties: {
           to: { type: 'string' },
           text: { type: 'string' },
-          confirm: { type: 'boolean', description: 'chat only, after Quinn agreed' },
         },
         required: ['to', 'text'],
       },
@@ -162,7 +161,7 @@ function messageTool(deps: ModuleDeps): Tool {
         }
         const detail = `message to ${who(r)}: ${text}`;
         return await gated(
-          { deps, tool: ctx, confirm: args?.confirm === true },
+          { deps, tool: ctx },
           'message',
           detail,
           async () => {
@@ -206,7 +205,6 @@ function callTool(deps: ModuleDeps): Tool {
         properties: {
           to: { type: 'string' },
           say: { type: 'string', description: 'text read aloud to the callee (Twilio)' },
-          confirm: { type: 'boolean', description: 'chat only, after Quinn agreed' },
         },
         required: ['to'],
       },
@@ -231,7 +229,7 @@ function callTool(deps: ModuleDeps): Tool {
         }
         const detail = `call to ${who(r)}${say ? ` saying: ${say}` : ''}`;
         return await gated(
-          { deps, tool: ctx, confirm: args?.confirm === true },
+          { deps, tool: ctx },
           'call',
           detail,
           async () => {

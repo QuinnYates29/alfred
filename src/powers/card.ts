@@ -50,7 +50,7 @@ export function capabilityCard(deps: ModuleDeps): string {
     '## Approval',
     'Reading is free. Changing the platform (services, qwen, config, models, automations, connectors), deploys, external messages and calls need Quinn’s approval:',
     '- in a goal the call parks your task until he approves; call it again the same way after.',
-    '- in chat you get "needs Quinn’s OK": ask him, then repeat the call with confirm:true.',
+    '- in chat you get "needs Quinn’s OK": tell him what it does and stop; after he replies "yes", repeat the same call.',
     `Pre-approved (config/powers.yaml): ${cap(pre.join(', ') || 'nothing', 300)}.`,
   );
   return out.join('\n');
