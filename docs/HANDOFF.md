@@ -1,5 +1,19 @@
 # HANDOFF: state of the alfred build (keep this current)
 
+## 2026-09-28 17:10 — web tools, dispatch, Jira, chat dataset + Private: MERGED + DEPLOYED (539 tests)
+- W1 web_search (ALFRED_SEARCH=ddg default | searxng+SEARXNG_URL | brave+BRAVE_API_KEY) + web_fetch (src/runtime/web.ts:
+  loopback/LAN/100.64/10/link-local refused at DNS time, redirects re-checked). On alfred/coder/researcher + chat.
+- D1 `!<persona> <prompt>` dispatch: POST /dispatch, ⌘K palette + chat box, Mac quick bar, Slack (`!…` / `/alfred run`),
+  `alfred run [persona] "…" --wait`. Slash-command results use response_url (expires ~30 min).
+- J1 Jira (src/jira/): NOT CONFIGURED yet — needs JIRA_SITE/JIRA_EMAIL/JIRA_API_TOKEN in ~/.config/alfred.env and
+  config/jira.yaml (projects allowlist empty = agents can't create). create/comment gated + bound to exact text + daily caps.
+- H1 chat dataset ~/.alfred/datasets (chat/feedback/goals JSONL, 0600) + 👍/👎 + Private threads (local model only, no tools,
+  nothing recorded, chat_message events ids-only, no Mac notifications). Live-verified with a canary string.
+- Mac app build 20260928210747 published (quick bar `!coder`, private-chat notification fix) — Quinn installs via Settings → Updates.
+- Lessons: qwen-task.sh now resolves the prompt path up front and fails a check naming a missing test file (W1 ran 4
+  attempts with no spec; H1 "passed" with zero tests). Worktrees need web/node_modules + app/node_modules linked
+  (LINKS="node_modules web/node_modules app/node_modules"); p18 needs `xvfb-run -a`. Full suite: `xvfb-run -a npx vitest run test/unit test/acceptance`.
+
 ## SECURITY (2026-09-28 05:10) — fixes MERGED + DEPLOYED
 SA (bwrap sandbox, env scrub, symlink guard, Mac sandbox-exec, langgraph bridge secret), SB (chat asks need Quinn's real "yes" or an approval
 click; no confirm flag; door approve refuses; deploy pinned to reviewed shas + hub pre-receive hook; approvals show content; Slack escaping;
