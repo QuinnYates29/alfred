@@ -5,6 +5,7 @@ import { timeAgo } from '../../lib/format.js';
 import { Avatar, Button, Drawer, Icon, Markdown, Menu, Spinner, StatusChip, useToast } from '../../ui/index.jsx';
 import { PRIORITIES, appendChecklist, assigneeSuggestions, parseLabels, removeChecklist, toggleChecklist } from './model.js';
 import Dispatch from './Dispatch.jsx';
+import JiraLink from './JiraLink.jsx';
 
 const draftFrom = (it) => ({
   title: it.title ?? '',
@@ -194,6 +195,8 @@ export default function ItemDrawer({ itemKey, board, item, goalStatus, onClose, 
             </label>
           ))}
         </div>
+
+        <JiraLink item={it} onDone={() => { load(); onChanged?.(); }} />
 
         <div className="drawer-section">
           <div className="row between">

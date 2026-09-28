@@ -306,7 +306,7 @@ function fakeBoard() {
       if (patch.fields) state.def.fields = patch.fields;
       return state.def;
     },
-    listItems: () => state.items.filter((i) => !i.archived),
+    listItems: (q: any = {}) => state.items.filter((i) => q.includeArchived || !i.archived),
     createItem: (i: any) => {
       const it: FakeItem = {
         key: `B-${++n}`, boardId: 'MAIN', title: i.title, description: i.description ?? '', status: 'To do', kind: 'todo',
@@ -379,6 +379,17 @@ describe('jira sync', () => {
     expect(r3.closed).toEqual(['WORK-1']);
     expect(state.items[0]!.status).toBe('Done');
     expect(state.items).toHaveLength(1);
+  });
+
+  it('an item Quinn archived is not re-imported or updated', async () => {
+    const { board, state } = fakeBoard();
+    await syncJira(depsFor(CREDS), board, clientWith(() => [issueOf('WORK-1')]), impPolicy());
+    state.items[0]!.archived = true;
+    const r = await syncJira(depsFor(CREDS), board, clientWith(() => [issueOf('WORK-1', { summary: 'changed' })]), impPolicy());
+    expect(r.created).toEqual([]);
+    expect(r.updated).toEqual([]);
+    expect(state.items).toHaveLength(1);
+    expect(state.items[0]!.title).toBe('WORK-1 sum WORK-1');
   });
 
   it('maps priorities', () => {

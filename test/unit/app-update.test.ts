@@ -79,7 +79,7 @@ describe('download', () => {
   const fetchOf = (bytes: Buffer, headers: Record<string, string> = {}, seen: any[] = []) =>
     (async (url: string, init: any) => {
       seen.push({ url, init });
-      return new Response(Buffer.from(bytes).buffer, { status: 200, headers });
+      return new Response(new Uint8Array(bytes), { status: 200, headers });
     }) as any;
 
   it('fetches from the configured origin with the token and verifies sha256', async () => {

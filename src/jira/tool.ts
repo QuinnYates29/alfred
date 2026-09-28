@@ -3,7 +3,7 @@
 // allowlisted projects; every outcome is a `jira` system event the counters read.
 import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModuleDeps } from '../modules.js';
-import { gated } from '../powers/gate.js';
+import { gated, sha256 } from '../powers/gate.js';
 import { jiraClient, type JiraClient, type JiraIssue } from './client.js';
 import { ISSUE_KEY_RE, JIRA_NOT_CONFIGURED, loadJiraPolicy, type JiraPolicy } from './config.js';
 
@@ -16,23 +16,38 @@ export interface JiraUsage {
   searchesHour: number;
 }
 
-/** Rolling counts from the `jira` system events (ok:true only). */
+/** Rolling counts from the `jira` system events (ok:true only), read straight from sqlite. */
 export function usage(deps: ModuleDeps, now = Date.now()): JiraUsage {
   let createsToday = 0;
   let commentsToday = 0;
   let searchesHour = 0;
-  try {
-    for (const e of deps.store.events('')) {
-      if (e.kind !== 'jira' || e.data?.ok !== true) continue;
-      const age = now - e.ts;
-      if (e.data.kind === 'create' && age <= DAY_MS) createsToday++;
-      else if (e.data.kind === 'comment' && age <= DAY_MS) commentsToday++;
-      else if (e.data.kind === 'search' && age <= HOUR_MS) searchesHour++;
-    }
-  } catch {
-    /* counters fail open-closed: 0 counts, the caps still apply from policy */
+  for (const e of jiraEvents(deps, now - DAY_MS)) {
+    if (e.data?.ok !== true) continue;
+    const age = now - e.ts;
+    if (e.data.kind === 'create') createsToday++;
+    else if (e.data.kind === 'comment') commentsToday++;
+    else if (e.data.kind === 'search' && age <= HOUR_MS) searchesHour++;
   }
   return { createsToday, commentsToday, searchesHour };
+}
+
+/** `jira` system events since `since` (ms). Only this kind is loaded — the system stream is large. */
+export function jiraEvents(deps: ModuleDeps, since: number): { ts: number; data: any }[] {
+  try {
+    const rows = deps.store
+      .raw()
+      .prepare(`SELECT ts, data FROM events WHERE goalId = '' AND kind = 'jira' AND ts >= ? ORDER BY id ASC`)
+      .all(since) as { ts: number; data: string }[];
+    return rows.map((r) => {
+      try {
+        return { ts: r.ts, data: JSON.parse(r.data) };
+      } catch {
+        return { ts: r.ts, data: {} };
+      }
+    });
+  } catch {
+    return [];
+  }
 }
 
 function log(deps: ModuleDeps, data: { kind: 'create' | 'comment' | 'search'; ok: boolean; key?: string; summary?: string; project?: string }): void {
@@ -147,9 +162,7 @@ async function doCreate(deps: ModuleDeps, client: JiraClient, policy: JiraPolicy
     log(deps, { kind: 'create', ok: false, project, summary });
     return { ok: false, output: `daily limit of ${policy.limits.createsPerDay} Jira tickets reached` };
   }
-  const dup = deps.store
-    .events('')
-    .some((e) => e.kind === 'jira' && e.data?.kind === 'create' && e.data.ok === true && e.data.summary === summary && Date.now() - e.ts <= 7 * DAY_MS);
+  const dup = jiraEvents(deps, Date.now() - 7 * DAY_MS).some((e) => e.data?.kind === 'create' && e.data.ok === true && e.data.summary === summary);
   if (dup) return { ok: false, output: `a ticket with that exact summary was already created in the last 7 days — skip it` };
 
   const fullDesc = `${description ? `${description}\n\n` : ''}— created by alfred (Quinn's assistant)`;
@@ -159,6 +172,10 @@ async function doCreate(deps: ModuleDeps, client: JiraClient, policy: JiraPolicy
     'jira.create',
     detail,
     async () => {
+      // re-checked when it actually runs: several approved asks must not add up past the cap
+      if (usage(deps).createsToday >= loadJiraPolicy(deps).limits.createsPerDay) {
+        return { ok: false, output: `daily limit of ${policy.limits.createsPerDay} Jira tickets reached` };
+      }
       try {
         const r = await client.create({ project, type, summary, description: fullDesc, labels: ['alfred'] });
         log(deps, { kind: 'create', ok: true, key: r.key, summary, project });
@@ -168,7 +185,8 @@ async function doCreate(deps: ModuleDeps, client: JiraClient, policy: JiraPolicy
         return { ok: false, output: `error: ${e?.message ?? String(e)}` };
       }
     },
-    { info: JSON.stringify({ project, type, summary, description }) },
+    // bound to the exact content: an approval can't be spent on an edited description
+    { info: JSON.stringify({ project, type, summary, description }), bind: sha256(`${project}\n${type}\n${summary}\n${description}`) },
   );
   return result;
 }
@@ -192,6 +210,9 @@ async function doComment(deps: ModuleDeps, client: JiraClient, policy: JiraPolic
     'jira.comment',
     `jira comment ${key}: ${text.slice(0, 200)}`,
     async () => {
+      if (usage(deps).commentsToday >= loadJiraPolicy(deps).limits.commentsPerDay) {
+        return { ok: false, output: `daily limit of ${policy.limits.commentsPerDay} Jira comments reached` };
+      }
       try {
         const r = await client.comment(key, text);
         log(deps, { kind: 'comment', ok: true, key });
@@ -201,7 +222,7 @@ async function doComment(deps: ModuleDeps, client: JiraClient, policy: JiraPolic
         return { ok: false, output: `error: ${e?.message ?? String(e)}` };
       }
     },
-    { info: text },
+    { info: text, bind: sha256(`${key}\n${text}`) },
   );
   return result;
 }

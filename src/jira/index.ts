@@ -8,7 +8,7 @@ import { storeForTask } from '../approvals.js';
 import type { Store } from '../store.js';
 import type { Board } from '../board/board.js';
 import { JIRA_NOT_CONFIGURED, jiraPolicyPath, loadJiraPolicy } from './config.js';
-import { clientFor, jiraTool, usage } from './tool.js';
+import { clientFor, jiraEvents, jiraTool, usage } from './tool.js';
 import { syncJira, JIRA_FIELD, type SyncResult } from './sync.js';
 
 const boardOf = (deps: ModuleDeps): Board | undefined => (deps.modules?.board as any)?.board;
@@ -19,6 +19,12 @@ function recordSync(deps: ModuleDeps, res: SyncResult): void {
   } catch {
     /* the event log must never break anything */
   }
+}
+
+/** The newest timer/manual sync result from the event log (the timer doesn't go through the router). */
+function lastSyncEvent(deps: ModuleDeps): (SyncResult & { at: number }) | null {
+  const ev = jiraEvents(deps, Date.now() - 7 * 86_400_000).filter((e) => e.data?.kind === 'sync').pop();
+  return ev ? { at: ev.ts, created: ev.data.created ?? [], updated: ev.data.updated ?? [], closed: ev.data.closed ?? [], errors: ev.data.errors ?? [] } : null;
 }
 
 function jiraRouter(deps: ModuleDeps): express.Router {
@@ -34,7 +40,7 @@ function jiraRouter(deps: ModuleDeps): express.Router {
       policy: loadJiraPolicy(deps),
       policyPath: jiraPolicyPath(deps),
       usage: usage(deps),
-      ...(lastSync ? { lastSync } : {}),
+      ...(lastSync ?? lastSyncEvent(deps) ? { lastSync: lastSync ?? lastSyncEvent(deps) } : {}),
     };
     if (client) {
       if (!meCache || Date.now() - meCache.at > 600_000) {
@@ -159,10 +165,25 @@ export function createJiraModule(deps: ModuleDeps): AlfredModule {
     router: jiraRouter(deps),
     tools: [tool],
     start() {
-      const policy = loadJiraPolicy(deps);
-      if (!policy.import.enabled || !clientFor(deps)) return;
-      const first = setTimeout(() => void runImport(), 30_000);
-      const every = setInterval(() => void runImport(), policy.import.everyMinutes * 60_000);
+      // A 1-minute tick reads config/jira.yaml fresh, so enabling the import or changing its
+      // interval takes effect without a restart. First run ~30 s after start.
+      let lastRun = Date.now() - 1e12;
+      let running = false;
+      const tick = async () => {
+        if (running) return;
+        const policy = loadJiraPolicy(deps);
+        if (!policy.import.enabled || !clientFor(deps)) return;
+        if (Date.now() - lastRun < policy.import.everyMinutes * 60_000) return;
+        running = true;
+        lastRun = Date.now();
+        try {
+          await runImport();
+        } finally {
+          running = false;
+        }
+      };
+      const first = setTimeout(() => void tick(), 30_000);
+      const every = setInterval(() => void tick(), 60_000);
       first.unref();
       every.unref();
       timers = [first, every];

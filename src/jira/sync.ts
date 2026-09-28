@@ -66,7 +66,8 @@ export async function syncJira(deps: ModuleDeps, board: Board, client: JiraClien
     out.errors.push(`search: ${e?.message ?? e}`);
     return out;
   }
-  const existing = board.listItems({ board: def.key });
+  // archived items count as linked: an issue Quinn archived locally must not come back every sync
+  const existing = board.listItems({ board: def.key, includeArchived: true });
   const byUrl = new Map<string, Item>();
   for (const it of existing) {
     const url = it.fields?.[JIRA_FIELD.id];
@@ -92,6 +93,7 @@ export async function syncJira(deps: ModuleDeps, board: Board, client: JiraClien
         out.created.push(iss.key);
         continue;
       }
+      if (it.archived) continue;
       const patch: Record<string, any> = {};
       const wantTitle = `${iss.key} ${iss.summary}`;
       if (it.title !== wantTitle) patch.title = wantTitle;

@@ -14,15 +14,16 @@ import ReposTab from './system/ReposTab.jsx';
 import BuildsTab from './system/BuildsTab.jsx';
 import Connectors from './system/Connectors.jsx';
 import Contacts from './system/Contacts.jsx';
+import JiraTab from './system/Jira.jsx';
 import './System.css';
 
 const TABS = [
   ['overview', 'Overview'], ['services', 'Services'], ['qwen', 'Qwen'], ['logs', 'Logs'], ['config', 'Config'],
-  ['models', 'Models'], ['personas', 'Personas'], ['nodes', 'Nodes'], ['repos', 'Repos'], ['builds', 'Builds'], ['connectors', 'Connectors'], ['contacts', 'Contacts'],
+  ['models', 'Models'], ['personas', 'Personas'], ['nodes', 'Nodes'], ['repos', 'Repos'], ['builds', 'Builds'], ['connectors', 'Connectors'], ['contacts', 'Contacts'], ['jira', 'Jira'],
 ];
 const VIEWS = {
   overview: Overview, services: Services, qwen: QwenTab, logs: Logs, config: Config,
-  models: ModelsTab, personas: PersonasTab, nodes: NodesTab, repos: ReposTab, builds: BuildsTab, connectors: Connectors, contacts: Contacts,
+  models: ModelsTab, personas: PersonasTab, nodes: NodesTab, repos: ReposTab, builds: BuildsTab, connectors: Connectors, contacts: Contacts, jira: JiraTab,
 };
 
 export default function System({ tab }) {
