@@ -34,3 +34,4 @@
 {"name":"P16","attempt":1,"start":"2026-09-27T17:18:12-04:00","wall_s":4508,"dsh_exit":124,"check_rc":1,"tests":" Tests 264 passed (264)","timeout_min":75}
 {"name":"P17e","attempt":2,"start":"2026-09-27T17:42:01-04:00","wall_s":4536,"dsh_exit":124,"check_rc":1,"tests":" Tests 4 failed | 5 passed (9)","timeout_min":75}
 {"name":"P16","attempt":2,"start":"2026-09-27T18:33:20-04:00","wall_s":1635,"dsh_exit":0,"check_rc":0,"tests":" Tests 264 passed (264)","timeout_min":75}
+{"name":"P20","attempt":1,"start":"2026-09-27T19:00:58-04:00","wall_s":3942,"dsh_exit":0,"check_rc":0,"tests":" Tests 277 passed (277)","timeout_min":75}
