@@ -137,7 +137,9 @@ describe('land', () => {
     git(root, 'clone', '-q', hub.barePath('proj'), other);
     writeFileSync(join(other, 'README.md'), 'ours\n');
     git(other, 'commit', '-qam', 'ours');
-    git(other, 'push', '-q', 'origin', 'main');
+    // (a push to the hub's main is refused by its pre-receive hook — agents must not move base branches;
+    //  the hub takes base-branch updates by fetch, like alfred's own merge does)
+    git(root, '--git-dir', hub.barePath('proj'), 'fetch', '-q', other, '+main:main');
     const before = git(root, '--git-dir', hub.barePath('proj'), 'rev-parse', 'main');
     const c = await call('POST', `/goals/${b.g.id}/merge`, { confirm: true });
     expect(c.status).toBe(409);

@@ -42,7 +42,8 @@ describe('chat', () => {
   it('answers with live state, edits the board and starts a linked goal', async () => {
     const llm = scriptedLLM([
       { toolCalls: [tc('board', { op: 'create', title: 'Renew passport', due: '2026-10-02', status: 'todo' })] },
-      { toolCalls: [tc('start_goal', { title: 'Fix flaky test', spec: 'make test/x pass', persona: 'coder', item: 'ALF-1', node: 'macbook' })] },
+      // (no node/acceptance: those make start_goal ask Quinn first — covered by test/unit/sb-approvals)
+      { toolCalls: [tc('start_goal', { title: 'Fix flaky test', spec: 'make test/x pass', persona: 'coder', item: 'ALF-1' })] },
       { content: 'Added ALF-1 and started a coder goal.' },
     ]);
     await boot(llm);
@@ -56,7 +57,6 @@ describe('chat', () => {
     expect(board.getItem('ALF-1').title).toBe('Renew passport');
     const goal = store.listGoals()[0];
     expect(goal.title).toBe('Fix flaky test');
-    expect(goal.meta.node).toBe('macbook');
     expect(store.listTasks(goal.id)[0].persona).toBe('coder');
     expect(board.getItem('ALF-1').goalIds).toEqual([goal.id]);
 
@@ -109,7 +109,7 @@ describe('chat', () => {
     expect((await call('GET', `/chat/threads/${t.id}`)).status).toBe(404);
   });
 
-  it('answers async with a chat_message event, rejects a busy thread, decides approvals', async () => {
+  it('answers async with a chat_message event, rejects a busy thread, and cannot decide approvals itself', async () => {
     let release!: () => void;
     const gate = new Promise<void>(r => (release = r));
     let calls = 0;
@@ -142,8 +142,10 @@ describe('chat', () => {
     const ap = store.requestApproval(task.id, 'git push', 'git push origin main');
     const r = await call('POST', `/chat/threads/${t.id}/messages`, { text: 'approve the push', wait: true });
     expect(r.body.reply.content).toBe('approved it');
-    expect(store.approvals({ status: 'approved' })[0].id).toBe(ap.id);
-    expect(store.approvals({ status: 'approved' })[0].decidedBy).toBe('chat');
-    expect(store.getTask(task.id)!.status).toBe('queued');
+    // security: only Quinn decides approvals (dashboard, Slack, Mac app) — the chat model's attempt is refused
+    const tried = r.body.reply.actions.find((a: any) => a.name === 'approvals' && /approve/.test(a.args));
+    expect(tried.ok).toBe(false);
+    expect(store.approvals({ status: 'pending' }).map((a: any) => a.id)).toContain(ap.id);
+    expect(store.getTask(task.id)!.status).toBe('blocked');
   });
 });

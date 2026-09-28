@@ -90,16 +90,26 @@ describe('the approval gate', () => {
     expect(third.park).toBeTruthy();
   });
 
-  it('honours powers.yaml autoApprove and chat confirm', async () => {
+  it('honours powers.yaml autoApprove; chat needs a real approval (a model-set confirm flag is ignored)', async () => {
     const t = parkedTask();
     const auto = await tool('platform', { op: 'service', name: 'qwen-server', action: 'start' }, { taskId: t.id, goalId: t.goalId });
     expect(auto.ok).toBe(true);
+    // chat asks: nothing runs, nothing parks, and a real approval row appears for Quinn (Inbox / Slack)
     const ask = await tool('platform', { op: 'service', name: 'qwen-server', action: 'stop' }, { taskId: 'chat:th1' });
     expect(ask.ok).toBe(false);
     expect(ask.park).toBeUndefined();
-    expect(ask.output).toContain('confirm');
-    const ok = await tool('platform', { op: 'service', name: 'qwen-server', action: 'stop', confirm: true }, { taskId: 'chat:th1' });
+    expect(ask.output).toMatch(/needs Quinn/);
+    const [row] = alfred.store.approvals({ status: 'pending' }).filter((a: any) => a.taskId === 'chat:th1');
+    expect(row.detail).toContain('qwen-server');
+    // security: the model cannot approve itself by passing confirm:true
+    const self = await tool('platform', { op: 'service', name: 'qwen-server', action: 'stop', confirm: true }, { taskId: 'chat:th1' });
+    expect(self.ok).toBe(false);
+    // Quinn approves → the next identical call runs, once
+    alfred.store.decideApproval(row.id, 'approved', 'quinn');
+    const ok = await tool('platform', { op: 'service', name: 'qwen-server', action: 'stop' }, { taskId: 'chat:th1' });
     expect(ok.ok).toBe(true);
+    const again = await tool('platform', { op: 'service', name: 'qwen-server', action: 'stop' }, { taskId: 'chat:th1' });
+    expect(again.ok).toBe(false);
     expect(alfred.store.allEvents().some(e => e.kind === 'power' && e.goalId === '')).toBe(true);
   });
 });
