@@ -15,6 +15,7 @@ const LINES: [string, string][] = [
   ['alfred_dev', 'change alfred/the dashboard itself: propose → Quinn reviews → deploy.'],
   ['notify', 'notify Quinn himself (Slack channel + Mac notification); no approval needed. NOT a connector.'],
   ['contacts', "look up Quinn's contacts."],
+  ['jira', 'Quinn\'s work Jira: search/get; create/comment only in allowed projects, after your OK, small daily caps.'],
   ['message', 'text someone (iMessage/SMS).'],
   ['call', 'phone someone.'],
 ];

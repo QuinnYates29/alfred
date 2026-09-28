@@ -27,6 +27,7 @@ export const BUILTIN_CAPS: Record<string, ToolCap[]> = {
   message: ['people', 'network'],
   call: ['people', 'network'],
   contacts: ['people'],
+  jira: ['network', 'people'],
   notify: ['people'],
   platform: ['platform-admin'],
   connectors: ['platform-admin', 'network'],

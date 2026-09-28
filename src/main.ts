@@ -37,6 +37,7 @@ import { createChatModule } from './chat/index.js';
 import { createSlackModule } from './slack/index.js';
 import { createPowersModule } from './powers/index.js';
 import { createCommsModule } from './comms/index.js';
+import { createJiraModule } from './jira/index.js';
 
 /** P13+: feature modules, in build order (later ones may use earlier ones via deps.modules). */
 export const MODULES: ModuleFactory[] = [
@@ -47,6 +48,7 @@ export const MODULES: ModuleFactory[] = [
   createSlackModule,
   createPowersModule,
   createCommsModule,
+  createJiraModule,
 ];
 import type { Persona } from './runtime/contract.js';
 
