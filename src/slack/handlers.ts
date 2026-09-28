@@ -6,6 +6,7 @@ import type { SlackApi } from './slackApi.js';
 import type { ChatLike } from './threadMap.js';
 import { actionsFooter, toMrkdwn } from './format.js';
 import { slackEscape } from '../notify/sinks.js';
+import { parseDispatch } from '../dispatch.js';
 
 export interface HandlerCtx {
   store: Store;
@@ -20,6 +21,14 @@ export interface HandlerCtx {
   setError(msg: string): void;
   /** Slack user ids allowed to use the bot (SLACK_ALLOWED_USERS). Everyone else is refused. */
   allowedUsers: ReadonlySet<string>;
+  /** D1 — known persona names (for the `!<persona> <prompt>` syntax). */
+  personaNames?(): string[];
+  /** D1 — start an agent run from dispatch text; throws on bad input. */
+  dispatch?(text: string): { goalId: string; slug: string; title: string; persona: string };
+  /** D1 — call onDone once when the goal finishes (status 'done' | 'failed'). */
+  follow?(goalId: string, onDone: (status: string, summary: string) => void): void;
+  /** Public dashboard base URL, for goal deep links (deps.dashboardUrl). */
+  dashboardUrl?: string;
 }
 
 /** Approvals from Slack gate texting, calls and deploys: only allow-listed users may act. */
@@ -29,6 +38,35 @@ function allowed(ctx: HandlerCtx, userId: string | undefined): boolean {
 
 const refusal = (userId: string | undefined) =>
   `⛔ not authorized. To allow this Slack user, add ${userId ?? '<unknown>'} to SLACK_ALLOWED_USERS in ~/.config/alfred.env and restart alfred.`;
+
+/** D1 — the "run started" line (plus a dashboard deep link when we know the URL). */
+function startedLine(ctx: HandlerCtx, r: { goalId: string; title: string; persona: string }): string {
+  const base = `:rocket: Started *${r.persona}* → ${r.title}`;
+  return ctx.dashboardUrl ? `${base}\n${ctx.dashboardUrl}/#/goal/${r.goalId}` : base;
+}
+
+/** D1 — the finish line, posted where the run started. */
+function doneLine(status: string, title: string, summary: string): string {
+  const head = status === 'done' ? `:white_check_mark: done — ${title}` : `:x: failed — ${title}`;
+  return `${head}\n${toMrkdwn(summary)}`;
+}
+
+/** D1 — dispatch + follow, replying via postUrl (slash commands). */
+function dispatchAndReport(ctx: HandlerCtx, text: string, responseUrl: string | undefined): Payload {
+  if (!ctx.dispatch) return { text: 'dispatch is not available' };
+  let out: { goalId: string; slug: string; title: string; persona: string };
+  try {
+    out = ctx.dispatch(text);
+  } catch (e) {
+    return { text: `⚠ ${e instanceof Error ? e.message : String(e)}` };
+  }
+  const ack = startedLine(ctx, out);
+  ctx.follow?.(out.goalId, (status, summary) => {
+    if (!responseUrl) return;
+    ctx.enqueue(async () => { await ctx.postUrl(responseUrl, { text: doneLine(status, out.title, summary) }); });
+  });
+  return { text: ack };
+}
 
 type Payload = Record<string, any>;
 
@@ -98,6 +136,15 @@ export function handleSlash(ctx: HandlerCtx, payload: Payload): Payload {
       const item = board.createItem({ title }, `slack:${payload.user_name ?? payload.user_id ?? 'someone'}`);
       return { text: `Added ${item.key}: ${item.title}` };
     }
+    // D1 — `/alfred run [persona] <prompt>` is the same as `!<persona> <prompt>`.
+    if (/^run(\s|$)/.test(lower)) {
+      const arg = text.slice(4).trim();
+      if (!arg) return { text: 'usage: /alfred run [persona] <prompt>' };
+      const names = ctx.personaNames?.() ?? [];
+      const parsed = parseDispatch(`!${arg}`, names);
+      if (!parsed) return { text: 'usage: /alfred run [persona] <prompt>' };
+      return dispatchAndReport(ctx, `!${parsed.persona} ${parsed.prompt}`, payload.response_url);
+    }
     const chat = ctx.getChat();
     if (!chat) return { text: 'chat is not available' };
     const key = `slack:${payload.user_id ?? payload.user_name ?? 'someone'}`;
@@ -144,6 +191,25 @@ export function handleEvent(ctx: HandlerCtx, event: Payload): void {
     if (dm && /^(new chat|new conversation|start over|reset)$/i.test(text)) {
       ctx.threads.reset(key);
       ctx.enqueue(async () => { await ctx.slackApi?.postMessage({ channel, ...where, text: 'Started a new conversation.' }); });
+      return;
+    }
+    // D1 — `!<persona> <prompt>` starts an agent run instead of chatting.
+    if (ctx.personaNames && ctx.dispatch && parseDispatch(text, ctx.personaNames())) {
+      ctx.enqueue(async () => {
+        let out: { goalId: string; slug: string; title: string; persona: string };
+        try {
+          out = ctx.dispatch!(text);
+        } catch (e) {
+          await ctx.slackApi?.postMessage({ channel, ...where, text: `⚠ ${e instanceof Error ? e.message : String(e)}` });
+          return;
+        }
+        await ctx.slackApi?.postMessage({ channel, ...where, text: startedLine(ctx, out) });
+        ctx.follow?.(out.goalId, (status, summary) => {
+          ctx.enqueue(async () => {
+            await ctx.slackApi?.postMessage({ channel, ...where, text: doneLine(status, out.title, summary) });
+          });
+        });
+      });
       return;
     }
     const run = async () => {

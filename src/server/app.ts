@@ -16,6 +16,7 @@ import type { ModelRegistry } from '../models.js';
 import { promptCost } from '../runtime/personas.js';
 import type { PluginRouteReg, AlfredPlugin } from '../plugins.js';
 import { createGoalWithRoot, retryTask, goalSummary } from '../ops.js';
+import { DISPATCH_SYNTAX, dispatchPrompt, parseDispatch } from '../dispatch.js';
 import { hostGuard, safeEqual, securityHeaders, TicketBook } from './security.js';
 
 export { safeEqual };
@@ -163,6 +164,38 @@ function buildRouter(d: AppDeps): express.Router {
       if (b.mode === 'sandbox' || b.mode === 'repo') meta.mode = b.mode;
       if (b.inPlace === true) meta.inPlace = true;
       if (Object.keys(meta).length) out.goal = d.store.setGoalMeta(out.goal.id, meta);
+      res.status(201).json(out);
+    } catch (e: any) {
+      send(res, 400, { error: e?.message ?? String(e) });
+    }
+  });
+
+  // D1 — dispatch an agent straight from a prompt: `!<persona> <prompt>`.
+  r.get('/dispatch/help', (_req, res) => {
+    res.json({
+      personas: [...(d.personas?.values() ?? [])].map((p) => ({ name: p.name, description: p.description })),
+      syntax: DISPATCH_SYNTAX,
+    });
+  });
+
+  r.post('/dispatch', (req, res) => {
+    const b = req.body ?? {};
+    const personas = d.personas ?? new Map<string, Persona>();
+    const src = String(b.source ?? '');
+    const source = src === 'mac-quick' || src === 'cli' || src === 'dashboard' ? src : 'dashboard';
+    let prompt = '';
+    let persona = 'alfred';
+    if (typeof b.text === 'string' && b.text.trim()) {
+      const parsed = parseDispatch(b.text, [...personas.keys()]);
+      if (parsed) ({ persona, prompt } = parsed);
+      else prompt = b.text.trim(); // not dispatch syntax: the whole text is an alfred prompt
+    } else if (typeof b.prompt === 'string') {
+      prompt = b.prompt.trim();
+      if (b.persona) persona = String(b.persona);
+    }
+    if (!prompt) return send(res, 400, { error: 'prompt is required' });
+    try {
+      const out = dispatchPrompt(d.store, personas, { prompt, persona, repo: b.repo, node: b.node, source });
       res.status(201).json(out);
     } catch (e: any) {
       send(res, 400, { error: e?.message ?? String(e) });

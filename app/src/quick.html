@@ -17,7 +17,7 @@
 </head>
 <body>
 <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Add an item…" autofocus>
-<div id="line" class="line">item #label !! @tomorrow · <b>!</b> goal · <b>?</b> ask Alfred · Esc to close</div>
+<div id="line" class="line">item #label !! @tomorrow · <b>!coder</b> run an agent · <b>?</b> ask Alfred · Esc to close</div>
 <script>
   const q = document.getElementById('q');
   const line = document.getElementById('line');
@@ -29,7 +29,8 @@
     if (e.key !== 'Enter' || busy || !q.value.trim()) return;
     busy = true;
     q.disabled = true;
-    line.textContent = q.value.trim().startsWith('?') ? 'Asking…' : 'Adding…';
+    const v = q.value.trim();
+    line.textContent = v.startsWith('?') ? 'Asking…' : /^!(?![\s!])/.test(v) ? 'Running…' : 'Adding…';
     let r;
     try { r = await window.alfredNative.quickSubmit(q.value); } catch (err) { r = '⚠ ' + err.message; }
     line.textContent = r;

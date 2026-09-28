@@ -6,6 +6,7 @@ import { Api, Parsed, parseArgs, resolveConn } from './cli/util.js';
 import { cmdGoal, cmdLogin, cmdShow, cmdStatus, cmdTail } from './cli/core.js';
 import { cmdAdd, cmdBoard, cmdComment, cmdDone, cmdEdit, cmdInbox, cmdItem, cmdMv, cmdSend } from './cli/board.js';
 import { cmdAsk, cmdChat } from './cli/chat.js';
+import { cmdRun } from './cli/run.js';
 import { cmdBuild, cmdBuilds, cmdConfig, cmdJira, cmdLogs, cmdModels, cmdNodes, cmdOpen, cmdPersonas, cmdQwen, cmdStats, cmdSvc } from './cli/ops.js';
 import { cmdCat, cmdDiff, cmdDiscard, cmdFiles, cmdMerge, cmdTranscript } from './cli/review.js';
 
@@ -38,6 +39,10 @@ Board (P13)
 Chat (P16)
   alfred ask "<text>" [--thread id]             one-shot question to alfred
   alfred chat [--thread id]                     interactive ( /quit to leave )
+
+Run (D1)
+  alfred run [persona] "<prompt>" [--repo P] [--node N] [--wait]
+                                                start an agent from one prompt (like "!coder fix x")
 
 Ops (P14)
   alfred stats                                 GPU / Qwen / tokens / tasks / host
@@ -142,6 +147,7 @@ async function main(): Promise<void> {
     case 'send': return cmdSend(api, p, need(p.rest[0], 'alfred send <KEY> [--persona p]'));
     case 'ask': return cmdAsk(api, p);
     case 'chat': return cmdChat(api, p);
+    case 'run': return cmdRun(api, p);
     case 'stats': return cmdStats(api, p);
     case 'svc': return cmdSvc(api, p);
     case 'qwen': return cmdQwen(api, p);

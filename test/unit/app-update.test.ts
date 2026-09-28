@@ -7,7 +7,6 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-// @ts-expect-error — plain ESM script without types
 import { buildId, gitCommit, makeBuildInfo, makeLatest, writeJson } from '../../app/scripts/latest.mjs';
 
 const require = createRequire(import.meta.url);
