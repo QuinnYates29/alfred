@@ -29,11 +29,16 @@ export function parseArgs(argv: string[]): Parsed {
       const eq = a.indexOf('=');
       if (eq > 0) {
         push(flags, a.slice(2, eq), a.slice(eq + 1));
-      } else if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) {
+      } else if (i + 1 < argv.length && !argv[i + 1].startsWith('-')) {
         push(flags, a.slice(2), argv[++i]);
       } else {
         bools.add(a.slice(2));
       }
+    } else if (/^-[A-Za-z]/.test(a)) {
+      // short flags: -n 50, -f
+      const name = a.slice(1);
+      if (i + 1 < argv.length && !argv[i + 1].startsWith('-')) push(flags, name, argv[++i]);
+      else bools.add(name);
     } else {
       rest.push(a);
     }
