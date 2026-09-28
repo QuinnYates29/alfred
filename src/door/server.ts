@@ -135,7 +135,7 @@ export function buildDoor(store: Store, workRoot?: string): McpServer {
       const workspace = wsFor(t);
       const { ok, results } = await verifyAndComplete(store, taskId, {
         by: 'claude',
-        runner: (check: AcceptanceCheck) => defaultRunner({ ...check, cwd: check.cwd ?? workspace }),
+        runner: (check: AcceptanceCheck) => defaultRunner({ ...check, cwd: check.cwd ?? workspace }, { workspace }),
       });
       return json({ ok, results });
     }),

@@ -3,6 +3,7 @@
 // backoff while Alfred runs. No config → no supervision.
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { AlfredPlugin } from '../../plugins.js';
+import { scrubEnv } from '../../sandbox.js';
 
 export interface DeckState {
   url?: string | null;
@@ -48,7 +49,9 @@ export function builtinDeckPlugin(deps: BuiltinDeckDeps): AlfredPlugin {
         if (stopping) return;
         child = spawn('node', ['dist/index.js'], {
           cwd: String(dir),
-          env: { ...process.env, PORT: String(port) },
+          // Scrubbed: the deck loads its own secrets from <dir>/.env (dotenv); it never
+          // needs Alfred's (ALFRED_TOKEN, SLACK_*, …). It only takes PORT from us.
+          env: { ...scrubEnv(process.env), PORT: String(port) },
           stdio: 'ignore',
         });
         child!.on('exit', () => {

@@ -5,7 +5,7 @@
 // `<ws>/.pipeline-runs/*/state.json`.
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModelRegistry } from '../models.js';
@@ -82,6 +82,15 @@ function eventsScan(ws: string): { size: number; lastKind: string } {
     }
   }
   return { size, lastKind };
+}
+
+/**
+ * Sandbox: the orchestrator's install (…/<proj>/.venv/bin/pipeline → <proj>, an
+ * editable install) is bound read-only. (The per-call config is written into the workspace.)
+ */
+export function pipelineReadonly(bin: string): string[] {
+  const m = /^(.*)\/\.venv\/bin\/[^/]+$/.exec(bin);
+  return [m ? m[1]! : dirname(bin)];
 }
 
 export function pipelineTool(
@@ -172,6 +181,7 @@ export function pipelineTool(
           '--no-load',
         ],
         cwd: ws,
+        readonly: pipelineReadonly(bin),
         timeoutMs,
         signal: ctx.signal,
         tickMs: 15_000,

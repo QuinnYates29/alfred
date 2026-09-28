@@ -1,7 +1,7 @@
 """Entry point: `python -m langgraph_coder`.
 
 stdin  = one JSON object {task, workspace, testCmd, maxIterations, baseUrl,
-                          model, maxStepsPerIteration?}
+                          model, maxStepsPerIteration?, bridgeUrl?, bridgeToken?}
 stderr = JSON lines {"progress": "<msg>"} (flushed)
 stdout = exactly one final JSON line
          {"ok": bool, "iterations": int, "testOutput": str<=3000, "filesChanged": [str]}
@@ -34,7 +34,9 @@ def main() -> int:
     files_changed: list[str] = []
     result = {"ok": False, "iterations": 0, "testOutput": "", "filesChanged": files_changed}
 
-    from .graph import TEST_OUTPUT_MAX, build_graph  # late import: venv-heavy
+    from . import graph as _graph  # late import: venv-heavy
+    from .graph import TEST_OUTPUT_MAX, build_graph
+    _graph.BRIDGE_TOKEN = req.get("bridgeToken") or None
 
     try:
         progress(f"start: task on {workspace} (model={model}, maxIterations={max_iterations})")

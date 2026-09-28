@@ -2,7 +2,7 @@
 // serves fs/exec calls inside its roots, shows desktop notifications.
 // Depends only on `ws` + Node stdlib (it runs on the Mac via `npx tsx`).
 import { execFile, spawn } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import WebSocket from 'ws';
 import {
@@ -21,6 +21,8 @@ import {
   type CommsResult,
   type NodeMsg,
 } from './protocol.js';
+import { writeFileNoFollow } from '../pathguard.js';
+import { scrubEnv } from '../sandbox.js';
 
 export interface ConnectNodeOpts {
   /** ws:// or wss:// host[:port] (path is fixed: /api/nodes/connect). */
@@ -135,6 +137,80 @@ async function runComms(op: CommsOp, args: any, caps: string[], runner: CommsRun
   return runner.run(op, { to });
 }
 
+// ---- exec sandbox (macOS: sandbox-exec) ----------------------------------------------
+// exec children never get the node's env secrets (ALFRED_TOKEN, …): scrubEnv. On macOS
+// they also run under a Seatbelt profile: no read/write of the login-persistence,
+// keychain, Messages, ssh and Alfred token stores; writes only inside the node's roots,
+// temp dirs and /dev. Everything else (reads, network, process exec) stays allowed.
+// Paths arrive as -D parameters, never spliced into the profile text.
+
+export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
+
+/** Home-relative paths an exec child may neither read nor write. */
+export const MAC_DENY_HOME = [
+  'Library/LaunchAgents',
+  'Library/Keychains',
+  'Library/Messages',
+  '.ssh',
+  '.config/alfred',
+  'Library/Application Support/Alfred',
+];
+
+/** Writable besides the roots. */
+export const MAC_WRITABLE = ['/tmp', '/private/tmp', '/private/var/folders', '/dev'];
+
+/** The Seatbelt profile for `nRoots` roots (params HOME, ROOT0…ROOTn-1). */
+export function macSandboxProfile(nRoots: number): string {
+  const deny = MAC_DENY_HOME.map((rel, i) => `  (subpath (string-append (param "HOME") "/${rel}"))`).join('\n');
+  const roots = Array.from({ length: nRoots }, (_, i) => `    (subpath (param "ROOT${i}"))`).join('\n');
+  const extra = MAC_WRITABLE.map((p) => `    (subpath "${p}")`).join('\n');
+  return [
+    '(version 1)',
+    '(allow default)',
+    '(deny file-read* file-write*',
+    deny,
+    ')',
+    '(deny file-write*',
+    '  (require-not (require-any',
+    roots,
+    extra,
+    '  )))',
+  ].join('\n');
+}
+
+function realOr(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+/** [file, argv] for an exec child on this platform (exported for tests). */
+export function execArgv(
+  cmd: string,
+  o: { roots: string[]; home: string; platform?: string; sandboxExec?: string | null },
+): [string, string[]] {
+  const platform = o.platform ?? process.platform;
+  const sx = o.sandboxExec === undefined ? SANDBOX_EXEC : o.sandboxExec;
+  if (platform !== 'darwin' || !sx) return ['bash', ['-c', cmd]];
+  const args: string[] = ['-D', `HOME=${realOr(o.home)}`];
+  o.roots.forEach((r, i) => args.push('-D', `ROOT${i}=${realOr(r)}`));
+  args.push('-p', macSandboxProfile(o.roots.length), '/bin/bash', '-c', cmd);
+  return [sx, args];
+}
+
+let warnedNoSandboxExec = false;
+function sandboxExecPath(): string | null {
+  if (process.platform !== 'darwin') return null;
+  if (existsSync(SANDBOX_EXEC)) return SANDBOX_EXEC;
+  if (!warnedNoSandboxExec) {
+    warnedNoSandboxExec = true;
+    console.error(`[alfred-node] WARNING: ${SANDBOX_EXEC} missing — exec runs unsandboxed (env still scrubbed)`);
+  }
+  return null;
+}
+
 function runExec(callId: string, args: any): Promise<{ exitCode: number | null; output: string; timedOut: boolean }> {
   const cmd = String(args?.cmd ?? '');
   const cwd = String(args?.cwd ?? process.cwd());
@@ -142,7 +218,12 @@ function runExec(callId: string, args: any): Promise<{ exitCode: number | null; 
   return new Promise((resolve) => {
     let child: RunningChild;
     try {
-      child = spawn('bash', ['-c', cmd], { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      const [file, argv] = execArgv(cmd, {
+        roots: rootsGlobal,
+        home: process.env.HOME ?? '',
+        sandboxExec: sandboxExecPath(),
+      });
+      child = spawn(file, argv, { cwd, env: scrubEnv(process.env), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e: any) {
       resolve({ exitCode: -1, output: `spawn failed: ${e?.message ?? e}`, timedOut: false });
       return;
@@ -196,10 +277,9 @@ function handleOp(callId: string, op: string, args: any, node: { caps: string[];
       return Promise.resolve(readFileSync(p, 'utf8'));
     }
     case 'writeFile': {
-      const p = guardRoot(rootsGlobal, args?.path);
+      const p = guardRoot(rootsGlobal, args?.path, { write: true });
       if (!p) return Promise.reject(new Error(outsideRoots(args?.path)));
-      mkdirSync(path.dirname(p), { recursive: true });
-      writeFileSync(p, String(args?.content ?? ''), 'utf8');
+      writeFileNoFollow(p, String(args?.content ?? ''));
       return Promise.resolve(true);
     }
     case 'listDir': {

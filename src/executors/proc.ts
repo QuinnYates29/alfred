@@ -2,12 +2,20 @@
 // Spawns a command in its own process group (detached) so that on timeout or
 // abort we can SIGKILL the whole group, taking background children with it.
 import { spawn } from 'node:child_process';
+import { sandboxedCommand } from '../sandbox.js';
 
 export interface RunProcOptions {
   cmd: string;
   args: string[];
   cwd: string;
+  /** Added AFTER the env is scrubbed of secrets (src/sandbox.ts scrubEnv). */
   env?: Record<string, string | undefined>;
+  /** Sandbox: the writable workspace (default cwd). */
+  workspace?: string;
+  /** Sandbox: extra read-only paths (the tool's own install dir under $HOME, …). */
+  readonly?: string[];
+  /** Sandbox: extra writable paths. */
+  writable?: string[];
   /** Wall-clock cap in ms. 0/undefined = no timeout. */
   timeoutMs?: number;
   /** Abort signal; on abort we kill the process group. */
@@ -36,9 +44,18 @@ export function runProc(o: RunProcOptions): Promise<RunProcResult> {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(o.cmd, o.args, {
+      const extraEnv: Record<string, string> = {};
+      for (const [k, v] of Object.entries(o.env ?? {})) if (v !== undefined) extraEnv[k] = v;
+      const sc = sandboxedCommand(o.cmd, o.args, {
+        workspace: o.workspace ?? o.cwd,
         cwd: o.cwd,
-        env: { ...process.env, ...(o.env ?? {}) },
+        ...(o.readonly ? { readonly: o.readonly } : {}),
+        ...(o.writable ? { writable: o.writable } : {}),
+        extraEnv,
+      });
+      child = spawn(sc.file, sc.args, {
+        cwd: sc.cwd,
+        env: sc.env,
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });

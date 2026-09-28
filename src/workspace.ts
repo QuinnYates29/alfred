@@ -11,6 +11,7 @@ import type { Store } from './store.js';
 import type { Goal, Task } from './types.js';
 import type { WorkspaceBackend } from './runtime/contract.js';
 import { NodeOfflineError } from './runtime/contract.js';
+import { registerGitHub, scrubEnv } from './sandbox.js';
 import type { NodeHub } from './node/hub.js';
 
 export interface WorkspaceOpts {
@@ -54,6 +55,7 @@ export function workspaceFor(store: Store, task: Task, o?: WorkspaceOpts): strin
   const branch = `alfred/${goal.slug}/${id8}`;
   execFileSync('git', ['-C', repo, 'worktree', 'add', '-b', branch, ws, 'HEAD'], {
     stdio: 'pipe',
+    env: scrubEnv(process.env),
   });
   return ws;
 }
@@ -81,8 +83,8 @@ export interface ResolveWorkspaceOpts extends WorkspaceOpts {
 export const shq = (s: string): string => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 /** backend.exec that throws on non-zero exit (workspace setup is fail-fast; publishing is not). */
-export async function be(backend: WorkspaceBackend, cwd: string, cmd: string, timeoutMs = 60_000): Promise<string> {
-  const r = await backend.exec(cmd, { cwd, timeoutMs });
+export async function be(backend: WorkspaceBackend, cwd: string, cmd: string, timeoutMs = 60_000, trusted = false): Promise<string> {
+  const r = await backend.exec(cmd, { cwd, timeoutMs, ...(trusted ? { trusted } : {}) });
   if (r.exitCode !== 0) throw new Error(`${cmd} failed (exit ${r.exitCode}): ${r.output.slice(-600)}`);
   return r.output;
 }
@@ -101,10 +103,20 @@ export async function identityArgs(backend: WorkspaceBackend, cwd: string): Prom
 const joinPosix = (base: string, ...parts: string[]): string =>
   `${base.replace(/\/+$/, '')}/${parts.join('/')}`;
 
+/**
+ * Workspace SETUP commands (clone, worktree add, remote/branch config) are Alfred's
+ * own, fully quoted commands: they run unsandboxed (they must write the repo's
+ * .git/config, which the sandbox keeps read-only) but still with a scrubbed env.
+ */
+const tbe = (b: WorkspaceBackend, cwd: string, cmd: string, timeoutMs = 60_000): Promise<string> =>
+  be(b, cwd, cmd, timeoutMs, true);
+const texec = (b: WorkspaceBackend, cmd: string, o: { cwd: string; timeoutMs: number }) =>
+  b.exec(cmd, { ...o, trusted: true });
+
 /** mkdir -p on any backend. `cwd` must be a dir that exists on that machine. */
 async function ensureDir(backend: WorkspaceBackend, dir: string, cwd: string): Promise<void> {
   if (backend.node === 'local') mkdirSync(dir, { recursive: true });
-  else await be(backend, cwd, `mkdir -p ${shq(dir)}`);
+  else await tbe(backend, cwd, `mkdir -p ${shq(dir)}`);
 }
 
 /** A root-allowed exec cwd for a node (the sandbox path may not exist yet). */
@@ -121,19 +133,19 @@ async function setupClone(
   url: string,
   branch: string,
 ): Promise<void> {
-  const exists = await backend.exec(`test -d ${shq(joinPosix(ws, '.git'))}`, { cwd, timeoutMs: 15_000 });
+  const exists = await texec(backend, `test -d ${shq(joinPosix(ws, '.git'))}`, { cwd, timeoutMs: 15_000 });
   if (exists.exitCode === 0) {
-    await be(backend, cwd, `git -C ${shq(ws)} remote set-url spark ${shq(url)}`);
+    await tbe(backend, cwd, `git -C ${shq(ws)} remote set-url spark ${shq(url)}`);
     return;
   }
-  await be(backend, cwd, `git clone --origin spark ${shq(url)} ${shq(ws)}`, 120_000);
-  const def = (await be(backend, cwd, `git -C ${shq(ws)} symbolic-ref --short HEAD`, 15_000)).trim();
+  await tbe(backend, cwd, `git clone --origin spark ${shq(url)} ${shq(ws)}`, 120_000);
+  const def = (await tbe(backend, cwd, `git -C ${shq(ws)} symbolic-ref --short HEAD`, 15_000)).trim();
   // An empty hub has no commits yet: branch the unborn HEAD instead.
-  const has = await backend.exec(`git -C ${shq(ws)} rev-parse --verify --quiet spark/${shq(def)}`, { cwd, timeoutMs: 15_000 });
+  const has = await texec(backend, `git -C ${shq(ws)} rev-parse --verify --quiet spark/${shq(def)}`, { cwd, timeoutMs: 15_000 });
   const from = has.exitCode === 0 ? ` spark/${shq(def)}` : '';
-  await be(backend, cwd, `git -C ${shq(ws)} -c core.hooksPath=/dev/null checkout -B ${shq(branch)}${from}`);
-  await be(backend, cwd, `git -C ${shq(ws)} config branch.${shq(branch)}.remote spark`);
-  await be(backend, cwd, `git -C ${shq(ws)} config branch.${shq(branch)}.merge refs/heads/${shq(branch)}`);
+  await tbe(backend, cwd, `git -C ${shq(ws)} -c core.hooksPath=/dev/null checkout -B ${shq(branch)}${from}`);
+  await tbe(backend, cwd, `git -C ${shq(ws)} config branch.${shq(branch)}.remote spark`);
+  await tbe(backend, cwd, `git -C ${shq(ws)} config branch.${shq(branch)}.merge refs/heads/${shq(branch)}`);
 }
 
 /** The repo path registered on the Spark, used to seed the hub (null when unregistered). */
@@ -176,6 +188,7 @@ export async function resolveWorkspace(
   }
 
   const hub = o.hub;
+  registerGitHub(hub.root); // sandboxed `git push spark` must reach the hub
   const { LocalBackend } = await import('./node/hub.js');
   let backend: WorkspaceBackend;
   if (nodeName === 'local') backend = new LocalBackend();
@@ -251,29 +264,29 @@ export async function resolveWorkspace(
   const ensureSparkRemote = async (cwd: string): Promise<void> => {
     if (!name) return;
     const url = hub.urlFor(name, nodeName);
-    const has = await backend.exec(`git -C ${shq(cwd)} remote get-url spark`, { cwd, timeoutMs: 15_000 });
-    if (has.exitCode === 0) await be(backend, cwd, `git -C ${shq(cwd)} remote set-url spark ${shq(url)}`);
-    else await be(backend, cwd, `git -C ${shq(cwd)} remote add spark ${shq(url)}`);
+    const has = await texec(backend, `git -C ${shq(cwd)} remote get-url spark`, { cwd, timeoutMs: 15_000 });
+    if (has.exitCode === 0) await tbe(backend, cwd, `git -C ${shq(cwd)} remote set-url spark ${shq(url)}`);
+    else await tbe(backend, cwd, `git -C ${shq(cwd)} remote add spark ${shq(url)}`);
   };
 
   if (inPlace) {
-    const dirty = await backend.exec('git status --porcelain', { cwd: repoAbs, timeoutMs: 20_000 });
+    const dirty = await texec(backend, 'git status --porcelain', { cwd: repoAbs, timeoutMs: 20_000 });
     if (dirty.exitCode !== 0) throw new Error(`not a git repo: ${repoAbs}`);
     if (dirty.output.trim()) throw new Error(`refusing inPlace work: ${repoAbs} is dirty`);
-    const cur = (await be(backend, repoAbs, 'git branch --show-current', 15_000)).trim();
+    const cur = (await tbe(backend, repoAbs, 'git branch --show-current', 15_000)).trim();
     if (cur !== branch) {
-      const has = await backend.exec(`git rev-parse --verify ${shq(branch)}`, { cwd: repoAbs, timeoutMs: 15_000 });
-      if (has.exitCode === 0) await be(backend, repoAbs, `git -c core.hooksPath=/dev/null checkout ${shq(branch)}`);
-      else await be(backend, repoAbs, `git -c core.hooksPath=/dev/null checkout -b ${shq(branch)}`);
+      const has = await texec(backend, `git rev-parse --verify ${shq(branch)}`, { cwd: repoAbs, timeoutMs: 15_000 });
+      if (has.exitCode === 0) await tbe(backend, repoAbs, `git -c core.hooksPath=/dev/null checkout ${shq(branch)}`);
+      else await tbe(backend, repoAbs, `git -c core.hooksPath=/dev/null checkout -b ${shq(branch)}`);
     }
     await ensureSparkRemote(repoAbs);
     return { backend, path: repoAbs, branch, ...(name ? { remote: 'spark' } : {}) };
   }
 
   const ws = joinPosix(repoAbs, '.alfred-worktrees', id8);
-  const exists = await backend.exec(`test -d ${shq(ws)}`, { cwd: repoAbs, timeoutMs: 15_000 });
+  const exists = await texec(backend, `test -d ${shq(ws)}`, { cwd: repoAbs, timeoutMs: 15_000 });
   if (exists.exitCode !== 0) {
-    await be(backend, repoAbs, `git worktree add -b ${shq(branch)} ${shq(ws)} HEAD`);
+    await tbe(backend, repoAbs, `git worktree add -b ${shq(branch)} ${shq(ws)} HEAD`);
   }
   await ensureSparkRemote(repoAbs);
   return { backend, path: ws, branch, ...(name ? { remote: 'spark' } : {}) };
@@ -299,12 +312,12 @@ async function resolveOnNode(
   const caps = o.nodes.info(nodeName)?.caps ?? [];
   if (caps.includes('git')) {
     try {
-      const probe = await backend.exec('git rev-parse --git-dir', { cwd: repo, timeoutMs: 15_000 });
+      const probe = await texec(backend, 'git rev-parse --git-dir', { cwd: repo, timeoutMs: 15_000 });
       if (probe.exitCode === 0) {
         const ws = `${repo.replace(/\/+$/, '')}/.alfred-worktrees/${id8}`;
-        const exists = await backend.exec(`test -d ${shq(ws)}`, { cwd: repo, timeoutMs: 15_000 });
+        const exists = await texec(backend, `test -d ${shq(ws)}`, { cwd: repo, timeoutMs: 15_000 });
         if (exists.exitCode !== 0) {
-          await be(backend, repo, `git worktree add -b ${shq(`alfred/${goal.slug}/${id8}`)} ${shq(ws)} HEAD`);
+          await tbe(backend, repo, `git worktree add -b ${shq(`alfred/${goal.slug}/${id8}`)} ${shq(ws)} HEAD`);
         }
         return { backend, path: ws };
       }
