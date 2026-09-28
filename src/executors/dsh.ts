@@ -1,15 +1,32 @@
 // P2 — DSH headless coding executor (tool `dsh_code`).
 // Runs `<bin> --profile headless <prompt>` in the task workspace, in its own
 // process group so abort/timeout SIGKILLs the whole group (children included).
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
+import { sandboxedCommand } from '../sandbox.js';
 import { clampTimeoutMin, runProc, tail } from './proc.js';
 
 const OUTPUT_CAP = 8000;
 
+/**
+ * Read-only paths DSH needs inside the sandbox besides the defaults: the
+ * `~/.local/bin/dsh` wrapper execs the CLI from its checkout. (~/.dsh itself is in
+ * sandbox.ts HOME_WRITABLE with its credentials file masked.)
+ */
+export const DSH_READONLY = [join(homedir(), 'repos', 'deepseek-harness')];
+
+/**
+ * git in the workspace for progress/status. Sandboxed too: the workspace's .git is
+ * agent-writable, and config such as core.fsmonitor would otherwise run a command
+ * as Alfred with the full env.
+ */
 function git(ws: string, args: string[]): string {
   try {
-    return execFileSync('git', args, { cwd: ws, encoding: 'utf8', timeout: 10_000, maxBuffer: 1 << 20 });
+    const sc = sandboxedCommand('git', args, { workspace: ws });
+    const r = spawnSync(sc.file, sc.args, { cwd: sc.cwd, env: sc.env, encoding: 'utf8', timeout: 10_000, maxBuffer: 1 << 20 });
+    return r.status === 0 ? String(r.stdout ?? '') : '';
   } catch {
     return '';
   }
@@ -63,6 +80,7 @@ export function dshTool(o: { bin?: string; defaultTimeoutMin?: number } = {}): T
         cmd: bin,
         args: ['--profile', 'headless', prompt],
         cwd: ctx.workspace,
+        readonly: DSH_READONLY,
         timeoutMs,
         signal: ctx.signal,
         tickMs: 20_000,

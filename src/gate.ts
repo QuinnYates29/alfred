@@ -3,12 +3,17 @@ import { spawn } from 'node:child_process';
 import type { AcceptanceCheck, CheckResult, CheckRunner } from './types.js';
 import { IllegalTransitionError } from './types.js';
 import type { Store } from './store.js';
+import { sandboxedCommand } from './sandbox.js';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const OUTPUT_TAIL = 4000;
 
-/** Runs a check with `bash -c` in its own process group so a timeout kills the whole tree. */
-export const defaultRunner: CheckRunner = (check: AcceptanceCheck) =>
+/**
+ * Runs a check with `bash -c` in its own process group so a timeout kills the whole tree.
+ * Sandboxed (src/sandbox.ts) with `o.workspace` (default: the check's cwd) as the only
+ * writable dir, and always with a scrubbed env.
+ */
+export const defaultRunner = (check: AcceptanceCheck, o?: { workspace?: string }): Promise<CheckResult> =>
   new Promise<CheckResult>((resolve) => {
     const start = Date.now();
     const timeoutMs = check.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -16,8 +21,11 @@ export const defaultRunner: CheckRunner = (check: AcceptanceCheck) =>
     let timedOut = false;
     let settled = false;
 
-    const child = spawn('bash', ['-c', check.cmd], {
-      cwd: check.cwd,
+    const cwd = check.cwd ?? process.cwd();
+    const sc = sandboxedCommand('bash', ['-c', check.cmd], { workspace: o?.workspace ?? cwd, cwd });
+    const child = spawn(sc.file, sc.args, {
+      cwd: sc.cwd,
+      env: sc.env,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });

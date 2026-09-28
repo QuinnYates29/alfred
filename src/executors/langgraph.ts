@@ -3,11 +3,15 @@
 // Spark) but reaches the files through a one-shot localhost "file bridge" backed
 // by ctx.backend.
 import { spawn } from 'node:child_process';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve as presolve, sep } from 'node:path';
 import type { Tool, ToolContext, ToolResult, WorkspaceBackend } from '../runtime/contract.js';
 import type { ModelRegistry } from '../models.js';
+import { sandboxedCommand } from '../sandbox.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -23,9 +27,34 @@ interface SidecarResult {
  * write / list / exec through a node backend. Paths are checked against the
  * workspace here as well; the node enforces its own roots.
  */
-async function startBridge(ctx: ToolContext): Promise<{ url: string; close: () => void }> {
+export async function startBridge(ctx: ToolContext): Promise<{ url: string; secret: string; close: () => void }> {
   const backend: WorkspaceBackend = ctx.backend!;
+  // Any local process can reach 127.0.0.1: require a per-run bearer secret (handed to
+  // the sidecar on stdin, never in env/argv), a JSON content-type (no simple-request
+  // CSRF from a browser) and our exact Host (no DNS rebinding).
+  const secret = randomBytes(32).toString('hex');
+  let expectedHost = '';
   const server = createServer((req, res) => {
+    const deny = (code: number, error: string) => {
+      res.statusCode = code;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ok: false, error }));
+    };
+    const auth = String(req.headers.authorization ?? '');
+    const want = Buffer.from(`Bearer ${secret}`);
+    const got = Buffer.from(auth);
+    if (got.length !== want.length || !timingSafeEqual(got, want)) {
+      req.resume();
+      return deny(401, 'unauthorized');
+    }
+    if (String(req.headers.host ?? '') !== expectedHost) {
+      req.resume();
+      return deny(403, 'bad host');
+    }
+    if (!/^application\/json\b/i.test(String(req.headers['content-type'] ?? ''))) {
+      req.resume();
+      return deny(415, 'content-type must be application/json');
+    }
     let body = '';
     req.on('data', (c: Buffer) => (body += c));
     req.on('end', () => {
@@ -56,6 +85,7 @@ async function startBridge(ctx: ToolContext): Promise<{ url: string; close: () =
           if (req.method === 'POST' && (req.url ?? '').split('?')[0] === '/exec') {
             const r = await backend.exec(String(b.cmd ?? ''), {
               cwd: ctx.workspace,
+              workspace: ctx.workspace,
               timeoutMs: Number(b.timeoutMs) > 0 ? Number(b.timeoutMs) : 600_000,
               ...(ctx.signal ? { signal: ctx.signal } : {}),
             });
@@ -71,7 +101,8 @@ async function startBridge(ctx: ToolContext): Promise<{ url: string; close: () =
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : 0;
-  return { url: `http://127.0.0.1:${port}`, close: () => server.close() };
+  expectedHost = `127.0.0.1:${port}`;
+  return { url: `http://127.0.0.1:${port}`, secret, close: () => server.close() };
 }
 
 export function langgraphTool(o?: {
@@ -115,7 +146,8 @@ export function langgraphTool(o?: {
 
       // P9: node workspace → the sidecar reaches the files through the bridge.
       const remote = !!ctx.backend && ctx.backend.node !== 'local';
-      let bridge: { url: string; close: () => void } | undefined;
+      let bridge: { url: string; secret: string; close: () => void } | undefined;
+      let scratch: string | undefined; // remote: the sidecar's local sandbox dir (the files live on the node)
       if (remote) {
         try {
           bridge = await startBridge(ctx);
@@ -125,19 +157,26 @@ export function langgraphTool(o?: {
       }
       try {
         return await new Promise<ToolResult>(resolve => {
-        const child = spawn(
-          python,
-          ['-m', 'langgraph_coder'],
-          {
-            cwd: ctx.workspace,
-            env: { ...process.env, PYTHONPATH: join(REPO_ROOT, 'sidecar') },
-            stdio: ['pipe', 'pipe', 'pipe'],
-            detached: true, // own process group; kill the group on abort/timeout
-          },
-        );
+        if (remote) scratch = mkdtempSync(join(tmpdir(), 'alfred-langgraph-'));
+        const localWs = scratch ?? ctx.workspace;
+        // Sandboxed: the sidecar (and the test command it runs) sees only the workspace,
+        // the toolchain allowlist and its own code; the env is scrubbed.
+        const sc = sandboxedCommand(python, ['-m', 'langgraph_coder'], {
+          workspace: localWs,
+          // + the venv root (python is <venv>/bin/python; the venv may be a symlink elsewhere)
+          readonly: [join(REPO_ROOT, 'sidecar'), dirname(dirname(python))],
+          extraEnv: { PYTHONPATH: join(REPO_ROOT, 'sidecar') },
+        });
+        const child = spawn(sc.file, sc.args, {
+          cwd: sc.cwd,
+          env: sc.env,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          detached: true, // own process group; kill the group on abort/timeout
+        });
+        child.stdin.on('error', () => { /* child died early: 'close' reports it */ });
         child.stdin.end(JSON.stringify({
           task, workspace: ctx.workspace, testCmd, maxIterations, baseUrl, model,
-          ...(bridge ? { bridgeUrl: bridge.url } : {}),
+          ...(bridge ? { bridgeUrl: bridge.url, bridgeToken: bridge.secret } : {}),
         }));
 
         let stdout = '';
@@ -219,6 +258,9 @@ export function langgraphTool(o?: {
         });
       } finally {
         bridge?.close();
+        if (scratch) {
+          try { rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ }
+        }
       }
     },
   };

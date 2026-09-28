@@ -38,12 +38,19 @@ class State(TypedDict, total=False):
     files_changed: list[str]
 
 
+# Per-run bearer secret for the TS file bridge (set from the stdin request by __main__).
+BRIDGE_TOKEN: Optional[str] = None
+
+
 def _bridge_call(bridge_url: str, path: str, payload: dict, timeout: float = 660.0) -> dict:
     """One POST to the TS file bridge. Raises on transport trouble; dict otherwise."""
+    headers = {"content-type": "application/json"}
+    if BRIDGE_TOKEN:
+        headers["authorization"] = "Bearer " + BRIDGE_TOKEN
     req = urllib.request.Request(
         bridge_url.rstrip("/") + path,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"content-type": "application/json"},
+        headers=headers,
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — localhost, one-shot

@@ -63,7 +63,13 @@ export interface WorkspaceBackend {
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;
   listDir(path: string): Promise<{ name: string; dir: boolean }[]>;
-  exec(cmd: string, o: { cwd: string; timeoutMs: number; signal?: AbortSignal }): Promise<{ exitCode: number | null; output: string; timedOut: boolean }>;
+  /**
+   * Run `bash -c cmd`. Local backend: sandboxed (see src/sandbox.ts) with `workspace`
+   * (default: cwd) as the only writable dir; `trusted` = Alfred's own workspace
+   * setup commands (clone/worktree/remote), run unsandboxed but still with a scrubbed env.
+   * Nodes ignore both (they enforce their own roots / sandbox-exec profile).
+   */
+  exec(cmd: string, o: { cwd: string; timeoutMs: number; signal?: AbortSignal; workspace?: string; trusted?: boolean }): Promise<{ exitCode: number | null; output: string; timedOut: boolean }>;
 }
 
 /** P9: raised by a remote backend when its node is not connected. The runtime parks the task `blocked`. */

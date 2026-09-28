@@ -1,7 +1,6 @@
 // P9 §1 — the wire protocol shared by the Alfred server (NodeHub) and alfred-node.
 // JSON messages over a WebSocket at GET /api/nodes/connect?token=<ALFRED_TOKEN>.
-import { existsSync, realpathSync } from 'node:fs';
-import path from 'node:path';
+import { containedPath } from '../pathguard.js';
 
 export const PROTOCOL_VERSION = '1';
 export const OUTPUT_CAP = 8000;
@@ -98,37 +97,16 @@ export function tailOut(s: string): string {
   return s.length <= OUTPUT_CAP ? s : s.slice(-OUTPUT_CAP);
 }
 
-function realpathNearest(p: string): string {
-  let cur = p;
-  const rest: string[] = [];
-  while (!existsSync(cur)) {
-    const parent = path.dirname(cur);
-    if (parent === cur) break;
-    rest.unshift(path.basename(cur));
-    cur = parent;
-  }
-  try {
-    cur = realpathSync(cur);
-  } catch {
-    /* keep as-is */
-  }
-  return rest.length ? path.join(cur, ...rest) : cur;
-}
-
 /**
- * Resolve p the way the node enforces its roots: realpath the nearest existing
- * parent, then require containment inside one of roots. Returns the resolved
- * absolute path, or null when it escapes.
+ * Resolve p the way the node enforces its roots: the REAL location (nearest existing
+ * ancestor found with lstat, so a dangling symlink counts and is refused) must be
+ * inside one of roots. Returns the resolved real path, or null when it escapes.
+ * With `write`, a symlink as the final component is refused as well (writes then use
+ * O_NOFOLLOW, see writeFileNoFollow).
  */
-export function guardRoot(roots: string[], p: unknown): string | null {
+export function guardRoot(roots: string[], p: unknown, o: { write?: boolean } = {}): string | null {
   if (typeof p !== 'string' || !p) return null;
-  const abs = path.resolve(p);
-  const real = realpathNearest(abs);
-  for (const r of roots) {
-    const rr = realpathNearest(path.resolve(r));
-    if (real === rr || real.startsWith(rr + path.sep)) return abs;
-  }
-  return null;
+  return containedPath(roots, p, { write: !!o.write });
 }
 
 export function outsideRoots(p: unknown): string {

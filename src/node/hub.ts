@@ -2,11 +2,13 @@
 // connections over WebSocket upgrades at /api/nodes/connect and hands out
 // WorkspaceBackends. A node that misses two heartbeats is dropped.
 import { spawn } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { Server } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { NodeOfflineError, type WorkspaceBackend } from '../runtime/contract.js';
+import { writeFileNoFollow } from '../pathguard.js';
+import { sandboxedCommand } from '../sandbox.js';
 import { encode, guardRoot, outsideRoots, parseMsg, tailOut, type CommsOp, type CommsResult, type ExecValue, type ResultMsg } from './protocol.js';
 
 const DEFAULT_CALL_TIMEOUT_MS = 60_000;
@@ -78,8 +80,7 @@ export class LocalBackend implements WorkspaceBackend {
     return readFileSync(p, 'utf8');
   }
   async writeFile(p: string, content: string): Promise<void> {
-    mkdirSync(path.dirname(p), { recursive: true });
-    writeFileSync(p, content, 'utf8');
+    writeFileNoFollow(p, content); // callers check containment; never write through a final symlink
   }
   async listDir(p: string): Promise<{ name: string; dir: boolean }[]> {
     return readdirSync(p, { withFileTypes: true }).map((e) => {
@@ -92,11 +93,18 @@ export class LocalBackend implements WorkspaceBackend {
       return { name: e.name, dir };
     });
   }
-  exec(cmd: string, o: { cwd: string; timeoutMs: number; signal?: AbortSignal }): Promise<ExecValue> {
+  exec(cmd: string, o: { cwd: string; timeoutMs: number; signal?: AbortSignal; workspace?: string; trusted?: boolean }): Promise<ExecValue> {
     return new Promise<ExecValue>((resolve, reject) => {
       let child: ReturnType<typeof spawn>;
       try {
-        child = spawn('bash', ['-c', cmd], { cwd: o.cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+        // Agent-reachable: sandboxed with the workspace (default: cwd) as the writable dir.
+        // `trusted` (workspace setup) skips the sandbox; the env is scrubbed either way.
+        const sc = sandboxedCommand('bash', ['-c', cmd], {
+          workspace: o.workspace ?? o.cwd,
+          cwd: o.cwd,
+          ...(o.trusted ? { mode: 'off' as const } : {}),
+        });
+        child = spawn(sc.file, sc.args, { cwd: sc.cwd, env: sc.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
       } catch (e: any) {
         reject(e);
         return;

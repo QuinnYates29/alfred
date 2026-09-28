@@ -28,6 +28,7 @@ import { createApp } from './server/app.js';
 import { allowedHostsFromEnv } from './server/security.js';
 import { envRedactor } from './redact.js';
 import { RepoHub } from './git/hub.js';
+import { configureSandbox, type SandboxMode } from './sandbox.js';
 import type { AlfredModule, ModuleDeps, ModuleFactory } from './modules.js';
 import { createBoardModule } from './board/index.js';
 import { createOpsModule } from './ops/index.js';
@@ -82,6 +83,12 @@ export interface AlfredConfig {
   extra?: Record<string, any>;
   /** P10: root of the bare-repo hub (default ~/.alfred/git). */
   gitRoot?: string;
+  /**
+   * Agent command sandbox (src/sandbox.ts). serveConfig() (production) sets 'bwrap';
+   * unset = 'off' (tests). ALFRED_SANDBOX=bwrap|off in the env overrides either.
+   * The child env is scrubbed of secrets in both modes.
+   */
+  sandbox?: SandboxMode;
 }
 
 export interface Alfred {
@@ -158,6 +165,10 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
   const nodeHub = new NodeHub({ ...(token ? { token } : {}) });
   // P10: the bare-repo hub on the Spark (every workspace gets a `spark` remote).
   const repoHub = new RepoHub({ ...(c.gitRoot ? { root: c.gitRoot } : {}) });
+  // Agent commands: bubblewrap sandbox + scrubbed env (self-tested; loud warning on failure).
+  const sb = configureSandbox({ ...(c.sandbox ? { mode: c.sandbox } : {}), env, gitHub: repoHub.root });
+  if (sb.mode === 'bwrap') console.log('[sandbox] agent commands run under bubblewrap');
+  else if (sb.requested === 'off' && c.sandbox === 'off') console.warn('[sandbox] OFF by config: agent commands run unsandboxed (env scrubbed)');
 
   // ---- P13+ feature modules: tools are registered before personas load.
   const personas: Map<string, Persona> = new Map();
@@ -484,6 +495,7 @@ export function serveConfig(env: Record<string, string | undefined> = process.en
     port: env.ALFRED_PORT ? Number(env.ALFRED_PORT) : 8790,
     host: env.ALFRED_HOST ?? '0.0.0.0',
     deck: existsSync(deckDir) ? { dir: deckDir, port: Number(env.ALFRED_DECK_PORT ?? 8787) } : null,
+    sandbox: 'bwrap', // ALFRED_SANDBOX=off overrides (see configureSandbox)
     env,
   };
 }

@@ -1,7 +1,7 @@
 // P1 — tool registry and built-in tools. Tools never throw; they return
 // {ok:false, output} on any error. File paths resolve against ctx.workspace.
 import { spawn } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import {
   PersonaConfigError,
@@ -13,6 +13,8 @@ import {
   type WorkspaceBackend,
 } from './contract.js';
 import { guardCommand, storeForTask } from '../approvals.js';
+import { containedPath, writeFileNoFollow } from '../pathguard.js';
+import { sandboxedCommand } from '../sandbox.js';
 
 /**
  * P9: park the task when the workspace machine went away mid-call.
@@ -57,12 +59,20 @@ export class ToolRegistry {
   }
 }
 
-/** Resolve p inside workspace; null when it escapes the workspace. */
-function inside(workspace: string, p: unknown): string | null {
+/**
+ * Resolve p inside the workspace; null when it escapes. For a workspace on this
+ * machine the check is on the REAL path (symlinks are followed, then must stay
+ * inside realpath(workspace); a dangling link or, for writes, a symlink as the
+ * final component is refused). A node workspace only gets the lexical check here —
+ * the node enforces its own roots with the same symlink-safe guard.
+ */
+function inside(ctx: ToolContext, p: unknown, write = false): string | null {
   if (typeof p !== 'string') return null;
-  const ws = path.resolve(workspace);
+  const ws = path.resolve(ctx.workspace);
   const abs = path.resolve(ws, p);
-  return abs === ws || abs.startsWith(ws + path.sep) ? abs : null;
+  if (!(abs === ws || abs.startsWith(ws + path.sep))) return null;
+  if (ctx.backend && ctx.backend.node !== 'local') return abs;
+  return containedPath([ws], abs, { write });
 }
 
 function outside(p: unknown): ToolResult {
@@ -108,7 +118,7 @@ function runShell(args: any, ctx: ToolContext): Promise<ToolResult> {
   const timeoutSec = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 600) : 120;
   if (ctx.backend) {
     return ctx.backend
-      .exec(cmd, { cwd: ctx.workspace, timeoutMs: timeoutSec * 1000, signal: ctx.signal })
+      .exec(cmd, { cwd: ctx.workspace, workspace: ctx.workspace, timeoutMs: timeoutSec * 1000, signal: ctx.signal })
       .then((r) => {
         const suffix = r.timedOut ? `exit=-1 timed out after ${timeoutSec}s` : `exit=${r.exitCode}`;
         return { ok: !r.timedOut && r.exitCode === 0, output: tailWithSuffix(r.output ?? '', suffix) };
@@ -117,7 +127,8 @@ function runShell(args: any, ctx: ToolContext): Promise<ToolResult> {
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn('bash', ['-c', cmd], { cwd: ctx.workspace, detached: true });
+      const sc = sandboxedCommand('bash', ['-c', cmd], { workspace: ctx.workspace });
+      child = spawn(sc.file, sc.args, { cwd: sc.cwd, env: sc.env, detached: true });
     } catch (e: any) {
       resolve({ ok: false, output: tailWithSuffix('', `exit=-1 spawn failed: ${e?.message ?? e}`) });
       return;
@@ -177,7 +188,7 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
       ),
       kind: 'read',
       run: safe(async (args, ctx) => {
-        const abs = inside(ctx.workspace, args.path);
+        const abs = inside(ctx, args.path);
         if (!abs) return outside(args.path);
         const text = await readText(abs, ctx);
         const lines = text.split('\n');
@@ -213,14 +224,11 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
       }, ['path', 'content']),
       kind: 'write',
       run: safe(async (args, ctx) => {
-        const abs = inside(ctx.workspace, args.path);
+        const abs = inside(ctx, args.path, true);
         if (!abs) return outside(args.path);
         const content = String(args.content ?? '');
         if (ctx.backend) await ctx.backend.writeFile(abs, content);
-        else {
-          mkdirSync(path.dirname(abs), { recursive: true });
-          writeFileSync(abs, content, 'utf8');
-        }
+        else writeFileNoFollow(abs, content);
         return { ok: true, output: `wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${args.path}` };
       }),
     },
@@ -230,14 +238,21 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
       }),
       kind: 'read',
       run: safe(async (args, ctx) => {
-        const abs = inside(ctx.workspace, args.path ?? '.');
+        const abs = inside(ctx, args.path ?? '.');
         if (!abs) return outside(args.path);
         let entries: string[];
         if (ctx.backend) {
           entries = (await ctx.backend.listDir(abs)).map((e) => `${e.name}${e.dir ? '/' : ''}`);
         } else {
-          entries = readdirSync(abs, { withFileTypes: true })
-            .map((e) => `${e.name}${statSync(path.join(abs, e.name)).isDirectory() ? '/' : ''}`);
+          entries = readdirSync(abs, { withFileTypes: true }).map((e) => {
+            let dir = e.isDirectory();
+            try {
+              dir = statSync(path.join(abs, e.name)).isDirectory();
+            } catch {
+              /* dangling symlink */
+            }
+            return `${e.name}${dir ? '/' : ''}`;
+          });
         }
         entries.sort();
         return { ok: true, output: truncate(entries.join('\n')) };

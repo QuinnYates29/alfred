@@ -32,7 +32,9 @@ command -v node >/dev/null || { echo "node >= 20 required" >&2; exit 1; }
 # .npmrc prefix check). Re-run this script after switching node versions with nvm.
 NODE="$(command -v node)"
 TSX="$REPO/node_modules/tsx/dist/cli.mjs"
-ARGS=("$NODE" "$TSX" "$REPO/src/node/client.ts" --server "$SERVER" --name "$NAME" --token "$TOKEN")
+# No --token here: argv is visible to every local process (ps). The client reads
+# ALFRED_TOKEN from the plist's EnvironmentVariables instead.
+ARGS=("$NODE" "$TSX" "$REPO/src/node/client.ts" --server "$SERVER" --name "$NAME")
 for r in "${ROOTS[@]}"; do ARGS+=(--root "$r"); done
 if [[ $WITH_DSH -eq 1 ]]; then
   ARGS+=(--dsh)
@@ -59,29 +61,36 @@ exec "$NODE" "$TSX" "$REPO/src/cli.ts" "\$@"
 EOF
 chmod +x "$HOME/.local/bin/alfred"
 
+# XML-escape a value for a plist <string>.
+xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g' -e "s/'/\&apos;/g"; }
+
 PLIST="$HOME/Library/LaunchAgents/com.alfred.node.plist"
 mkdir -p "$HOME/Library/LaunchAgents"
+# The plist holds the token: create it 0600 from the start (umask in a subshell), no chmod race.
+rm -f "$PLIST"
+(
+umask 077
 {
   echo '<?xml version="1.0" encoding="UTF-8"?>'
   echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
   echo '<plist version="1.0"><dict>'
   echo '  <key>Label</key><string>com.alfred.node</string>'
   echo '  <key>ProgramArguments</key><array>'
-  for a in "${ARGS[@]}"; do echo "  <string>$a</string>"; done
+  for a in "${ARGS[@]}"; do echo "  <string>$(xml "$a")</string>"; done
   echo '  </array>'
   echo '  <key>KeepAlive</key><true/>'
   echo '  <key>RunAtLoad</key><true/>'
   echo '  <key>StandardOutPath</key><string>/tmp/alfred-node.log</string>'
   echo '  <key>StandardErrorPath</key><string>/tmp/alfred-node.err</string>'
   echo '  <key>EnvironmentVariables</key><dict>'
-  echo "    <key>ALFRED_TOKEN</key><string>$TOKEN</string>"
+  echo "    <key>ALFRED_TOKEN</key><string>$(xml "$TOKEN")</string>"
   # launchd starts agents with PATH=/usr/bin:/bin:/usr/sbin:/sbin, which has no Homebrew/nvm node:
   # bake in the directory of the node found at install time.
-  echo "    <key>PATH</key><string>$(dirname "$(command -v node)"):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>"
+  echo "    <key>PATH</key><string>$(xml "$(dirname "$(command -v node)"):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin")</string>"
   echo '  </dict>'
   echo '</dict></plist>'
 } > "$PLIST"
-chmod 600 "$PLIST"
+)
 
 launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load "$PLIST"

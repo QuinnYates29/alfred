@@ -605,6 +605,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
           const t0 = Date.now();
           const r = await backend.exec(check.cmd, {
             cwd: check.cwd ?? workspace,
+            workspace, // sandbox: only the task workspace is writable, whatever cwd the check names
             timeoutMs: check.timeoutMs ?? 10 * 60 * 1000,
           });
           return {
@@ -616,7 +617,10 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
             timedOut: r.timedOut,
           };
         }
-      : (check: AcceptanceCheck) => (o.runner ?? defaultRunner)({ ...check, cwd: check.cwd ?? workspace });
+      : (check: AcceptanceCheck) =>
+          o.runner
+            ? o.runner({ ...check, cwd: check.cwd ?? workspace })
+            : defaultRunner({ ...check, cwd: check.cwd ?? workspace }, { workspace });
     let v: { ok: boolean; results: import('../types.js').CheckResult[] };
     try {
       v = await verifyAndComplete(o.store, taskId, { runner, by: o.workerId });
