@@ -120,6 +120,16 @@ export function handleInteractive(ctx: HandlerCtx, payload: Payload): void {
   }
 }
 
+/** Slack is external: a private chat thread must never answer there. */
+const PRIVATE_SLACK_REPLY = 'This conversation is private — continue it in the dashboard.';
+const threadIsPrivate = (chat: unknown, threadId: string): boolean => {
+  try {
+    return !!(chat as any)?.getThread?.(threadId)?.private;
+  } catch {
+    return false;
+  }
+};
+
 /** `slash_commands` envelope for /alfred. Returns the immediate ack payload. */
 export function handleSlash(ctx: HandlerCtx, payload: Payload): Payload {
   try {
@@ -151,7 +161,11 @@ export function handleSlash(ctx: HandlerCtx, payload: Payload): Payload {
     const responseUrl = payload.response_url;
     ctx.enqueue(async () => {
       const threadId = ctx.threads.resolve(key);
-      const reply = await (chat as any).send(threadId, text);
+      if (threadIsPrivate(chat, threadId)) {
+        if (responseUrl) await ctx.postUrl(responseUrl, { text: PRIVATE_SLACK_REPLY });
+        return;
+      }
+      const reply = await (chat as any).send(threadId, text, { source: 'slack' });
       if (responseUrl) await ctx.postUrl(responseUrl, { text: `${toMrkdwn(String(reply?.content ?? ''))}${actionsFooter(reply?.actions)}` });
     });
     return { text: 'On it…' };
@@ -216,6 +230,12 @@ export function handleEvent(ctx: HandlerCtx, event: Payload): void {
       const chat = ctx.getChat();
       if (!chat || !ctx.slackApi) return;
       const api = ctx.slackApi;
+      const threadId = ctx.threads.resolve(key);
+      // A private thread never answers on Slack (external) and the engine is not called.
+      if (threadIsPrivate(chat, threadId)) {
+        await api.postMessage({ channel, ...where, text: PRIVATE_SLACK_REPLY });
+        return;
+      }
       const placeholder = await api.postMessage({ channel, ...where, text: '_:hourglass_flowing_sand: thinking…_' });
       const deliver = async (body: string) => {
         if (placeholder && (await api.update({ channel, ts: placeholder, text: body }))) return;
@@ -223,7 +243,6 @@ export function handleEvent(ctx: HandlerCtx, event: Payload): void {
       };
       let unsub: (() => void) | null = null;
       try {
-        const threadId = ctx.threads.resolve(key);
         // live progress in the placeholder ("using contacts…"), like the dashboard's thinking bubble;
         // throttled — Slack allows ~1 chat.update per second
         let last = 0;
@@ -238,7 +257,7 @@ export function handleEvent(ctx: HandlerCtx, event: Payload): void {
             inflight = api.update({ channel, ts: placeholder, text: `_:hourglass_flowing_sand: using ${ev.data.tool}…_` });
           });
         }
-        const reply = await (chat as any).send(threadId, text);
+        const reply = await (chat as any).send(threadId, text, { source: 'slack' });
         settled = true;
         await inflight.catch(() => {}); // a progress update must not land after the reply
         await deliver(`${toMrkdwn(String(reply?.content ?? '')) || '_(no reply)_'}${actionsFooter(reply?.actions)}`);

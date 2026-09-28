@@ -2,6 +2,65 @@
 import { useResource } from '../../lib/live.jsx';
 import { compact, duration } from '../../lib/format.js';
 import { Stat, Meter, Sparkline, Empty, StatusChip } from '../../ui/index.jsx';
+import { apiText } from '../../api.js';
+
+/** H1 — the chat dataset card: turns recorded, 👍/👎, per model, and JSONL exports. */
+function downloadText(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function ChatData() {
+  const { data: d } = useResource('/api/chat/dataset/stats', { interval: 30000 });
+  const exportKind = async (kind) => {
+    try {
+      downloadText(`${kind}.jsonl`, await apiText(`/api/v1/chat/dataset/export?kind=${kind}`));
+    } catch {
+      /* the link just does nothing if the server refuses */
+    }
+  };
+  if (!d) return <span className="faint small">loading chat data…</span>;
+  const models = Object.entries(d.byModel ?? {});
+  return (
+    <Panel
+      title="Chat data"
+      actions={(
+        <span className="row">
+          {['chat', 'feedback', 'goals'].map((k) => (
+            <button key={k} type="button" className="btn ghost sm" onClick={() => void exportKind(k)}>Export {k}</button>
+          ))}
+        </span>
+      )}
+    >
+      <div className="row wrap">
+        <span className="chip info">{compact(d.turns)} turns</span>
+        <span className="chip ok">👍 {d.feedback?.up ?? 0}</span>
+        <span className="chip bad">👎 {d.feedback?.down ?? 0}</span>
+        <span className="chip">{compact(d.bytes)} B on disk</span>
+      </div>
+      {models.length > 0 && (
+        <table className="table">
+          <thead><tr><th>Model</th><th>Turns</th><th>👍 rate</th><th>Avg latency</th></tr></thead>
+          <tbody>
+            {models.map(([name, m]) => (
+              <tr key={name}>
+                <td>{name}</td>
+                <td className="key">{m.turns}</td>
+                <td>{m.up + m.down ? `${Math.round((m.up / (m.up + m.down)) * 100)}% (${m.up}/${m.up + m.down})` : '—'}</td>
+                <td>{duration(m.avgLatencyMs)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {d.dir && <span className="faint small" style={{ wordBreak: 'break-all' }}>dir: {d.dir}</span>}
+    </Panel>
+  );
+}
 
 function Panel({ title, actions, children }) {
   return (
@@ -102,6 +161,8 @@ export default function Overview() {
             <span className="chip info">{s.goals.active} active goals</span>
           </div>
         </Panel>
+
+        <ChatData />
       </div>
 
       <Panel title="Completion tokens — 24 h">

@@ -6,6 +6,7 @@ import { Api, Parsed, parseArgs, resolveConn } from './cli/util.js';
 import { cmdGoal, cmdLogin, cmdShow, cmdStatus, cmdTail } from './cli/core.js';
 import { cmdAdd, cmdBoard, cmdComment, cmdDone, cmdEdit, cmdInbox, cmdItem, cmdMv, cmdSend } from './cli/board.js';
 import { cmdAsk, cmdChat } from './cli/chat.js';
+import { cmdData } from './cli/data.js';
 import { cmdRun } from './cli/run.js';
 import { cmdBuild, cmdBuilds, cmdConfig, cmdJira, cmdLogs, cmdModels, cmdNodes, cmdOpen, cmdPersonas, cmdQwen, cmdStats, cmdSvc } from './cli/ops.js';
 import { cmdCat, cmdDiff, cmdDiscard, cmdFiles, cmdMerge, cmdTranscript } from './cli/review.js';
@@ -37,8 +38,13 @@ Board (P13)
   alfred send <KEY> [--persona p] [--repo r] [--node n] [--check name=cmd]…   dispatch as a goal
 
 Chat (P16)
-  alfred ask "<text>" [--thread id]             one-shot question to alfred
-  alfred chat [--thread id]                     interactive ( /quit to leave )
+  alfred ask "<text>" [--thread id] [--private]   one-shot question to alfred
+  alfred chat [--thread id] [--private]           interactive ( /quit to leave )
+                                                  --private: local model only, no tools, nothing saved
+
+Dataset (H1)
+  alfred data stats                              chat turns recorded, 👍/👎, per model
+  alfred data export [chat|feedback|goals] [--since 2026-09-01] > file.jsonl
 
 Run (D1)
   alfred run [persona] "<prompt>" [--repo P] [--node N] [--wait]
@@ -147,6 +153,7 @@ async function main(): Promise<void> {
     case 'send': return cmdSend(api, p, need(p.rest[0], 'alfred send <KEY> [--persona p]'));
     case 'ask': return cmdAsk(api, p);
     case 'chat': return cmdChat(api, p);
+    case 'data': return cmdData(api, p);
     case 'run': return cmdRun(api, p);
     case 'stats': return cmdStats(api, p);
     case 'svc': return cmdSvc(api, p);

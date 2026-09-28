@@ -73,3 +73,13 @@ export async function api(path, opts = {}) {
 
 export const post = (path, body) => api(path, { method: 'POST', body: body ?? {} });
 export const del = (path) => api(path, { method: 'DELETE' });
+
+/** Same auth as api(), but returns the raw text (JSONL exports…). Throws on non-2xx. */
+export async function apiText(path) {
+  const headers = {};
+  const t = getToken();
+  if (t) headers.authorization = 'Bearer ' + t;
+  const res = await fetch(path, { headers });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.text();
+}

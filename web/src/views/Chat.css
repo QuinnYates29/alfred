@@ -72,3 +72,31 @@
   .chat-threads { display: none; width: 100%; max-height: 40vh; }
   .chat-threads.open { display: flex; }
 }
+
+/* H1 — private mode + feedback */
+.chat-head {
+  flex: none; display: flex; align-items: center; gap: var(--s-2);
+  padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--line);
+}
+.chat-head-title { flex: 1; min-width: 0; font-weight: 600; }
+.chat-private-toggle.on, .chat-new-private.on { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.chat-new-private { margin-top: var(--s-1); justify-content: flex-start; }
+.chat-lock { opacity: 0.7; }
+.chat-private-banner {
+  flex: none; display: flex; align-items: center; gap: var(--s-1);
+  padding: var(--s-1) var(--s-3); background: var(--accent-soft); color: var(--fg-2);
+  border-bottom: 1px solid var(--accent-line);
+}
+.chat-feedback { display: flex; flex-direction: column; gap: var(--s-1); }
+.chat-feedback .row { gap: var(--s-1); }
+.chat-fb {
+  background: transparent; border: 1px solid var(--line); border-radius: var(--r);
+  padding: 1px var(--s-2); cursor: pointer; opacity: 0.45; font-size: 12px; line-height: 1.4;
+}
+.chat-fb:hover { opacity: 0.9; }
+.chat-fb.on { opacity: 1; border-color: var(--accent-line); background: var(--accent-soft); }
+.chat-fb.down.on { border-color: var(--bad-line, #b43); background: color-mix(in srgb, #b43 12%, transparent); }
+.chat-fb-form {
+  display: flex; flex-direction: column; gap: var(--s-1); max-width: 32rem;
+  padding: var(--s-2); border: 1px dashed var(--accent-line); border-radius: var(--r);
+}
