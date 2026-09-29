@@ -1,5 +1,14 @@
 # HANDOFF: state of the alfred build (keep this current)
 
+## 2026-09-29 09:15 — outputs, Jev, vault, Agents view, approvals: MERGED + DEPLOYED (635 tests)
+- O1 goal Outputs (output tool, report goals auto-publish, panel on the goal page). J2 Jev (src/jev/): review at finish
+  (report=enforce, code=advisory), escalate-only risk lines on approvals, web injection screen, jev_decide — inert until
+  TYPESAFE_API_KEY. V1 Obsidian vault via the Mac node's --vault (Settings → Node) + vault tool (auto in Alfred/, gated elsewhere).
+- Approvals: shell guards match INVOKED commands only (src/approvals.ts invokedCommands); goal page shows pending approvals
+  with Approve/Deny; Slack `/alfred approvals`; #/agents live view (GET /api/v1/agents).
+- J2/V1 "failed" 4 attempts: J2's failures were wrong test expectations; V1's agent broke its web/node_modules copy.
+  Fixed a real V1 hole: `Alfred/../X.md` skipped approval. Mac app build 20260929131321 published.
+
 ## 2026-09-28 17:10 — web tools, dispatch, Jira, chat dataset + Private: MERGED + DEPLOYED (539 tests)
 - W1 web_search (ALFRED_SEARCH=ddg default | searxng+SEARXNG_URL | brave+BRAVE_API_KEY) + web_fetch (src/runtime/web.ts:
   loopback/LAN/100.64/10/link-local refused at DNS time, redirects re-checked). On alfred/coder/researcher + chat.
