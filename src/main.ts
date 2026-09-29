@@ -502,6 +502,9 @@ export function serveConfig(env: Record<string, string | undefined> = process.en
     host: env.ALFRED_HOST ?? '0.0.0.0',
     deck: existsSync(deckDir) ? { dir: deckDir, port: Number(env.ALFRED_DECK_PORT ?? 8787) } : null,
     sandbox: 'bwrap', // ALFRED_SANDBOX=off overrides (see configureSandbox)
+    // The connector file: without this the production hub started with NO servers (only the
+    // Connectors page read the file), so file-configured MCP servers never connected.
+    mcpConfigPath: env.ALFRED_MCP_CONFIG ? expandHome(env.ALFRED_MCP_CONFIG) : join(REPO_ROOT, 'config', 'mcp.json'),
     env,
   };
 }
