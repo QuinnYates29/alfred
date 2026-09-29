@@ -10,7 +10,7 @@ const LINES: [string, string][] = [
   ['board', "Quinn's task board: list/create/update items (his own lists; edit freely)."],
   ['start_goal', 'start real work as a goal (coder, researcher, alfred).'],
   ['spawn_subagent', 'delegate a subtask to another persona.'],
-  ['platform', 'run the Spark: status, stats, services, qwen, logs, config, models, nodes, repos, automations.'],
+  ['platform', 'run the Spark: status, stats, services, qwen, logs, config, models, nodes, repos, automations. For what ran/failed and why (goals, tasks, turns, tokens), use platform with op runs (since: hours) — your shell cannot read the alfred DB or API.'],
   ['connectors', 'MCP connectors in config/mcp.json: list, add, remove, reconnect.'],
   ['alfred_dev', 'change alfred/the dashboard itself: propose → Quinn reviews → deploy.'],
   ['notify', 'notify Quinn himself (Slack channel + Mac notification); no approval needed. NOT a connector.'],

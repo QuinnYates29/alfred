@@ -358,6 +358,20 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
 
   // ---- notifier + loud failures + debounced markdown mirror
   wireLoudFailures(store, notifier);
+  // Lifecycle lines in journald: goal outcomes and task endings (a forensic trail beside the DB).
+  store.onEvent((e) => {
+    try {
+      if (e.kind === 'goal_status' && e.data?.status !== 'active') {
+        console.log(`[goals] ${store.getGoal(e.goalId)?.slug ?? e.goalId} → ${e.data?.status}`);
+      } else if (e.kind === 'transition' && ['done', 'failed', 'stopped', 'blocked', 'needs_claude'].includes(e.data?.to)) {
+        const t = e.taskId ? store.getTask(e.taskId) : undefined;
+        const why = String(e.data?.reason ?? '').replace(/\s+/g, ' ').slice(0, 160);
+        console.log(`[tasks] ${String(e.taskId).slice(0, 8)} ${t?.persona ?? '?'} ${e.data?.from} → ${e.data?.to}${why ? `: ${why}` : ''}`);
+      }
+    } catch {
+      /* logging must never break the store */
+    }
+  });
   const pendingMirrors = new Map<string, ReturnType<typeof setTimeout>>();
   const mirrorUnsub = store.onEvent((e) => {
     if (isNodeMirror) return; // node mirrors are written by the node-markdown sink

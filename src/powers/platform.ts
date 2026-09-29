@@ -10,7 +10,7 @@ import { selfApi, apiError, clip, type ApiResult } from './api.js';
 import { gated, sha256 } from './gate.js';
 import { capabilityCard } from './card.js';
 
-const READ_OPS = ['capabilities', 'status', 'stats', 'services', 'qwen', 'logs', 'config_list', 'config_get', 'models', 'nodes', 'repos'];
+const READ_OPS = ['capabilities', 'status', 'runs', 'stats', 'services', 'qwen', 'logs', 'config_list', 'config_get', 'models', 'nodes', 'repos'];
 const WRITE_OPS = ['service', 'qwen_set', 'config_set', 'model_role', 'automation', 'automation_delete'];
 const QWEN_KEYS = ['preset', 'slots', 'ctx', 'offload'] as const;
 
@@ -77,6 +77,42 @@ function status(deps: ModuleDeps): string {
   return out.join('\n');
 }
 
+/**
+ * `runs` — the goal/task ledger over a window (agents' sandbox can't read the DB or the API, by
+ * design; this is the read-only door): each goal with its tasks — persona, status, turns, tokens and
+ * the reason it ended — plus totals. `since` = hours back (default 24, max 168); `goal` = id or slug.
+ */
+function runs(deps: ModuleDeps, a: any): string {
+  const { store } = deps;
+  const hours = Math.min(Math.max(Number(a.since) || 24, 1), 168);
+  const from = Date.now() - hours * 3_600_000;
+  const want = str(a.goal).trim();
+  const goals = store
+    .listGoals()
+    .filter((g) => (want ? g.id === want || g.slug === want : g.updatedAt >= from || g.status === 'active'))
+    .sort((x, y) => x.createdAt - y.createdAt);
+  if (!goals.length) return want ? `no goal ${want}` : `no goals active or updated in the last ${hours} h`;
+  const at = (ms: number) => new Date(ms).toISOString().slice(5, 16).replace('T', ' ');
+  const tot = { goals: {} as Record<string, number>, tasks: {} as Record<string, number>, tokens: 0, turns: 0 };
+  const out: string[] = [];
+  for (const g of goals.slice(0, 40)) {
+    tot.goals[g.status] = (tot.goals[g.status] ?? 0) + 1;
+    const src = (g.meta as any)?.source ?? (g.meta as any)?.automation;
+    out.push(`## ${g.slug} [${g.status}] ${g.title} — ${at(g.createdAt)} → ${at(g.updatedAt)} UTC${src ? ` · from ${src}` : ''}`);
+    for (const t of store.listTasks(g.id)) {
+      const u = store.taskUsage(t.id);
+      tot.tasks[t.status] = (tot.tasks[t.status] ?? 0) + 1;
+      tot.tokens += u.promptTokens + u.completionTokens;
+      tot.turns += u.turns;
+      const why = (t.reason ?? t.result ?? '').replace(/\s+/g, ' ').slice(0, 200);
+      out.push(`${'  '.repeat(t.depth + 1)}- ${t.id.slice(0, 8)} ${t.persona} [${t.status}] ${t.title.slice(0, 70)} · ${u.turns} turns, ${u.promptTokens + u.completionTokens} tok${why ? ` — ${why}` : ''}`);
+    }
+  }
+  const fmt = (o: Record<string, number>) => Object.entries(o).map(([k, n]) => `${n} ${k}`).join(', ');
+  out.unshift(`window: last ${hours} h${want ? ` (goal ${want})` : ''} · goals: ${fmt(tot.goals)} · tasks: ${fmt(tot.tasks)} · ${tot.turns} turns, ${tot.tokens} tokens`);
+  return clip(out.join('\n'));
+}
+
 async function read(deps: ModuleDeps, op: string, a: any): Promise<ToolResult> {
   const get = (p: string) => selfApi(deps, 'GET', p);
   switch (op) {
@@ -84,6 +120,8 @@ async function read(deps: ModuleDeps, op: string, a: any): Promise<ToolResult> {
       return { ok: true, output: capabilityCard(deps) };
     case 'status':
       return { ok: true, output: status(deps) };
+    case 'runs':
+      return { ok: true, output: runs(deps, a) };
     case 'stats': {
       const r = await get('/stats');
       return r.ok ? { ok: true, output: fmtStats(r.body) } : fail(r);
@@ -243,7 +281,7 @@ export function platformTool(deps: ModuleDeps): Tool {
     schema: {
       name: 'platform',
       description:
-        'Run alfred. Reads: capabilities status stats services qwen logs{name,lines} config_list config_get{path} models nodes repos. ' +
+        'Run alfred. Reads: capabilities status runs{since?,goal?} stats services qwen logs{name,lines} config_list config_get{path} models nodes repos. ' +
         'Changes (need approval): service{name,action} qwen_set{preset|slots|ctx|offload} config_set{path,content} model_role{role,model} automation{name,cron,title,persona,spec} automation_delete{id}.',
       parameters: {
         type: 'object',
@@ -252,6 +290,8 @@ export function platformTool(deps: ModuleDeps): Tool {
           name: { type: 'string' },
           action: { type: 'string' },
           lines: { type: 'number' },
+          since: { type: 'number' },
+          goal: { type: 'string' },
           path: { type: 'string' },
           content: { type: 'string' },
           preset: { type: 'string' },
