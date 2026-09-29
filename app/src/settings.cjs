@@ -13,7 +13,7 @@ function defaults() {
     notify: { failures: true, approvals: true, done: false, chat: true },
     launchAtLogin: false,
     shortcut: 'CommandOrControl+Shift+Space',
-    node: { enabled: false, name: 'macbook', roots: [], dsh: false, messages: false },
+    node: { enabled: false, name: 'macbook', roots: [], dsh: false, messages: false, vault: '' },
     updates: { auto: true },
     bounds: null,
   };
@@ -60,6 +60,7 @@ function merge(raw) {
       roots: Array.isArray(n.roots) ? n.roots.filter((r) => typeof r === 'string' && r.trim()).map((r) => r.trim()) : [],
       dsh: typeof n.dsh === 'boolean' ? n.dsh : d.node.dsh,
       messages: typeof n.messages === 'boolean' ? n.messages : d.node.messages,
+      vault: typeof n.vault === 'string' ? n.vault.trim() : '',
     };
   }
   if (isObj(raw.updates) && typeof raw.updates.auto === 'boolean') out.updates = { auto: raw.updates.auto };

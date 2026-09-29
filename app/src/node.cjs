@@ -25,6 +25,8 @@ function nodeArgs(settings, script = SCRIPT) {
     ...(n.roots || []).flatMap((r) => ['--root', r]),
     ...(n.dsh ? ['--dsh'] : []),
     ...(n.messages ? ['--messages'] : []),
+    // V1: Obsidian vault folder (the node adds the `vault` cap; the folder is not a root)
+    ...(n.vault && String(n.vault).trim() ? ['--vault', String(n.vault).trim()] : []),
     // the app shows notifications itself (Electron, from the event stream): no duplicates from the node
     '--no-notify',
   ];

@@ -274,7 +274,9 @@ function runExec(callId: string, args: any): Promise<{ exitCode: number | null; 
 // exec bookkeeping (call id → child, so `cancel` can kill the process group)
 const running = new Map<string, RunningChild>();
 
-function handleOp(
+// V1: exported for tests (unit tests exercise vault routing + the vault-is-not-a-root refusal
+// without a websocket). Production callers use the ws dispatch below.
+export function handleOp(
   callId: string,
   op: string,
   args: any,
@@ -285,6 +287,26 @@ function handleOp(
     if (!node.caps.includes(VAULT_CAP)) return Promise.reject(new Error('vault ops are not enabled on this node'));
     // A vault refusal is an Error with honest text; the caller turns it into {ok:false,error}.
     return Promise.resolve().then(() => runVaultOp(node.vault!, op, args));
+  }
+  // V1: the vault is not a root — general fs/exec paths that land inside it are refused.
+  const vp = (pathOp: string, key: 'path' | 'from' | 'to') => {
+    const p = args?.[key];
+    if (node.vault && typeof p === 'string') {
+      try {
+        const abs = path.resolve(p);
+        const rel = path.relative(node.vault, abs);
+        if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
+          return Promise.reject(new Error(`outside the allowed roots: ${p} (the vault is only reachable through vault ops)`));
+        }
+      } catch {
+        /* unresolvable path: guardRoot will refuse it in its own words */
+      }
+    }
+    return null;
+  };
+  if (op === 'readFile' || op === 'writeFile' || op === 'listDir') {
+    const bad = vp(op, 'path');
+    if (bad) return bad;
   }
   switch (op) {
     case 'sendMessage':

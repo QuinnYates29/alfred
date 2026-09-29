@@ -9,6 +9,7 @@ import { boardTool } from '../board/tool.js';
 import { powersToolStubs } from '../powers/index.js';
 import { commsToolStubs } from '../comms/index.js';
 import { jiraToolStubs } from '../jira/index.js';
+import { vaultToolStubs } from '../vault/index.js';
 
 export function allTools(
   o: {
@@ -30,5 +31,6 @@ export function allTools(
     ...powersToolStubs(),
     ...commsToolStubs(),
     ...jiraToolStubs(),
+    ...vaultToolStubs(),
   ];
 }

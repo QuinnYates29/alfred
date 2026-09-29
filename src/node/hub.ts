@@ -271,6 +271,11 @@ export class NodeHub {
       if (v && typeof v === 'object' && v.ok === true) return { ok: true };
       return { ok: false, error: typeof v?.error === 'string' && v.error ? v.error : `${op} failed on ${node}` };
     } catch (e: any) {
+      // V1: a vault refusal comes back as an explicit reject with honest text ("page exists",
+      // "outside the vault") — nothing happened. Only a lost connection is uncertain.
+      if (typeof op === 'string' && op.startsWith('vault') && c && c.ws.readyState === c.ws.OPEN) {
+        return { ok: false, error: String(e?.message ?? e) };
+      }
       // The request went out; the connection dropped or timed out before the node answered.
       // It may well have happened (a text sent) — say so, so nobody retries into a duplicate.
       return { ok: false, uncertain: true, error: `${node} got the request but disconnected before confirming (${e?.message ?? String(e)})` };

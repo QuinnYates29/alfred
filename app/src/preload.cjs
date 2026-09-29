@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('alfredNative', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (s) => ipcRenderer.invoke('settings:save', s),
   testConnection: (s) => ipcRenderer.invoke('settings:test', s),
+  // V1 — "Choose…" for the Obsidian vault folder
+  chooseFolder: () => ipcRenderer.invoke('dialog:chooseFolder'),
   // U1 — updates, CLI, built-in node (main.cjs refuses these from anything but the app's own pages)
   updateStatus: () => ipcRenderer.invoke('update:status'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),

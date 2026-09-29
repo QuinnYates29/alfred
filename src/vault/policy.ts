@@ -19,7 +19,9 @@ export const DEFAULT_VAULT_POLICY: VaultPolicy = { node: '', agentFolder: 'Alfre
 
 /** config/vault.yaml, read fresh. Missing or broken → defaults. */
 export function loadVaultPolicy(deps: ModuleDeps): VaultPolicy {
-  const p = join(powersRoot(deps), 'config', 'vault.yaml');
+  const root = powersRoot(deps);
+  if (!root) return { ...DEFAULT_VAULT_POLICY };
+  const p = join(root, 'config', 'vault.yaml');
   if (!existsSync(p)) return { ...DEFAULT_VAULT_POLICY };
   try {
     const raw = parseYaml(readFileSync(p, 'utf8')) as any;
@@ -48,7 +50,7 @@ export const insideAgentFolder = (path: string, policy: VaultPolicy): boolean =>
 
 /** A page path, normalised: forward slashes, no leading /, `.md` added when missing. */
 export const normalizePage = (p: unknown): string => {
-  let s = String(p ?? '').trim().replaceAll('\\', '/').replace(/^\.?\//+, '');
+  let s = String(p ?? '').trim().replaceAll('\\', '/').replace(/^\.?\//, '');
   if (s && !s.toLowerCase().endsWith('.md')) s += '.md';
   return s;
 };

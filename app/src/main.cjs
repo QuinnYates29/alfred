@@ -590,6 +590,14 @@ function registerIpc() {
     return line;
   });
 
+  // V1 — folder picker for the Obsidian vault field (settings page only)
+  ipcMain.handle('dialog:chooseFolder', async (e) => {
+    if (!fromAppPage(e)) throw new Error('forbidden');
+    const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
+    if (r.canceled || !r.filePaths.length) return { ok: false };
+    return { ok: true, path: r.filePaths[0] };
+  });
+
   ipcMain.handle('settings:get', (e) => {
     if (!fromAppPage(e)) throw new Error('forbidden');
     const { bounds: _b, ...s } = settings;

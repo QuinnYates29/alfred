@@ -31,6 +31,7 @@ export function vaultResolve(vaultDir: string, rel: unknown, o: { write?: boolea
   if (norm.startsWith('/') || /^[A-Za-z]:[\\/]/.test(norm)) return null;
   const segs = norm.split('/').filter((s) => s !== '' && s !== '.');
   if (!segs.length || segs.some((s) => s === '..' || isDotSegment(s))) return null;
+  if (o.md && !norm.toLowerCase().endsWith('.md')) return null;
   return containedPath([vaultDir], segs.join(path.sep), { base: vaultDir, write: !!o.write });
 }
 

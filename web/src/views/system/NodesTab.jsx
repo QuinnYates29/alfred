@@ -5,6 +5,7 @@ import { Empty, Spinner } from '../../ui/index.jsx';
 
 export default function NodesTab() {
   const { data, error, loading } = useResource('/api/nodes', { on: ['node_'] });
+  const vault = useResource('/api/vault/status').data;
   if (error) return <Empty icon="alert" title="Nodes unavailable">{error.message}</Empty>;
   if (loading && !data) return <div className="card pad muted"><Spinner /> loading nodes…</div>;
 
@@ -13,6 +14,16 @@ export default function NodesTab() {
 
   return (
     <div className="stack">
+      <div className="card">
+        <div className="card-head"><h3>Vault</h3></div>
+        <div className="card-body">
+          <p className="muted small" style={{ margin: 0 }}>
+            {!vault ? '—' : vault.online
+              ? <>{vault.node} serves the Obsidian vault <span className="key">{vault.vaultName || '—'}</span> · agent folder <span className="mono xs">{vault.agentFolder}/</span></>
+              : 'No connected node serves a vault — set the Obsidian vault folder in the Mac app\u2019s node settings.'}
+          </p>
+        </div>
+      </div>
       <div className="card">
         <div className="card-head"><h3>Connected nodes</h3><span className="actions faint xs">{nodes.length} connected</span></div>
         <div className="sys-table">
