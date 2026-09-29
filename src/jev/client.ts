@@ -78,8 +78,20 @@ export interface JevClient {
   ): Promise<JevAskResult | null>;
 }
 
-const isPlainObject = (v: any): boolean =>
+const isPlainObject = (v: unknown): v is Record<string, any> =>
   !!v && typeof v === 'object' && !Array.isArray(v) && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
+
+/** Walk every string through the credential-shape redactor (structure kept). */
+export function scrubStrings(v: unknown): unknown {
+  if (typeof v === 'string') return redactSecrets(v);
+  if (Array.isArray(v)) return v.map(scrubStrings);
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = scrubStrings(x);
+    return out;
+  }
+  return v;
+}
 
 /** Keep the head and the tail of an over-long string, with a marker between. */
 export function cutMiddle(s: string, max = STATE_CHAR_CAP): string {
@@ -146,7 +158,8 @@ export function jevClient(
   const key = env?.TYPESAFE_API_KEY?.trim() ?? '';
   if (!key || policy?.enabled === false) return null;
   if (!MODELS.test(policy.model ?? '')) return null;
-  const red = envRedactor(env);
+  const redEnv = envRedactor(env);
+  const red = (v: unknown): unknown => scrubStrings(redEnv(v));
   const now = o.now ?? (() => Date.now());
   const doFetch = fetchImpl ?? globalThis.fetch;
   if (typeof doFetch !== 'function') return null;

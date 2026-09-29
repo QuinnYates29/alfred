@@ -31,6 +31,7 @@ import type { ModelRegistry } from '../models.js';
 import { DEFAULT_CONTEXT_WINDOW } from '../models.js';
 import { denyReason, toolCaps } from './caps.js';
 import { compactMessages, estimateRequest, nudgeMessage } from './compact.js';
+import { reviewFinish } from '../jev/review.js';
 
 export interface RunOpts {
   store: Store;
@@ -365,6 +366,8 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
   let lastErrKey: string | null = null;
   let errStreak = 0;
   let lastEventAt = Date.now();
+  // J2 §2 — the last tool calls of this run (finish excluded), for the done-gate reviewer.
+  const recentCalls: { name: string; args: string; ok: boolean; output: string }[] = [];
 
   const record = (kind: string, data: any) => {
     lastEventAt = Date.now();
@@ -650,6 +653,10 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         }
         if (!result.ok) failedCalls.add(c.id);
         record('tool', { name: c.name, ok: result.ok, output: capText(result.output ?? '', 2000) });
+        if (c.name !== 'finish') {
+          recentCalls.push({ name: c.name, args: safeJson(c.args ?? {}), ok: result.ok, output: result.output ?? '' });
+          if (recentCalls.length > 16) recentCalls.shift();
+        }
 
         if (control) return control.kind === 'park' ? parkedResult(control.reason) : control.task;
 
@@ -689,6 +696,14 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
     // P8: the compact result a parent sees via wait_subtasks.
     const summary = String(c.args?.summary ?? '').trim();
     o.store.setResult(taskId, summary.slice(0, 2000));
+    // J2 §2 — done-gate review before the task moves to verifying. Fail-open: with no hook
+    // (Jev off/unavailable) this is exactly the old behaviour.
+    try {
+      const decision = await reviewFinish({ task: task!, summary, recent: recentCalls.slice(-8) });
+      if (decision?.blocked) return { ok: false, output: decision.feedback };
+    } catch {
+      /* the reviewer must never break a finish */
+    }
     // Report goals (no checks, no repo): the summary IS the deliverable — saved where the check looks.
     if (task!.acceptance.some(isReportCheck)) {
       try {

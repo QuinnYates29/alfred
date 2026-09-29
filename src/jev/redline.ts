@@ -1,7 +1,8 @@
 // J2 — patterns for credential-shaped strings. The env redactor only knows the secrets alfred
 // itself holds; this catches the rest (Slack/AWS/GitHub/OpenAI/JWT/PEM/Bearer/key=value) so a
 // task deliverable or a scraped page never sends someone else's key to a cloud model.
-const PATTERNS: [RegExp, string][] = [
+type Repl = string | ((m: string, ...rest: string[]) => string);
+const PATTERNS: [RegExp, Repl][] = [
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '<redacted:key>'],
   [/\bxox[a-z]-[A-Za-z0-9-]{8,}\b/g, '<redacted>'],
   [/\bAKIA[0-9A-Z]{16}\b/g, '<redacted>'],

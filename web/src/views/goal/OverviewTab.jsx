@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { post, getToken } from '../../api.js';
 import { clock, compact, dateTime, duration } from '../../lib/format.js';
 import { Button, Empty, Icon, StatusChip, useAction } from '../../ui/index.jsx';
+import ReviewBadge from '../../components/ReviewBadge.jsx';
 import {
   buildTaskTree, claudeCommand, eventSummary, eventTone, flattenTree, isFailure,
   perTaskEconomy, retryable, stoppable,
@@ -29,7 +30,7 @@ function NoteForm({ onSave, onCancel }) {
   );
 }
 
-function TaskNode({ node, depth, onNote }) {
+function TaskNode({ node, depth, onNote, reviews }) {
   const t = node;
   const [noting, setNoting] = useState(false);
   const act = useAction();
@@ -38,6 +39,7 @@ function TaskNode({ node, depth, onNote }) {
     <div className="task-node" style={{ paddingLeft: Math.min(depth, 6) * 18 }}>
       <div className="task-main">
         <StatusChip status={t.status} />
+        <ReviewBadge data={reviews?.[t.id]} />
         <span className="task-title ellipsis">{t.title}</span>
         <span className="chip violet" title="persona">{t.persona}</span>
         {(t.attempt ?? 0) > 1 && <span className="chip" title="attempt">#{t.attempt}</span>}
@@ -78,7 +80,7 @@ function TaskNode({ node, depth, onNote }) {
         </div>
       )}
 
-      {(node.children ?? []).map((c) => <TaskNode key={c.id} node={c} depth={depth + 1} onNote={onNote} />)}
+      {(node.children ?? []).map((c) => <TaskNode key={c.id} node={c} depth={depth + 1} onNote={onNote} reviews={reviews} />)}
     </div>
   );
 }
@@ -172,6 +174,12 @@ export default function OverviewTab({ goal, tasks, events, usage }) {
   const failing = tasks.filter(isFailure);
   const claude = tasks.filter((t) => t.status === 'needs_claude');
   const goalFailed = goal.status === 'failed';
+  // J2 §6 — each task's latest `review` event data, for the verdict badge next to its status.
+  const reviews = useMemo(() => {
+    const m = {};
+    for (const e of events ?? []) if (e.kind === 'review' && e.taskId) m[e.taskId] = e.data;
+    return m;
+  }, [events]);
 
   return (
     <div className="stack" style={{ gap: 'var(--s-4)' }}>
@@ -196,7 +204,7 @@ export default function OverviewTab({ goal, tasks, events, usage }) {
           <div className="card-head"><h3>Tasks</h3><span className="chip">{tasks.length}</span></div>
           {flat.length === 0
             ? <Empty icon="list" title="No tasks yet" />
-            : <div className="task-tree">{tree.map((n) => <TaskNode key={n.id} node={n} depth={0} />)}</div>}
+            : <div className="task-tree">{tree.map((n) => <TaskNode key={n.id} node={n} depth={0} reviews={reviews} />)}</div>}
         </div>
 
         <div className="stack" style={{ gap: 'var(--s-4)' }}>

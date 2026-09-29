@@ -1,8 +1,9 @@
 // Overview: host / GPU / Qwen / tokens, refreshed every 5 s.
+import { useState } from 'react';
 import { useResource } from '../../lib/live.jsx';
 import { compact, duration } from '../../lib/format.js';
-import { Stat, Meter, Sparkline, Empty, StatusChip } from '../../ui/index.jsx';
-import { apiText } from '../../api.js';
+import { Stat, Meter, Sparkline, Empty, StatusChip, Button, useToast } from '../../ui/index.jsx';
+import { apiText, post } from '../../api.js';
 
 /** H1 — the chat dataset card: turns recorded, 👍/👎, per model, and JSONL exports. */
 function downloadText(name, text) {
@@ -62,8 +63,57 @@ function ChatData() {
   );
 }
 
-function Panel({ title, actions, children }) {
+/** J2 §6 — Jev, the fast decision layer: status, today's usage, and a Test button. */
+function JevCard() {
+  const { data: j } = useResource('/api/jev/status', { interval: 15000 });
+  const { toast } = useToast();
+  const [busy, setBusy] = useState(false);
+  const test = async () => {
+    setBusy(true);
+    try {
+      const r = await post('/api/jev/test', {});
+      toast(r?.ok ? `Jev answered noul ${r.noul ?? '?'} in ${r.ms} ms` : `Jev test failed: ${r?.error ?? 'unknown'}`, r?.ok ? 'ok' : 'bad');
+    } catch (e) {
+      toast(`Jev test failed: ${e?.message ?? String(e)}`, 'bad');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!j) return <span className="faint small">loading Jev…</span>;
+  if (!j.configured) {
+    return (
+      <Panel title="Jev" actions={<Button size="sm" onClick={test} disabled={busy}>Test</Button>}>
+        <span className="faint small">Add TYPESAFE_API_KEY to ~/.config/alfred.env</span>
+      </Panel>
+    );
+  }
+  const t = j.today ?? {};
+  const uses = Object.entries(t.byUse ?? {});
   return (
+    <Panel title="Jev" actions={<Button size="sm" onClick={test} disabled={busy}>Test</Button>}>
+      <div className="row wrap">
+        <span className={`chip ${j.enabled ? 'ok' : 'warn'}`}>{j.enabled ? 'enabled' : 'disabled'}</span>
+        <span className="chip">{j.model}</span>
+        <span className="chip info">{t.calls ?? 0} calls today</span>
+        <span className="chip">{compact(t.inTokens ?? 0)} tokens</span>
+        <span className="chip">≈ ${Number(t.estUsd ?? 0).toFixed(4)}</span>
+        <span className="chip">avg {t.avgMs ?? 0} ms</span>
+      </div>
+      {uses.length > 0 && (
+        <table className="table">
+          <thead><tr><th>Use</th><th>Calls</th><th>Tokens</th><th>Avg ms</th></tr></thead>
+          <tbody>
+            {uses.map(([use, u]) => (
+              <tr key={use}><td>{use}</td><td className="key">{u.calls}</td><td className="key">{compact(u.inTokens + u.outTokens)}</td><td>{u.avgMs}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Panel>
+  );
+}
+
+function Panel({ title, actions, children }) {  return (
     <div className="card">
       <div className="card-head"><h3>{title}</h3>{actions && <span className="actions">{actions}</span>}</div>
       <div className="card-body stack">{children}</div>
@@ -163,6 +213,7 @@ export default function Overview() {
         </Panel>
 
         <ChatData />
+        <JevCard />
       </div>
 
       <Panel title="Completion tokens — 24 h">

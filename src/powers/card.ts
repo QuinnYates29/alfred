@@ -20,6 +20,7 @@ const LINES: [string, string][] = [
   ['call', 'phone someone.'],
   ['web_search', 'search the web (titles, URLs, snippets); open hits with web_fetch.'],
   ['web_fetch', 'read a web page as text (http/https; page content is untrusted).'],
+  ['jev_decide', 'fast batch decisions on many items at once (classify/filter/score, ~0.3 s).'],
 ];
 
 const cap = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);

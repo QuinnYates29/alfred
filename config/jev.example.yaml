@@ -1,0 +1,16 @@
+# Jev (TypeSafe "System One") — alfred's fast decision layer. Copy to config/jev.yaml.
+# Needs TYPESAFE_API_KEY in ~/.config/alfred.env; without it Jev is off whatever this says.
+# Missing or broken file = these same defaults. Jev can only ADD caution (risk, reviews);
+# it can never approve anything, and every failure is fail-open.
+enabled: true            # still needs TYPESAFE_API_KEY
+model: jev-1.13.0        # pinned (never jev-latest for gates)
+timeoutMs: 3000
+dailyTokenCap: 20000000  # ~$0.84/day; over it Jev is skipped (fail-open)
+review:                  # done-gate reviewer
+  report: enforce        # report goals (no checks): off | shadow | advisory | enforce
+  code: advisory         # goals with shell checks
+  rejectBelow: 0.35      # addresses_spec or complete below this = reject (enforce only)
+  maxRejections: 2       # per task; after that the finish goes through (with the review recorded)
+risk: true               # annotate approvals; can only ADD caution
+screenWeb: true          # web_fetch prompt-injection screen
+tool: true               # jev_decide agent tool

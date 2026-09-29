@@ -6,6 +6,7 @@
 // throws or returns null — the finish behaves exactly as it did before (fail-open).
 import type { Task } from '../types.js';
 import type { Store } from '../store.js';
+import { isReportCheck } from '../ops.js';
 import type { JevClient, JevQuestion } from './client.js';
 import type { JevPolicy, JevMode } from './policy.js';
 
@@ -131,8 +132,7 @@ const num = (v: unknown): number | null => {
 
 /** The mode that applies to this task: report goals use `report`, everything else `code`. */
 export function reviewModeFor(policy: JevPolicy, task: Task): JevMode {
-  const report = (task.acceptance ?? []).some((c) => c.name === 'report' && c.cmd === 'test "$(wc -c < REPORT.md)" -ge 200');
-  return report ? policy.review.report : policy.review.code;
+  return (task.acceptance ?? []).some(isReportCheck) ? policy.review.report : policy.review.code;
 }
 
 export interface MakeReviewHook {
