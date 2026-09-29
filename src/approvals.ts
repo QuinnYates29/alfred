@@ -115,6 +115,40 @@ function hasSparkOnlyPush(cmd: string): boolean {
   return sawPush;
 }
 
+/** Wrappers that run their argument as a command: when one is invoked, fall back to plain word matching. */
+const NESTING = new Set(['bash', 'sh', 'zsh', 'dash', 'fish', 'eval', 'xargs', 'env', 'exec', 'nohup', 'timeout', 'nice', 'ionice', 'watch', 'parallel', 'find', 'su', 'doas', 'python', 'python3', 'perl', 'ruby', 'node']);
+const PREFIXES = new Set(['time', 'command', 'builtin', 'then', 'do', 'else', 'if', 'while', 'until', '!', '{', '(']);
+
+/**
+ * The commands a shell line actually INVOKES (first word of every pipeline segment, after
+ * VAR=value assignments and keyword prefixes), with quoted strings removed first — so
+ * `grep -i 'sudo' auth.log` or `which systemctl` invoke grep/which, not sudo/systemctl.
+ * Returns null when a nesting wrapper (bash -c, eval, xargs, find -exec, python -c…) is
+ * invoked: then its arguments are commands too, and callers must match conservatively.
+ */
+export function invokedCommands(cmd: string): string[] | null {
+  const unquoted = cmd.replace(/'[^']*'/g, "''").replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  const out: string[] = [];
+  for (const seg of unquoted.split(/[;&|\n\r`]+|\$\(|\(|\)/)) {
+    const parts = seg.trim().split(/\s+/).filter(Boolean);
+    let i = 0;
+    while (i < parts.length && (PREFIXES.has(parts[i]!) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(parts[i]!))) i++;
+    const w = parts[i];
+    if (!w) continue;
+    const base = w.replace(/^.*\//, '');
+    if (NESTING.has(base)) return null;
+    out.push(base);
+  }
+  return out;
+}
+
+/** Is `name` run as a command? (conservative word match when a wrapper is involved) */
+function runs(c: string, ...names: string[]): boolean {
+  const inv = invokedCommands(c);
+  if (inv === null) return names.some((n) => new RegExp(`\\b${n}\\b`).test(c));
+  return inv.some((w) => names.includes(w));
+}
+
 /** Guards, checked in order. Names appear in the park reason and the approval row. */
 export const GUARDS: Guard[] = [
   { name: 'git push', test: (c) => /\bgit\b/.test(c) && /\bpush\b/.test(c) && !hasSparkOnlyPush(c) },
@@ -122,19 +156,19 @@ export const GUARDS: Guard[] = [
   { name: 'gh release', test: (c) => /\bgh\b[\s\S]*?\brelease\b/.test(c) },
   { name: 'npm publish', test: (c) => /\b(npm|pnpm|yarn)\b[\s\S]*?\bpublish\b/.test(c) },
   { name: 'docker push', test: (c) => /\b(docker|podman)\b[\s\S]*?\bpush\b/.test(c) },
-  { name: 'sudo', test: (c) => /\bsudo\b/.test(c) },
-  { name: 'ssh', test: (c) => /\bssh\b/.test(c) },
-  { name: 'scp', test: (c) => /\bscp\b/.test(c) },
+  { name: 'sudo', test: (c) => runs(c, 'sudo', 'doas', 'su') },
+  { name: 'ssh', test: (c) => runs(c, 'ssh') },
+  { name: 'scp', test: (c) => runs(c, 'scp', 'sftp') },
   {
     name: 'systemctl',
-    test: (c) => /\bsystemctl\b/.test(c) && !/--user[\s\S]*?\b(status|is-active|is-enabled|show|cat)\b/.test(c),
+    test: (c) => runs(c, 'systemctl') && !/--user[\s\S]*?\b(status|is-active|is-enabled|show|cat)\b/.test(c),
   },
   {
     name: 'curl sends data',
     test: (c) => /\b(curl|wget)\b/.test(c) && sendsData(c) && hosts(c).some((h) => !isLocalHost(h)),
   },
   { name: 'rm -rf root', test: recursiveForceRm },
-  { name: 'shutdown', test: (c) => /\b(shutdown|reboot|poweroff|halt)\b/.test(c) },
+  { name: 'shutdown', test: (c) => runs(c, 'shutdown', 'reboot', 'poweroff', 'halt') },
 ];
 
 /** The name of the matching guard, or null. */

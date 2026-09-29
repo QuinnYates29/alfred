@@ -50,6 +50,23 @@ function block(s: string, n: number): string {
   return e.length > n ? `${e.slice(0, n)}…` : e;
 }
 
+/** Slack blocks for an approval notice: escaped title, detail in a code block, info, Approve/Deny. */
+export function approvalBlocks(n: { title: string; body: string; info?: string; approvalId?: string }): any[] {
+  // Title and detail are agent-influenced: escaped, and the detail stays inside its code block.
+  const title = block(n.title, 300).replace(/[*_~]/g, (c) => `\u200b${c}`);
+  return [
+    { type: 'section', text: { type: 'mrkdwn', text: `*${title}*\n\`\`\`\n${block(n.body, 2500)}\n\`\`\`` } },
+    ...(n.info ? [{ type: 'section', text: { type: 'mrkdwn', text: `\`\`\`\n${block(n.info, 2900)}\n\`\`\`` } }] : []),
+    {
+      type: 'actions',
+      elements: [
+        { type: 'button', action_id: 'approve', value: n.approvalId, style: 'primary', text: { type: 'plain_text', text: 'Approve' } },
+        { type: 'button', action_id: 'deny', value: n.approvalId, style: 'danger', text: { type: 'plain_text', text: 'Deny' } },
+      ],
+    },
+  ];
+}
+
 function slackText(n: Notice, dashboardUrl?: string): string {
   const parts = [`${EMOJI[n.level]} ${slackEscape(n.title)}`, slackEscape(n.body)];
   if (dashboardUrl && n.goalId) parts.push(`${dashboardUrl}/#/goal/${n.goalId}`);
@@ -81,36 +98,7 @@ export function slackSink(o: {
         const body: Record<string, any> = { channel: o.channel, text };
         // P20: approval notices get Approve/Deny buttons (bot mode only).
         if (n.approvalId) {
-          // Title and detail are agent-influenced: escaped, and the detail stays inside its code block.
-          const title = block(n.title, 300).replace(/[*_~]/g, (c) => `\u200b${c}`);
-          body.blocks = [
-            {
-              type: 'section',
-              text: { type: 'mrkdwn', text: `*${title}*\n\`\`\`\n${block(n.body, 2500)}\n\`\`\`` },
-            },
-            ...(n.info
-              ? [{ type: 'section', text: { type: 'mrkdwn', text: `\`\`\`\n${block(n.info, 2900)}\n\`\`\`` } }]
-              : []),
-            {
-              type: 'actions',
-              elements: [
-                {
-                  type: 'button',
-                  action_id: 'approve',
-                  value: n.approvalId,
-                  style: 'primary',
-                  text: { type: 'plain_text', text: 'Approve' },
-                },
-                {
-                  type: 'button',
-                  action_id: 'deny',
-                  value: n.approvalId,
-                  style: 'danger',
-                  text: { type: 'plain_text', text: 'Deny' },
-                },
-              ],
-            },
-          ];
+          body.blocks = approvalBlocks(n);
         }
         const res = await doFetch('https://slack.com/api/chat.postMessage', {
           method: 'POST',

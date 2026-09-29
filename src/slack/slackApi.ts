@@ -31,7 +31,7 @@ export function createSlackApi(o: {
 
   return {
     /** Resolves to the posted message's ts (null when Slack refused or did not say). */
-    async postMessage(o2: { channel: string; text: string; thread_ts?: string }): Promise<string | null> {
+    async postMessage(o2: { channel: string; text: string; thread_ts?: string; blocks?: any[] }): Promise<string | null> {
       const d = await call('chat.postMessage', o2);
       return typeof d?.ts === 'string' ? d.ts : null;
     },

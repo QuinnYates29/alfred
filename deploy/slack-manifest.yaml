@@ -14,7 +14,7 @@ features:
   slash_commands:
     - command: /alfred
       description: status · inbox · add <title> · run coder <task> · or ask anything
-      usage_hint: "status | inbox | add Buy milk | run coder <task> | what's running?"
+      usage_hint: "status | inbox | approvals | add Buy milk | run coder <task> | what's running?"
       should_escape: false
 oauth_config:
   scopes:

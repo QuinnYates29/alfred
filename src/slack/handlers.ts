@@ -7,6 +7,7 @@ import type { ChatLike } from './threadMap.js';
 import { actionsFooter, toMrkdwn } from './format.js';
 import { slackEscape } from '../notify/sinks.js';
 import { parseDispatch } from '../dispatch.js';
+import { approvalBlocks } from '../notify/sinks.js';
 
 export interface HandlerCtx {
   store: Store;
@@ -138,6 +139,20 @@ export function handleSlash(ctx: HandlerCtx, payload: Payload): Payload {
     const lower = text.toLowerCase();
     if (lower === 'status') return { text: statusText(ctx.store) };
     if (lower === 'inbox') return { text: inboxText(ctx.store) };
+    // Every pending approval as its own card with Approve/Deny (the originals may be far up the channel).
+    if (lower === 'approvals' || lower === 'approve') {
+      const pending = ctx.store.approvals({ status: 'pending' });
+      if (!pending.length) return { text: 'No approvals pending.' };
+      const channel = payload.channel_id;
+      ctx.enqueue(async () => {
+        for (const a of pending) {
+          const task = a.taskId && !String(a.taskId).startsWith('chat:') ? ctx.store.getTask(a.taskId) : undefined;
+          const title = `Approval needed: ${a.action}${task ? ` — ${task.title}` : ''}`;
+          await ctx.slackApi?.postMessage({ channel, text: title, blocks: approvalBlocks({ title, body: a.detail, info: a.info ?? undefined, approvalId: a.id }) });
+        }
+      });
+      return { text: `${pending.length} pending approval${pending.length === 1 ? '' : 's'} — posting them with buttons…` };
+    }
     if (/^add(\s|$)/.test(lower)) {
       const title = text.slice(4).trim();
       const board = ctx.getBoard();

@@ -4,6 +4,8 @@ import { post, getToken } from '../../api.js';
 import { clock, compact, dateTime, duration } from '../../lib/format.js';
 import { Button, Empty, Icon, StatusChip, useAction } from '../../ui/index.jsx';
 import ReviewBadge from '../../components/ReviewBadge.jsx';
+import ApprovalCard from '../../components/ApprovalCard.jsx';
+import { useResource } from '../../lib/live.jsx';
 import {
   buildTaskTree, claudeCommand, eventSummary, eventTone, flattenTree, isFailure,
   perTaskEconomy, retryable, stoppable,
@@ -171,7 +173,12 @@ function Usage({ usage, events, tasks }) {
 export default function OverviewTab({ goal, tasks, events, usage }) {
   const tree = useMemo(() => buildTaskTree(tasks), [tasks]);
   const flat = useMemo(() => flattenTree(tree), [tree]);
-  const failing = tasks.filter(isFailure);
+  // Pending approvals for this goal: shown as "waiting for your OK" cards with Approve/Deny,
+  // and their blocked tasks are not listed again as red failure cards.
+  const pendingAll = useResource('/api/approvals?status=pending', { on: ['approval_'] });
+  const pending = (pendingAll.data ?? []).filter((a) => a.goalId === goal.id);
+  const waitingIds = new Set(pending.map((a) => a.taskId));
+  const failing = tasks.filter((t) => isFailure(t) && !(t.status === 'blocked' && waitingIds.has(t.id)));
   const claude = tasks.filter((t) => t.status === 'needs_claude');
   const goalFailed = goal.status === 'failed';
   // J2 §6 — each task's latest `review` event data, for the verdict badge next to its status.
@@ -183,6 +190,10 @@ export default function OverviewTab({ goal, tasks, events, usage }) {
 
   return (
     <div className="stack" style={{ gap: 'var(--s-4)' }}>
+      {pending.map((a) => (
+        <ApprovalCard key={a.id} approval={a} taskTitle={tasks.find((t) => t.id === a.taskId)?.title} onDecided={() => pendingAll.reload?.()} />
+      ))}
+
       {(goalFailed || failing.length > 0) && (
         <div className="stack tight">
           {failing.map((t) => (
