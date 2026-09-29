@@ -6,7 +6,8 @@ import express, { type Express, type Request, type Response } from 'express';
 import { existsSync } from 'node:fs';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { Store } from '../store.js';
+import type { Store, GoalOutput } from '../store.js';
+import type { Goal } from '../types.js';
 import type { Scheduler } from '../runtime/scheduler.js';
 import type { Automations } from '../automations.js';
 import type { McpHub } from '../connectors/mcp.js';
@@ -232,7 +233,7 @@ function buildRouter(d: AppDeps): express.Router {
   });
 
   // O1 — goal outputs: deliverables an agent published for Quinn to read on the goal page.
-  const outputEntry = (req: Request): { goal: Goal; row: GoalOutput } | { err: number } => {
+  const outputEntry = (req: Request<{ id: string; oid: string }>): { goal: Goal; row: GoalOutput } | { err: number } => {
     const goal = findGoal(req.params.id);
     if (!goal) return { err: 404 };
     const row = d.store.getOutput(req.params.oid);

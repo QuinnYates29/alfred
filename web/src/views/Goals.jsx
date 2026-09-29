@@ -3,11 +3,11 @@ import { useState } from 'react';
 import { useResource } from '../lib/live.jsx';
 import { href } from '../lib/router.js';
 import { timeAgo } from '../lib/format.js';
-import { Seg, StatusChip, Empty, Spinner } from '../ui/index.jsx';
+import { Seg, StatusChip, Empty, Spinner, Icon } from '../ui/index.jsx';
 import { GOAL_SEGS, filterGoals, needsAttention, countTasks, whereOf } from './goal/model.js';
 
 export default function Goals() {
-  const { data, loading, error } = useResource('/api/goals', { on: ['goal_', 'transition', 'task_created'] });
+  const { data, loading, error } = useResource('/api/goals', { on: ['goal_', 'transition', 'task_created', 'output'] });
   const [seg, setSeg] = useState('active');
   const [text, setText] = useState('');
 
@@ -55,6 +55,11 @@ export default function Goals() {
             </span>
             <span className="row wrap" style={{ gap: 10, justifyContent: 'flex-end' }}>
               <span className="chip" title="tasks">{countTasks(g.counts)} task{countTasks(g.counts) === 1 ? '' : 's'}</span>
+              {(g.outputs ?? 0) > 0 && (
+                <span className="row" style={{ gap: 4 }} title={`${g.outputs} output${g.outputs === 1 ? '' : 's'}`}>
+                  <Icon name="file" size={13} /><span className="chip">{g.outputs}</span>
+                </span>
+              )}
               {(g.counts?.running ?? 0) > 0 && <span className="chip running"><span className="dot" />{g.counts.running} running</span>}
               <span className="xs faint" style={{ minWidth: 56, textAlign: 'right' }}>
                 {g.status === 'active' ? timeAgo(g.updatedAt || g.createdAt) : timeAgo(g.createdAt)}
