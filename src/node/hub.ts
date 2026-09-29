@@ -9,7 +9,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { NodeOfflineError, type WorkspaceBackend } from '../runtime/contract.js';
 import { writeFileNoFollow } from '../pathguard.js';
 import { sandboxedCommand } from '../sandbox.js';
-import { encode, guardRoot, outsideRoots, parseMsg, tailOut, type CommsOp, type CommsResult, type ExecValue, type ResultMsg } from './protocol.js';
+import { encode, guardRoot, outsideRoots, parseMsg, tailOut, type CommsOp, type CommsResult, type ExecValue, type ResultMsg, type VaultOp } from './protocol.js';
 
 const DEFAULT_CALL_TIMEOUT_MS = 60_000;
 /** P21b: Messages.app / the tel: handoff answer within seconds; don't hold a tool longer. */
@@ -55,6 +55,8 @@ interface NodeConn {
   connectedAt: number;
   /** P10: sandbox workspace dir advertised in hello. */
   sandbox: string;
+  /** V1: Obsidian vault folder NAME advertised in hello (never the absolute path). */
+  vault?: string;
   ws: WebSocket;
   pending: Map<string, Pending>;
   misses: number;
@@ -67,6 +69,8 @@ export interface NodeInfo {
   connectedAt: number;
   /** P10: where sandbox workspaces go on this node (advertised; default <first root>/alfred-sandbox). */
   sandbox: string;
+  /** V1: Obsidian vault folder name this node serves (advertised; undefined = no vault). */
+  vault?: string;
 }
 
 /**
@@ -212,12 +216,15 @@ export class NodeHub {
       caps: c.caps,
       connectedAt: c.connectedAt,
       sandbox: c.sandbox,
+      ...(c.vault ? { vault: c.vault } : {}),
     }));
   }
 
   info(name: string): NodeInfo | null {
     const c = this.nodes.get(name);
-    return c ? { name: c.name, roots: c.roots, caps: c.caps, connectedAt: c.connectedAt, sandbox: c.sandbox } : null;
+    return c
+      ? { name: c.name, roots: c.roots, caps: c.caps, connectedAt: c.connectedAt, sandbox: c.sandbox, ...(c.vault ? { vault: c.vault } : {}) }
+      : null;
   }
 
   backend(node: string): WorkspaceBackend {
@@ -254,11 +261,13 @@ export class NodeHub {
    * P21b: run a comms op (sendMessage {to, text} / placeCall {to}) on a node. Never throws:
    * an offline node, a timeout or a failed op is `{ok:false, error}`.
    */
-  async call(node: string, op: CommsOp, args: Record<string, unknown>, timeoutMs = COMMS_TIMEOUT_MS): Promise<CommsResult> {
+  async call(node: string, op: CommsOp | VaultOp, args: Record<string, unknown>, timeoutMs = COMMS_TIMEOUT_MS): Promise<CommsResult> {
     const c = this.nodes.get(node);
     if (!c || c.ws.readyState !== c.ws.OPEN) return { ok: false, error: `node ${node} offline` };
     try {
       const v = await this.rpc(node, op, args, { timeoutMs });
+      // V1: vault ops answer with their value; comms ops answer {ok}.
+      if (typeof op === 'string' && op.startsWith('vault')) return { ok: true, value: v };
       if (v && typeof v === 'object' && v.ok === true) return { ok: true };
       return { ok: false, error: typeof v?.error === 'string' && v.error ? v.error : `${op} failed on ${node}` };
     } catch (e: any) {
@@ -395,6 +404,9 @@ export class NodeHub {
           typeof (msg as any).sandbox === 'string' && (msg as any).sandbox
             ? String((msg as any).sandbox)
             : `${(msg.roots.map(String)[0] ?? '').replace(/\/+$/, '')}/alfred-sandbox`,
+        ...(typeof (msg as any).vault?.name === 'string' && (msg as any).vault.name
+          ? { vault: String((msg as any).vault.name) }
+          : {}),
         ws,
         pending: new Map(),
         misses: 0,

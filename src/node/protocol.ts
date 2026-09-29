@@ -1,6 +1,5 @@
 // P9 §1 — the wire protocol shared by the Alfred server (NodeHub) and alfred-node.
 // JSON messages over a WebSocket at GET /api/nodes/connect?token=<ALFRED_TOKEN>.
-import { readdirSync, statSync, type Stats } from 'node:fs';
 import path from 'node:path';
 import { containedPath } from '../pathguard.js';
 
@@ -32,6 +31,8 @@ export interface CommsResult {
   error?: string;
   /** The request reached the node but no answer came back (disconnect/timeout): it may have happened. */
   uncertain?: boolean;
+  /** V1: the op's value (vault ops). Comms ops never set it. */
+  value?: any;
 }
 /** Longest text a message may carry (Twilio's SMS limit; Messages accepts it too). */
 export const MAX_MESSAGE_CHARS = 1600;
@@ -94,6 +95,9 @@ export interface ExecValue {
   output: string;
   timedOut: boolean;
 }
+
+/** V1: the hello line for a vault — the folder NAME only, never the absolute path. */
+export const vaultHello = (vaultDir: string): { name: string } => ({ name: path.basename(vaultDir.replace(/[/\\]+$/, '')) || vaultDir });
 
 export function encode(msg: NodeMsg): string {
   return JSON.stringify(msg);
