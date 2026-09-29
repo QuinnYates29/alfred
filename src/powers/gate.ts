@@ -231,6 +231,22 @@ export async function gated(
     return run();
   };
 
+  // J2 §3 — Jev risk annotation, ESCALATE ONLY: it annotates the approval we are about to
+  // request, and can turn an auto-approve into a request. It can never approve or skip anything.
+  // Reached through deps.modules.jev (no import edge from the gate into the jev module);
+  // no module / no client / any error = null = today's behaviour. Never called from chat.
+  const askJev = async (): Promise<{ line: string; escalate: boolean } | null> => {
+    try {
+      const fn = (deps.modules?.jev as any)?.risk;
+      if (typeof fn !== 'function') return null;
+      const r = await fn({ action, detail, info: o.info ?? '' });
+      return r && typeof r.line === 'string' ? { line: r.line, escalate: r.escalate === true } : null;
+    } catch {
+      return null;
+    }
+  };
+  let jevLine: string | null = null;
+
   if (chat) {
     const ask = asks.get(askKey(threadId, detail));
     const bindOk = !ask || o.bind === undefined || ask.bind === o.bind;
@@ -269,24 +285,33 @@ export async function gated(
     };
   }
 
+  let autoHit = false;
   if (store.consumeApproval(taskId, detail)) {
     const want = requested.get(key);
     requested.delete(key);
     if (o.bind === undefined || want === o.bind) return go({});
     // Approved for something else under the same name: ask again for what is asked now.
-  } else if (autoApproved(loadPolicy(deps), action, detail, o.to)) {
-    return go({ auto: true });
+  } else if ((autoHit = autoApproved(loadPolicy(deps), action, detail, o.to))) {
+    const r = await askJev();
+    if (r) jevLine = r.line;
+    if (!r?.escalate) return go({ auto: true });
+    // Jev escalated the pre-approved action: fall through and ask Quinn instead.
+  } else {
+    const r = await askJev();
+    if (r) jevLine = r.line;
   }
+  const info = jevLine ? (o.info ? `${jevLine}\n${o.info}` : jevLine) : o.info;
+  const parkedExtra = { ...(autoHit ? { escalated: 'jev' } : {}) };
 
   try {
-    store.requestApproval(taskId, action, detail, o.info);
+    store.requestApproval(taskId, action, detail, info);
     if (o.bind !== undefined) requested.set(key, o.bind);
-    if (o.info) store.appendNote(taskId, `approval requested — ${detail}: ${capInfo(o.info)}`);
+    if (info) store.appendNote(taskId, `approval requested — ${detail}: ${capInfo(info)}`);
   } catch (e: any) {
-    record(deps, { ...base, outcome: 'refused' });
+    record(deps, { ...base, outcome: 'refused', ...parkedExtra });
     return { ok: false, output: `approval needed: ${action}: ${detail} — but no task to park (${e?.message ?? e})` };
   }
-  record(deps, { ...base, outcome: 'parked' });
+  record(deps, { ...base, outcome: 'parked', ...parkedExtra });
   return {
     ok: false,
     output: `approval needed: ${action}: ${detail}`,
