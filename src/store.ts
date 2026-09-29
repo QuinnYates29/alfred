@@ -121,13 +121,48 @@ export interface Repo {
   updatedAt: number;
 }
 
+/** O1 — a first-class deliverable published to a goal (what Quinn reads on the goal page). */
+export const OUTPUT_KINDS = ['markdown', 'text', 'json', 'csv', 'html-code'] as const;
+export type OutputKind = (typeof OUTPUT_KINDS)[number];
+export const OUTPUT_MAX_BYTES = 512 * 1024;
+
+export interface PutOutputInput {
+  goalId: string;
+  taskId?: string | null;
+  name: string;
+  /** Default 'markdown'. */
+  kind?: string;
+  content: string;
+}
+
+export interface GoalOutput {
+  id: string;
+  goalId: string;
+  taskId: string | null;
+  name: string;
+  kind: OutputKind;
+  /** Omitted by outputs() (list view); present in getOutput(). */
+  content?: string;
+  bytes: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Store {
+  /** O1: upsert an output by (goalId, name); emits the `output` event (never the content). */
+  putOutput(input: PutOutputInput): GoalOutput;
+  /** O1: the goal's outputs, newest first, WITHOUT content. */
+  outputs(goalId: string): GoalOutput[];
+  /** O1: one output WITH content. */
+  getOutput(id: string): GoalOutput | undefined;
+  /** O1: delete an output; false when there was no such row. */
+  deleteOutput(id: string): boolean;
   createGoal(input: CreateGoalInput): Goal;
   getGoal(id: string): Goal | undefined;
   listGoals(): Goal[];
   /** Shallow-merge patch into the goal's meta; returns the updated goal. */
   setGoalMeta(goalId: string, patch: Record<string, any>): Goal;
-  /** Permanently delete a goal with its tasks, events and approvals. Refuses while a task is
+  /** Permanently delete a goal with its tasks, events, approvals and outputs. Refuses while a task is
    * running or verifying (stop it first). Emits a system `goal_deleted` event. */
   deleteGoal(goalId: string): void;
   createTask(input: CreateTaskInput): Task;
@@ -447,6 +482,20 @@ export function openStore(
       createdAt INTEGER NOT NULL,
       updatedAt INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS goal_outputs (
+      id TEXT PRIMARY KEY,
+      goalId TEXT NOT NULL,
+      taskId TEXT,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      content TEXT NOT NULL,
+      bytes INTEGER NOT NULL,
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_goal_outputs_name ON goal_outputs(goalId, name);
+    CREATE INDEX IF NOT EXISTS idx_goal_outputs_goal ON goal_outputs(goalId);
   `);
 
   // Migration-safe: older DBs may predate the goals.meta column.
@@ -577,6 +626,19 @@ export function openStore(
        VALUES (@name, @paths, @defaultBranch, @createdAt, @updatedAt)`,
     ),
     updateRepo: db.prepare(`UPDATE repos SET paths = ?, defaultBranch = ?, updatedAt = ? WHERE name = ?`),
+
+    upsertOutput: db.prepare(
+      `INSERT INTO goal_outputs (id, goalId, taskId, name, kind, content, bytes, createdAt, updatedAt)
+       VALUES (@id, @goalId, @taskId, @name, @kind, @content, @bytes, @createdAt, @updatedAt)
+       ON CONFLICT(goalId, name) DO UPDATE SET taskId=@taskId, kind=@kind, content=@content,
+         bytes=@bytes, updatedAt=@updatedAt`,
+    ),
+    listOutputs: db.prepare(
+      `SELECT id, goalId, taskId, name, kind, bytes, createdAt, updatedAt
+       FROM goal_outputs WHERE goalId = ? ORDER BY updatedAt DESC, rowid DESC`,
+    ),
+    getOutputById: db.prepare(`SELECT * FROM goal_outputs WHERE id = ?`),
+    deleteOutputById: db.prepare(`DELETE FROM goal_outputs WHERE id = ?`),
   };
 
   /** Every approvals query, filtered in SQL by status and/or task. */
@@ -684,6 +746,7 @@ export function openStore(
     db.prepare('DELETE FROM approvals WHERE goalId = ?').run(goalId);
     db.prepare('DELETE FROM events WHERE goalId = ?').run(goalId);
     db.prepare('DELETE FROM tasks WHERE goalId = ?').run(goalId);
+    db.prepare('DELETE FROM goal_outputs WHERE goalId = ?').run(goalId);
     db.prepare('DELETE FROM goals WHERE id = ?').run(goalId);
   });
 
@@ -1179,6 +1242,85 @@ export function openStore(
     return getRepo(name)!;
   }
 
+  // ---- O1 goal outputs ----
+
+  interface OutputRowRaw {
+    id: string;
+    goalId: string;
+    taskId: string | null;
+    name: string;
+    kind: string;
+    content?: string;
+    bytes: number;
+    createdAt: number;
+    updatedAt: number;
+  }
+  function outputFromRow(r: OutputRowRaw, withContent: boolean): GoalOutput {
+    const out: GoalOutput = {
+      id: r.id,
+      goalId: r.goalId,
+      taskId: r.taskId ?? null,
+      name: r.name,
+      kind: (OUTPUT_KINDS as readonly string[]).includes(r.kind) ? (r.kind as OutputKind) : 'markdown',
+      bytes: r.bytes,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+    if (withContent) out.content = r.content ?? '';
+    return out;
+  }
+
+  /** Validate and normalize; throws on anything Quinn's UI couldn't render. */
+  function checkOutput(input: PutOutputInput): { name: string; kind: OutputKind; content: string } {
+    const name = String(input.name ?? '').trim();
+    if (!name || name.length > 120) throw new Error('output name must be 1..120 chars');
+    // eslint-disable-next-line no-control-regex
+    if (name.includes('/') || /[\x00-\x1f\x7f]/.test(name)) throw new Error('output name must not contain "/" or control chars');
+    const kind = input.kind == null || input.kind === '' ? 'markdown' : String(input.kind);
+    if (!(OUTPUT_KINDS as readonly string[]).includes(kind)) throw new Error(`unknown output kind: ${kind}`);
+    const content = String(input.content ?? '');
+    if (Buffer.byteLength(content, 'utf8') > OUTPUT_MAX_BYTES) throw new Error('output too large');
+    return { name, kind: kind as OutputKind, content };
+  }
+
+  function putOutput(input: PutOutputInput): GoalOutput {
+    const goal = getGoalRow(input.goalId);
+    if (!goal) throw new Error(`no such goal: ${input.goalId}`);
+    const { name, kind, content } = checkOutput(input);
+    const t = now();
+    const existing = db
+      .prepare(`SELECT id, createdAt FROM goal_outputs WHERE goalId = ? AND name = ?`)
+      .get(input.goalId, name) as { id: string; createdAt: number } | undefined;
+    const id = existing?.id ?? randomUUID();
+    const bytes = Buffer.byteLength(content, 'utf8');
+    stmts.upsertOutput.run({
+      id,
+      goalId: input.goalId,
+      taskId: input.taskId ?? null,
+      name,
+      kind,
+      content,
+      bytes,
+      createdAt: existing?.createdAt ?? t,
+      updatedAt: t,
+    });
+    emit(goal.id, input.taskId ?? null, 'output', { id, name, kind, bytes, taskId: input.taskId ?? null });
+    return getOutput(id)!;
+  }
+
+  function outputs(goalId: string): GoalOutput[] {
+    return (stmts.listOutputs.all(goalId) as OutputRowRaw[]).map((r) => outputFromRow(r, false));
+  }
+
+  function getOutput(id: string): GoalOutput | undefined {
+    const r = stmts.getOutputById.get(id) as OutputRowRaw | undefined;
+    return r ? outputFromRow(r, true) : undefined;
+  }
+
+  function deleteOutput(id: string): boolean {
+    return stmts.deleteOutputById.run(id).changes > 0;
+  }
+
   function close(): void {
     unregisterApprovalStore(api);
     db.close();
@@ -1202,6 +1344,10 @@ export function openStore(
   }
 
   const api: Store = {
+    putOutput,
+    outputs,
+    getOutput,
+    deleteOutput,
     createGoal,
     getGoal,
     listGoals,
