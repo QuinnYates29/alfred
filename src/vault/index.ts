@@ -27,7 +27,7 @@ function vaultRouter(deps: ModuleDeps): express.Router {
     const mcp = await mcpBackend(deps, policy);
     res.json({
       backend: mcp ? 'mcp' : node ? 'node' : null,
-      mcp: policy.mcp ? { server: policy.mcp, connected: !!mcp } : null,
+      mcp: policy.mcp ? { server: mcp?.server ?? policy.mcp, connected: !!mcp } : null,
       node: node?.name ?? null,
       online: !!mcp || !!node,
       vaultName: node?.vault ?? null,
