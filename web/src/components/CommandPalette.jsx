@@ -5,7 +5,7 @@ import { go } from '../lib/router.js';
 import { Icon } from '../ui/index.jsx';
 
 const NAV = [
-  ['Home', '/', 'home'], ['Inbox', '/inbox', 'inbox'], ['Board', '/board', 'board'], ['Goals', '/goals', 'goal'],
+  ['Home', '/', 'home'], ['Inbox', '/inbox', 'inbox'], ['Agents', '/agents', 'activity'], ['Board', '/board', 'board'], ['Goals', '/goals', 'goal'],
   ['Chat', '/chat', 'chat'], ['Automations', '/automations', 'clock'], ['System', '/system', 'server'], ['Deck', '/deck', 'deck'],
 ];
 

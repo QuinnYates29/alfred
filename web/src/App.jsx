@@ -10,6 +10,7 @@ import NewItemDialog from './components/NewItemDialog.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
 import Home from './views/Home.jsx';
 import Inbox from './views/Inbox.jsx';
+import Agents from './views/Agents.jsx';
 import Board from './views/Board.jsx';
 import Goals from './views/Goals.jsx';
 import GoalDetail from './views/GoalDetail.jsx';
@@ -25,6 +26,7 @@ export const useApp = () => useContext(AppCtx);
 const NAV = [
   ['/', 'Home', 'home'],
   ['/inbox', 'Inbox', 'inbox'],
+  ['/agents', 'Agents', 'activity'],
   ['/board', 'Board', 'board'],
   ['/goals', 'Goals', 'goal'],
   ['/chat', 'Chat', 'chat'],
@@ -44,6 +46,7 @@ function pick(parts) {
   switch (a) {
     case undefined: return <Home />;
     case 'inbox': case 'approvals': return <Inbox />;
+    case 'agents': return <Agents />;
     case 'board': return <Board itemKey={b} />;
     case 'goals': return <Goals />;
     case 'goal': return <GoalDetail id={b} tab={c} />;

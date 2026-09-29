@@ -1,0 +1,24 @@
+/* Agents view: goal cards holding an indented task tree with a live "now" line per task. */
+.agents-page .page-head { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; justify-content: space-between; }
+.agent-goal { margin-bottom: var(--s-4); }
+.agent-goal .card-head { gap: var(--s-2); flex-wrap: wrap; }
+.agent-goal-title { font-weight: 600; min-width: 0; flex: 1 1 200px; }
+.agent-tree { display: flex; flex-direction: column; }
+.agent-row { padding: 8px 12px; border-top: 1px solid var(--line); }
+.agent-row:first-child { border-top: 0; }
+.agent-line { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.agent-branch { color: var(--faint); font-family: var(--font-mono, monospace); }
+.agent-title { flex: 1 1 180px; min-width: 0; }
+.agent-meta { white-space: nowrap; }
+.agent-actions { display: flex; gap: 4px; margin-left: auto; }
+.agent-doing { display: flex; align-items: center; gap: 6px; margin: 4px 0 0 2px; min-width: 0; }
+.agent-doing.warn { color: var(--warn); }
+.agent-doing .dot.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--info); animation: agent-pulse 1.4s ease-in-out infinite; flex: none; }
+@keyframes agent-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .agent-doing .dot.pulse { animation: none; } }
+.agent-approval { margin-top: 8px; }
+.agent-row.blocked, .agent-row.needs_claude { background: color-mix(in srgb, var(--warn-soft) 40%, transparent); }
+@media (max-width: 640px) {
+  .agent-meta { width: 100%; order: 5; }
+  .agent-actions { margin-left: 0; }
+}

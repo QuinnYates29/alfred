@@ -18,6 +18,7 @@ import { promptCost } from '../runtime/personas.js';
 import type { PluginRouteReg, AlfredPlugin } from '../plugins.js';
 import { createGoalWithRoot, retryTask, goalSummary } from '../ops.js';
 import { DISPATCH_SYNTAX, dispatchPrompt, parseDispatch } from '../dispatch.js';
+import { agentsOverview } from './agents.js';
 import { hostGuard, safeEqual, securityHeaders, TicketBook } from './security.js';
 
 export { safeEqual };
@@ -170,6 +171,11 @@ function buildRouter(d: AppDeps): express.Router {
     } catch (e: any) {
       send(res, 400, { error: e?.message ?? String(e) });
     }
+  });
+
+  // The Agents view: every active/recent goal's task tree, live activity, what waits on Quinn.
+  r.get('/agents', (_req, res) => {
+    res.json(agentsOverview(d.store));
   });
 
   // D1 — dispatch an agent straight from a prompt: `!<persona> <prompt>`.
