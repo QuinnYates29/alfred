@@ -1,5 +1,7 @@
 // P9 §1 — the wire protocol shared by the Alfred server (NodeHub) and alfred-node.
 // JSON messages over a WebSocket at GET /api/nodes/connect?token=<ALFRED_TOKEN>.
+import { readdirSync, statSync, type Stats } from 'node:fs';
+import path from 'node:path';
 import { containedPath } from '../pathguard.js';
 
 export const PROTOCOL_VERSION = '1';
