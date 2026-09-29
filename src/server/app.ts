@@ -68,6 +68,7 @@ export const EVENT_KINDS: { kind: string; meaning: string }[] = [
   { kind: 'workspace', meaning: 'A run resolved its workspace (data: path, node, branch?).' },
   { kind: 'pushed', meaning: 'Finished work was pushed to the Spark hub (data: branch, sha).' },
   { kind: 'compacted', meaning: 'A run compacted its context (data: before, after, dropped).' },
+  { kind: 'output', meaning: 'An agent published/updated a goal output (data: id, name, kind, bytes, taskId — never the content).' },
   // System events (goalId ''): not about one goal.
   { kind: 'item_created', meaning: "Board item created (goalId ''; data: boardId, key, by)." },
   { kind: 'item_updated', meaning: "Board item changed (goalId ''; data: boardId, key, changes, by)." },
@@ -223,10 +224,56 @@ function buildRouter(d: AppDeps): express.Router {
       goal,
       tasks: d.store.listTasks(goal.id),
       events: d.store.events(goal.id).slice(-200),
+      outputs: d.store.outputs(goal.id),
     };
     const usage = (d.store as any).goalUsage;
     if (typeof usage === 'function') body.usage = usage.call(d.store, goal.id);
     res.json(body);
+  });
+
+  // O1 — goal outputs: deliverables an agent published for Quinn to read on the goal page.
+  const outputEntry = (req: Request): { goal: Goal; row: GoalOutput } | { err: number } => {
+    const goal = findGoal(req.params.id);
+    if (!goal) return { err: 404 };
+    const row = d.store.getOutput(req.params.oid);
+    if (!row || row.goalId !== goal.id) return { err: 404 };
+    return { goal, row };
+  };
+  const OUTPUT_EXT: Record<string, string> = { markdown: 'md', text: 'txt', json: 'json', csv: 'csv', 'html-code': 'html' };
+  const OUTPUT_CT: Record<string, string> = {
+    markdown: 'text/markdown; charset=utf-8',
+    text: 'text/plain; charset=utf-8',
+    json: 'application/json; charset=utf-8',
+    csv: 'text/csv; charset=utf-8',
+    'html-code': 'text/plain; charset=utf-8',
+  };
+
+  r.get('/goals/:id/outputs', (req, res) => {
+    const goal = findGoal(req.params.id);
+    if (!goal) return send(res, 404, { error: 'no such goal' });
+    res.json(d.store.outputs(goal.id));
+  });
+
+  r.get('/goals/:id/outputs/:oid', (req, res) => {
+    const e = outputEntry(req);
+    if ('err' in e) return send(res, e.err, { error: 'no such output' });
+    res.json(e.row);
+  });
+
+  r.get('/goals/:id/outputs/:oid/raw', (req, res) => {
+    const e = outputEntry(req);
+    if ('err' in e) return send(res, e.err, { error: 'no such output' });
+    const clean = e.row.name.replace(/["\\/;\x00-\x1f\x7f]/g, '_').trim() || 'output';
+    res.setHeader('Content-Type', OUTPUT_CT[e.row.kind] ?? 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${clean}.${OUTPUT_EXT[e.row.kind] ?? 'txt'}"`);
+    res.send(e.row.content ?? '');
+  });
+
+  r.delete('/goals/:id/outputs/:oid', (req, res) => {
+    const e = outputEntry(req);
+    if ('err' in e) return send(res, e.err, { error: 'no such output' });
+    d.store.deleteOutput(e.row.id);
+    res.json({ ok: true, deleted: e.row.id });
   });
 
   r.post('/tasks/:id/stop', (req, res) => {
