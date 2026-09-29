@@ -124,3 +124,21 @@ describe('report goals and notes', () => {
     expect(c.digest).toContain(`NOTE: ${long.trim()}`);
   });
 });
+
+describe('stall watchdog vs a busy model', () => {
+  it('time queued for a model slot is not a stall (the slot is held by another agent)', async () => {
+    const { limitConcurrency } = await import('../../src/models.js');
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const inner = scriptedLLM([{ toolCalls: [call('give_up', { reason: 'got a slot' })] }]);
+    let first = true;
+    const shared = limitConcurrency({ async chat(req) { if (first) { first = false; await held; return { content: '', toolCalls: [], usage: { promptTokens: 0, completionTokens: 0 } }; } return inner.chat(req); } }, 1);
+    const blocker = shared.chat({ system: '', messages: [], tools: [] }); // another agent holds the only slot
+    setTimeout(release, 900); // … for longer than the stall window
+    const g = store.createGoal({ title: 'busy' });
+    const t = store.createTask({ goalId: g.id, persona: 'researcher', title: 'B', spec: 's' });
+    const end = await runTask(t.id, { ...opts(shared), watchdog: { stallMs: 300, maxIdleTurns: 3, maxRepeatedErrors: 3 } } as any);
+    await blocker;
+    expect(end.reason).toBe('got a slot');
+  }, 20_000);
+});

@@ -28,7 +28,7 @@ import {
 import type { ToolRegistry } from './tools.js';
 import { parkIfNodeOffline } from './tools.js';
 import type { ModelRegistry } from '../models.js';
-import { DEFAULT_CONTEXT_WINDOW } from '../models.js';
+import { DEFAULT_CONTEXT_WINDOW, queuedForSlot } from '../models.js';
 import { denyReason, toolCaps } from './caps.js';
 import { compactMessages, estimateRequest, nudgeMessage } from './compact.js';
 import { reviewFinish } from '../jev/review.js';
@@ -66,6 +66,9 @@ export const TRANSIENT_LLM_WINDOW_MS = 5 * 60_000;
 const TRANSIENT_BACKOFF_MS = [2000, 5000, 10_000, 20_000, 30_000];
 /** Turns-left thresholds at which the agent is told to wrap up (each once). */
 const WRAP_UP_AT = [10, 3];
+/** Longest a single LLM call (slot wait + generation) counts as alive before the stall watchdog may fire. */
+export const LLM_CALL_MAX_MS = 40 * 60_000;
+const WAIT_NOTE_EVERY_MS = 3 * 60_000;
 
 /** Connection-level failures (server restarting / overloaded), not model or request errors. */
 export function isTransientLlmError(e: unknown): boolean {
@@ -492,8 +495,24 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         abortReason = abortReason ?? 'wall clock exceeded';
         call.dispose();
       }, Math.max(0, remaining));
+      // A call QUEUED for a model slot (3 slots, many agents) is not a stall: keep the watchdog fed while
+      // it waits (up to LLM_CALL_MAX_MS) and say so every few minutes (Agents view). Time at the server is.
+      const callStart = Date.now();
+      let lastWaitNote = callStart;
+      const aliveTimer = setInterval(() => {
+        const waited = Date.now() - callStart;
+        if (waited >= LLM_CALL_MAX_MS) return; // genuinely stuck: let the stall watchdog fire
+        // only QUEUED time counts as alive; a request already at the server must still show progress
+        if (!queuedForSlot.has(call.signal)) return;
+        lastEventAt = Date.now();
+        if (Date.now() - lastWaitNote >= WAIT_NOTE_EVERY_MS) {
+          lastWaitNote = Date.now();
+          record('progress', { msg: `waiting for a free model slot (${Math.round(waited / 60_000)} min)` });
+        }
+      }, Math.max(25, Math.min(60_000, Math.floor(wd.stallMs / 3))));
       const disposeCall = () => {
         clearTimeout(wallTimer);
+        clearInterval(aliveTimer);
         call.dispose();
       };
       inFlightDisposers.add(disposeCall);
@@ -534,6 +553,7 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         }
       }
       clearTimeout(wallTimer);
+      clearInterval(aliveTimer);
       stallAbort = null;
       call.dispose();
       inFlightDisposers.delete(disposeCall);

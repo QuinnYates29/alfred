@@ -149,6 +149,8 @@ function runs(c: string, ...names: string[]): boolean {
   return inv.some((w) => names.includes(w));
 }
 
+const SYSTEMCTL_READ_ONLY = /\bsystemctl\s+--user\s+(?:--[\w-]+(?:=\S+)?\s+)*(status|is-active|is-enabled|is-failed|show|cat|list-units|list-timers|list-unit-files|list-dependencies)\b/;
+
 /** Guards, checked in order. Names appear in the park reason and the approval row. */
 export const GUARDS: Guard[] = [
   { name: 'git push', test: (c) => /\bgit\b/.test(c) && /\bpush\b/.test(c) && !hasSparkOnlyPush(c) },
@@ -161,7 +163,8 @@ export const GUARDS: Guard[] = [
   { name: 'scp', test: (c) => runs(c, 'scp', 'sftp') },
   {
     name: 'systemctl',
-    test: (c) => runs(c, 'systemctl') && !/--user[\s\S]*?\b(status|is-active|is-enabled|show|cat)\b/.test(c),
+    // Every systemctl invocation must be a read-only `--user` query (restart; status in one line is not).
+    test: (c) => runs(c, 'systemctl') && !c.split(/[;&|\n\r]+/).filter((seg) => runs(seg, 'systemctl')).every((seg) => SYSTEMCTL_READ_ONLY.test(seg)),
   },
   {
     name: 'curl sends data',

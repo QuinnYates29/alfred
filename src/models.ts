@@ -138,10 +138,26 @@ class Semaphore {
   }
 }
 
+/**
+ * Requests (by their AbortSignal) currently QUEUED for a model slot — not yet sent. The agent's stall
+ * watchdog treats queue time as alive (many agents share few slots); time at the server is not.
+ */
+export const queuedForSlot = new WeakSet<AbortSignal>();
+
+/** An LLM limited to `max` concurrent calls (exported for tests; the registry builds these per baseUrl). */
+export function limitConcurrency(inner: LLM, max: number): LLM {
+  return wrapLimited(inner, new Semaphore(max));
+}
+
 function wrapLimited(inner: LLM, sem: Semaphore): LLM {
   return {
     async chat(req) {
-      await sem.acquire();
+      if (req.signal) queuedForSlot.add(req.signal);
+      try {
+        await sem.acquire();
+      } finally {
+        if (req.signal) queuedForSlot.delete(req.signal);
+      }
       try {
         return await inner.chat(req);
       } finally {
