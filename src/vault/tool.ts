@@ -35,6 +35,11 @@ export function pickVaultNode(deps: ModuleDeps, policy: VaultPolicy): VaultNodeI
 /** Offline: a goal task parks `blocked` (NodeOfflineError semantics); chat just says so. */
 export function offlineResult(node: string | null, ctx: ToolContext): ToolResult {
   if (String(ctx?.taskId ?? '').startsWith('chat:')) return { ok: false, output: OFFLINE_MSG };
+  // No node at all: parking would wait for a node that doesn't exist (it parked on "node vault" and never
+  // woke). Say so and let the agent carry on without the vault.
+  if (!node) {
+    return { ok: false, output: 'the vault is unreachable right now: Obsidian (its MCP plugin) is not answering and no Mac node serves the vault. Carry on without it, or note what you would have written.' };
+  }
   return parkIfNodeOffline(new NodeOfflineError(node || 'vault')) ?? { ok: false, output: OFFLINE_MSG };
 }
 
@@ -66,11 +71,35 @@ function record(deps: ModuleDeps, ctx: ToolContext, data: { op: string; path: st
 
 const bytes = (s: string) => Buffer.byteLength(s, 'utf8');
 
-/** The internal Obsidian MCP server to use, when configured and connected. */
-export function mcpBackend(deps: ModuleDeps, policy: VaultPolicy): { server: string; hub: any } | null {
+const lastReconnect = new Map<string, number>();
+const RECONNECT_EVERY_MS = 30_000;
+
+/**
+ * The internal Obsidian MCP server to use: connected, or reconnected right now (at most every 30 s —
+ * the hub's own retry is only every 5 min, and a status page must not report a stale "not connected").
+ */
+export async function mcpBackend(deps: ModuleDeps, policy: VaultPolicy): Promise<{ server: string; hub: any } | null> {
   const hub: any = deps.hub;
-  if (!policy.mcp || !hub?.connected?.(policy.mcp) || typeof hub.callInternal !== 'function') return null;
-  return { server: policy.mcp, hub };
+  if (!policy.mcp || !hub || typeof hub.callInternal !== 'function' || typeof hub.connected !== 'function') return null;
+  const server = vaultServerName(hub, policy);
+  if (!server) return null;
+  if (!hub.connected(server) && typeof hub.reconnect === 'function') {
+    const last = lastReconnect.get(server) ?? 0;
+    if (Date.now() - last >= RECONNECT_EVERY_MS) {
+      lastReconnect.set(server, Date.now());
+      await hub.reconnect(server).catch(() => false);
+    }
+  }
+  return hub.connected(server) ? { server, hub } : null;
+}
+
+/** config/vault.yaml `mcp` when that server exists; else the one configured server whose name says obsidian (e.g. `obsidian-http` added from the Connectors page). */
+export function vaultServerName(hub: any, policy: VaultPolicy): string | null {
+  const names = Object.keys((typeof hub?.servers === 'function' ? hub.servers() : null) ?? {});
+  if (!names.length) return policy.mcp; // hubs without a server list (tests): trust the policy
+  if (names.includes(policy.mcp)) return policy.mcp;
+  const obs = names.filter((n) => /obsidian/i.test(n));
+  return obs.length === 1 ? obs[0]! : null;
 }
 
 /**
@@ -164,7 +193,7 @@ export function vaultTool(deps: ModuleDeps): Tool {
         const op = String(args?.op ?? '');
         const node = pickVaultNode(deps, policy);
         // Preferred: the Obsidian MCP plugin (internal connector) — works whenever Obsidian is open.
-        const mcp = mcpBackend(deps, policy);
+        const mcp = await mcpBackend(deps, policy);
         if (mcp) return await runViaMcp(deps, policy, mcp, op, args, ctx);
 
         if (op === 'list') {

@@ -21,10 +21,10 @@ export function createVaultModule(deps: ModuleDeps): AlfredModule {
 
 function vaultRouter(deps: ModuleDeps): express.Router {
   const r = express.Router();
-  r.get('/vault/status', (_req: Request, res: Response) => {
+  r.get('/vault/status', async (_req: Request, res: Response) => {
     const policy = loadVaultPolicy(deps);
     const node = pickVaultNode(deps, policy);
-    const mcp = mcpBackend(deps, policy);
+    const mcp = await mcpBackend(deps, policy);
     res.json({
       backend: mcp ? 'mcp' : node ? 'node' : null,
       mcp: policy.mcp ? { server: policy.mcp, connected: !!mcp } : null,
@@ -41,7 +41,7 @@ function vaultRouter(deps: ModuleDeps): express.Router {
     if (!path) return res.status(400).json({ error: 'path is required (vault-relative, e.g. "Notes/idea.md")' });
     if (!content.trim()) return res.status(400).json({ error: 'content is required' });
     const policy = loadVaultPolicy(deps);
-    const mcp = mcpBackend(deps, policy);
+    const mcp = await mcpBackend(deps, policy);
     if (mcp) {
       // Quinn's own "Save to vault": create, or replace when the page exists
       let r: any = await mcp.hub.callInternal(mcp.server, 'vault', { action: 'create', path, content });

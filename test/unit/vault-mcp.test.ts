@@ -106,7 +106,8 @@ describe('vault over the Obsidian MCP plugin', () => {
     const t = task();
     const r = await tool.run({ op: 'read', path: 'Alfred/a' }, ctxFor(t.id, t.goalId));
     expect(sent).toEqual([]);
-    expect(r.park).toBeTruthy(); // no node either → parks like an offline node
+    expect(r.ok).toBe(false); // no node either → a plain error, never a forever-park
+    expect(r.park).toBeUndefined();
     connected = true;
     writeFileSync(join(root, 'config', 'vault.yaml'), "mcp: ''\n");
     await tool.run({ op: 'read', path: 'Alfred/a' }, ctxFor(t.id, t.goalId));
@@ -114,7 +115,28 @@ describe('vault over the Obsidian MCP plugin', () => {
   });
 });
 
+describe('finding the Obsidian server', () => {
+  it('uses the configured name, else the one server named like obsidian', async () => {
+    const { vaultServerName } = await import('../../src/vault/tool.js');
+    const pol: any = { mcp: 'obsidian' };
+    expect(vaultServerName({ servers: () => ({ obsidian: {}, other: {} }) }, pol)).toBe('obsidian');
+    expect(vaultServerName({ servers: () => ({ 'obsidian-http': {}, jira: {} }) }, pol)).toBe('obsidian-http');
+    expect(vaultServerName({ servers: () => ({ 'obsidian-a': {}, 'obsidian-b': {} }) }, pol)).toBeNull(); // ambiguous
+    expect(vaultServerName({ servers: () => ({ jira: {} }) }, pol)).toBeNull();
+  });
+});
+
 describe('internal MCP servers', () => {
+  it('a readOnly server hides multi-action tools whose actions write (not just write-named tools)', () => {
+    const hub = new McpHub({ servers: {} }) as any;
+    const listed = [
+      { name: 'vault', inputSchema: { properties: { action: { enum: ['list', 'read', 'delete', 'move'] } } } },
+      { name: 'view', inputSchema: { properties: { action: { enum: ['file', 'window'] } } } },
+      { name: 'edit', inputSchema: { properties: { action: { enum: ['append'] } } } },
+    ];
+    expect(hub.buildTools('obsidian-http', { url: 'https://x/mcp' }, listed).map((t: any) => t.schema.name)).toEqual(['obsidian-http_view'.replace('-', '_')]);
+  });
+
   it('expose no agent tools', () => {
     const hub = new McpHub({ servers: {} }) as any;
     expect(hub.buildTools('obsidian', { url: 'https://x/mcp', internal: true }, [{ name: 'vault' }, { name: 'edit' }])).toEqual([]);

@@ -140,12 +140,13 @@ describe('vault tool — outside the agent folder (gated)', () => {
 });
 
 describe('vault tool — offline node', () => {
-  it('no vault node: a goal task parks blocked; chat says the Mac is offline', async () => {
+  it('no vault node at all: a goal task gets an error (never parks waiting for a node that does not exist); chat says the Mac is offline', async () => {
     online = false;
     const t = task();
     const goal = await tool.run({ op: 'list' }, ctxFor(t.id, t.goalId));
     expect(goal.ok).toBe(false);
-    expect(goal.park?.status).toBe('blocked');
+    expect(goal.park).toBeUndefined();
+    expect(goal.output).toMatch(/vault is unreachable/);
     const chat = await tool.run({ op: 'read', path: 'Alfred/a.md' }, ctxFor('chat:th2'));
     expect(chat.ok).toBe(false);
     expect(chat.output).toBe('the Mac with the vault is offline');
