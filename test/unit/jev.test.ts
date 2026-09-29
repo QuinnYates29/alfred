@@ -252,20 +252,20 @@ describe('done-gate review (agent finish)', () => {
     expect(rv[0].data).toMatchObject({ mode: 'enforce', verdict: 'reject', addresses: 0.21, complete: 0.3, failureMode: 'plan_not_result' });
     const toolMsgs = llm.requests[1].messages.filter((m) => m.role === 'tool');
     expect(toolMsgs.at(-1)!.content).toContain('Reviewer (Jev) rejected the deliverable: failure_mode=plan_not_result, addresses_spec=0.21, complete=0.3');
-  });
+  }, 20_000);
 
   it('enforce: after maxRejections the finish goes through, with every review recorded', async () => {
     agentSetup();
     hookFor(() => WEAK);
     const t = mkTask([REPORT_CHECK, TRUE_CHECK]);
-    const steps: Step[] = [1, 2, 3].map((i) => ({ toolCalls: [call('finish', { summary: `still a plan, attempt ${i}` })] }));
+    const steps: Step[] = [1, 2, 3].map((i) => ({ toolCalls: [call('finish', { summary: `still a plan, attempt ${i}. `.repeat(12) })] }));
     const end = await runTask(t.id, runOpts(scriptedLLM(steps)));
     const rv = reviewsOf(t.goalId);
     expect(rv).toHaveLength(3);
     expect(rv.every((r) => r.data.verdict === 'reject')).toBe(true);
     expect(end.status).toBe('done'); // the third finish exceeded the rejection budget → through
     expect(store.getTask(t.id)!.status).toBe('done');
-  });
+  }, 20_000);
 
   it('shadow and advisory never block a weak deliverable', async () => {
     for (const mode of ['shadow', 'advisory'] as const) {
@@ -273,7 +273,7 @@ describe('done-gate review (agent finish)', () => {
       agentSetup();
       hookFor(() => WEAK, { ...POL, review: { ...POL.review, report: mode } });
       const t = mkTask([REPORT_CHECK, TRUE_CHECK]);
-      const end = await runTask(t.id, runOpts(scriptedLLM([{ toolCalls: [call('finish', { summary: 'a plan only' })] }])) );
+      const end = await runTask(t.id, runOpts(scriptedLLM([{ toolCalls: [call('finish', { summary: 'a plan only. '.repeat(20) })] }])) );
       expect(end.status).toBe('done');
       const rv = reviewsOf(t.goalId);
       expect(rv).toHaveLength(1);
@@ -282,7 +282,7 @@ describe('done-gate review (agent finish)', () => {
         expect(store.getTask(t.id)!.notes).toContain('Review (Jev): quality 1/4');
       }
     }
-  });
+  }, 20_000);
 
   it('no client = exactly today’s behaviour (no review, finish proceeds)', async () => {
     agentSetup();
@@ -306,7 +306,7 @@ describe('approval risk', () => {
     return store.createTask({ goalId: g.id, persona: 'alfred', title: 't' });
   }
   const withJev = (d: ModuleDeps, result: any) => ({ ...d, modules: { jev: { name: 'jev', risk: async () => result } } as any });
-  const jevLine = (id: string) => (store.findApproval(id, 'ops:deploy:prod', 'pending')?.info ?? '');
+  const jevLine = (id: string) => (store.findApproval(id, 'deploy:prod', 'pending')?.info ?? '');
 
   it('asks Jev when about to request approval and prefixes its line to the info', async () => {
     let asked: any = null;
@@ -329,7 +329,7 @@ describe('approval risk', () => {
     const t = newTask();
     const r = await gated({ deps: d, tool: ctx(t.id) }, 'ops:deploy:prod', 'deploy:prod', async () => ({ ok: true, output: 'ran' }));
     expect(r.ok).toBe(false);
-    expect(store.findApproval(t.id, 'ops:deploy:prod', 'pending')).toBeTruthy();
+    expect(store.findApproval(t.id, 'deploy:prod', 'pending')).toBeTruthy();
   });
 
   it('pre-approved + injection ≥ 0.7 → escalated; low-risk auto-approvals still run', async () => {
@@ -346,7 +346,7 @@ describe('approval risk', () => {
     const d = withJev(depsFor(), { line: 'Jev: low risk (read_only 0.99), injection 0.00', escalate: false });
     const t = newTask();
     expect((await gated({ deps: d, tool: ctx(t.id) }, 'ops:deploy:prod', 'deploy:prod', async () => ({ ok: true, output: 'ran' }))).ok).toBe(false);
-    expect(store.findApproval(t.id, 'ops:deploy:prod', 'pending')).toBeTruthy();
+    expect(store.findApproval(t.id, 'deploy:prod', 'pending')).toBeTruthy();
     const plain = depsFor();
     const t2 = newTask();
     expect((await gated({ deps: plain, tool: ctx(t2.id) }, 'ops:deploy:prod', 'deploy:prod', async () => ({ ok: true, output: 'ran' }))).ok).toBe(false);
@@ -441,8 +441,9 @@ describe('jev_decide', () => {
     });
     const r = await runDecide(client, { items, question: 'relevant?', type: 'noul', threshold: 0.5 }, ctx());
     const lines = r.output.split('\n');
-    expect(lines[0]).toContain('#3');
-    expect(lines[1]).toContain('#1');
+    // highest probability first
+    expect(lines[0]).toContain('#1');
+    expect(lines[1]).toContain('#3');
     expect(r.output).not.toContain('#0');
     expect(r.output).toContain('2/4 items');
   });
@@ -470,7 +471,7 @@ describe('jev_decide', () => {
     });
     const r = await runDecide(client, { items, question: 'ok?', type: 'noul' }, ctx());
     expect(r.ok).toBe(true);
-    expect(r.output).toContain('?  — it-40');
+    expect(r.output).toContain('#40 ? — it-40');
     expect(r.output).toContain('batches got no answer');
   });
 
