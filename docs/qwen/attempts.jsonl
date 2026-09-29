@@ -57,3 +57,15 @@
 {"name":"W1","attempt":1,"start":"2026-09-28T13:49:19-04:00","wall_s":5437,"dsh_exit":124,"check_rc":1,"tests":"[2m Tests [22m [1m[31m3 failed[39m[22m[2m | [22m[1m[32m131 passed[39m[22m[2m | [22m[33m6 skipped[39m[90m (140)[39m","timeout_min":90}
 {"name":"W1","attempt":2,"start":"2026-09-28T15:19:56-04:00","wall_s":5435,"dsh_exit":124,"check_rc":0,"tests":"[2m Tests [22m [1m[32m140 passed[39m[22m[90m (140)[39m","timeout_min":90}
 {"name":"H1","attempt":1,"start":"2026-09-28T14:49:23-04:00","wall_s":8048,"dsh_exit":1,"check_rc":0,"tests":"[2m Tests [22m [1m[32m22 passed[39m[22m[90m (22)[39m","timeout_min":150}
+{"name":"V1","attempt":1,"start":"2026-09-28T22:06:11-04:00","wall_s":2604,"dsh_exit":1,"check_rc":1,"tests":"[2m Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m18 passed[39m[22m[90m (19)[39m","timeout_min":180}
+{"name":"J2","attempt":1,"start":"2026-09-28T22:06:11-04:00","wall_s":2635,"dsh_exit":1,"check_rc":1,"tests":"[2m Tests [22m [1m[32m160 passed[39m[22m[2m | [22m[33m6 skipped[39m[90m (166)[39m","timeout_min":180}
+{"name":"O1","attempt":1,"start":"2026-09-28T22:06:11-04:00","wall_s":2646,"dsh_exit":1,"check_rc":1,"tests":"[2m Tests [22m [1m[32m35 passed[39m[22m[90m (35)[39m","timeout_min":150}
+{"name":"O1","attempt":2,"start":"2026-09-28T22:52:47-04:00","wall_s":2870,"dsh_exit":1,"check_rc":1,"tests":"","timeout_min":150}
+{"name":"V1","attempt":2,"start":"2026-09-28T22:52:35-04:00","wall_s":2887,"dsh_exit":1,"check_rc":1,"tests":"[2m Tests [22m [1m[32m19 passed[39m[22m[90m (19)[39m","timeout_min":180}
+{"name":"J2","attempt":2,"start":"2026-09-28T22:52:36-04:00","wall_s":2918,"dsh_exit":1,"check_rc":1,"tests":"[2m Tests [22m [1m[32m166 passed[39m[22m[90m (166)[39m","timeout_min":180}
+{"name":"V1","attempt":3,"start":"2026-09-28T23:43:43-04:00","wall_s":5273,"dsh_exit":1,"check_rc":1,"tests":"","timeout_min":180}
+{"name":"J2","attempt":3,"start":"2026-09-28T23:43:44-04:00","wall_s":5273,"dsh_exit":1,"check_rc":1,"tests":"","timeout_min":180}
+{"name":"O1","attempt":3,"start":"2026-09-28T23:43:38-04:00","wall_s":5324,"dsh_exit":1,"check_rc":1,"tests":"[2m Tests [22m [1m[32m35 passed[39m[22m[90m (35)[39m","timeout_min":150}
+{"name":"O1","attempt":4,"start":"2026-09-29T01:14:52-04:00","wall_s":4359,"dsh_exit":0,"check_rc":0,"tests":"[2m Tests [22m [1m[32m48 passed[39m[22m[90m (48)[39m","timeout_min":150}
+{"name":"V1","attempt":4,"start":"2026-09-29T01:15:07-04:00","wall_s":10805,"dsh_exit":124,"check_rc":2,"tests":"[2m Tests [22m [1m[32m48 passed[39m[22m[90m (48)[39m","timeout_min":180}
+{"name":"J2","attempt":4,"start":"2026-09-29T01:15:07-04:00","wall_s":10835,"dsh_exit":124,"check_rc":1,"tests":"[2m Tests [22m [1m[31m8 failed[39m[22m[2m | [22m[1m[32m183 passed[39m[22m[90m (191)[39m","timeout_min":180}
