@@ -66,6 +66,74 @@ function record(deps: ModuleDeps, ctx: ToolContext, data: { op: string; path: st
 
 const bytes = (s: string) => Buffer.byteLength(s, 'utf8');
 
+/** The internal Obsidian MCP server to use, when configured and connected. */
+export function mcpBackend(deps: ModuleDeps, policy: VaultPolicy): { server: string; hub: any } | null {
+  const hub: any = deps.hub;
+  if (!policy.mcp || !hub?.connected?.(policy.mcp) || typeof hub.callInternal !== 'function') return null;
+  return { server: policy.mcp, hub };
+}
+
+/**
+ * The same ops and the same policy as the node path, over the Obsidian MCP plugin's `vault` / `edit`
+ * tools. Only these actions are ever sent: list, read, search, create, update, move, append —
+ * never delete/rename/split/combine (the plugin has them; agents never get them).
+ */
+async function runViaMcp(deps: ModuleDeps, policy: VaultPolicy, mcp: { server: string; hub: any }, op: string, args: any, ctx: ToolContext): Promise<ToolResult> {
+  const call = (tool: 'vault' | 'edit', a: Record<string, unknown>) => mcp.hub.callInternal(mcp.server, tool, a, ctx?.signal) as Promise<ToolResult>;
+  const cap = (r: ToolResult) => (r.output.length > READ_CHAR_CAP ? { ...r, output: `${r.output.slice(0, READ_CHAR_CAP)}\n… truncated at ${READ_CHAR_CAP} chars` } : r);
+  if (op === 'list') {
+    const dir = typeof args?.path === 'string' ? args.path.trim().replace(/^\/+|\/+$/g, '') : '';
+    if (dir.split('/').some((seg: string) => seg === '..' || seg === '.')) return { ok: false, output: 'invalid folder' };
+    return cap(await call('vault', { action: 'list', directory: dir }));
+  }
+  if (op === 'read') {
+    const path = normalizePage(args?.path);
+    if (!path) return { ok: false, output: 'path is required' };
+    return cap(await call('vault', { action: 'read', path }));
+  }
+  if (op === 'search') {
+    const query = String(args?.query ?? '').trim();
+    if (!query) return { ok: false, output: 'query is required' };
+    return cap(await call('vault', { action: 'search', query, includeSnippets: true, pageSize: 20 }));
+  }
+  const path = normalizePage(args?.path);
+  if (!path) return { ok: false, output: 'path is required (vault-relative, e.g. "Alfred/notes.md")' };
+  if (op === 'move') {
+    const to = normalizePage(args?.to);
+    if (!to) return { ok: false, output: 'to is required for move' };
+    const free = insideAgentFolder(path, policy) && insideAgentFolder(to, policy);
+    const run = async (): Promise<ToolResult> => {
+      const r = await call('vault', { action: 'move', path, destination: to });
+      if (!r.ok) return { ok: false, output: `error: ${r.output}` };
+      record(deps, ctx, { op: 'move', path, to, bytes: 0, auto: free });
+      return { ok: true, output: `saved to Obsidian: ${to} (moved from ${path})` };
+    };
+    return free ? run() : gated({ deps, tool: ctx }, 'vault.move', `vault move ${path} → ${to}`, run, { bind: sha256(`move${path}${to}`) });
+  }
+  if (op !== 'write' && op !== 'append') return { ok: false, output: `unknown op: ${op}` };
+  const content = typeof args?.content === 'string' ? args.content : '';
+  if (!content.trim()) return { ok: false, output: 'content is required' };
+  if (bytes(content) > policy.maxPageBytes) {
+    return { ok: false, output: `content too large: ${bytes(content)} bytes (max ${policy.maxPageBytes}; split it across pages)` };
+  }
+  const free = insideAgentFolder(path, policy);
+  const run = async (): Promise<ToolResult> => {
+    let r: ToolResult;
+    if (op === 'append') {
+      r = await call('edit', { action: 'append', path, content });
+      if (!r.ok && /not found|does not exist|no such/i.test(r.output)) r = await call('vault', { action: 'create', path, content });
+    } else {
+      r = await call('vault', { action: args?.overwrite ? 'update' : 'create', path, content });
+    }
+    if (!r.ok) return { ok: false, output: `error: ${r.output}` };
+    record(deps, ctx, { op, path, bytes: bytes(content), auto: free });
+    return { ok: true, output: `saved to Obsidian: ${path}${op === 'append' ? ' (appended)' : ''}` };
+  };
+  return free
+    ? run()
+    : gated({ deps, tool: ctx }, 'vault.write', `vault ${op} ${path}`, run, { info: content, bind: sha256(`${op}${path}${content}`) });
+}
+
 export function vaultTool(deps: ModuleDeps): Tool {
   return {
     kind: 'write',
@@ -95,6 +163,9 @@ export function vaultTool(deps: ModuleDeps): Tool {
         const policy = loadVaultPolicy(deps);
         const op = String(args?.op ?? '');
         const node = pickVaultNode(deps, policy);
+        // Preferred: the Obsidian MCP plugin (internal connector) — works whenever Obsidian is open.
+        const mcp = mcpBackend(deps, policy);
+        if (mcp) return await runViaMcp(deps, policy, mcp, op, args, ctx);
 
         if (op === 'list') {
           const r = await nodeCall(deps, node, ctx, 'vaultList', {

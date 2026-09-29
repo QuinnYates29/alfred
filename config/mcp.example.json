@@ -1,10 +1,15 @@
 {
   "servers": {
     "obsidian": {
-      "url": "http://100.82.152.2:3556/mcp",
-      "headers": { "Authorization": "Bearer ${OBSIDIAN_MCP_TOKEN}" },
-      "readOnly": true,
-      "envAllow": ["OBSIDIAN_MCP_TOKEN"]
+      "url": "https://100.82.152.2:3556/mcp",
+      "headers": {
+        "Authorization": "Bearer ${OBSIDIAN_MCP_TOKEN}"
+      },
+      "internal": true,
+      "envAllow": [
+        "OBSIDIAN_MCP_TOKEN"
+      ],
+      "_comment": "Obsidian MCP plugin on the Mac (HTTPS, self-signed): set NODE_EXTRA_CA_CERTS to its cert in ~/.config/alfred.env. internal = only alfred's vault tool uses it (with the Alfred/ auto + approval policy)."
     }
   }
 }

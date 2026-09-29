@@ -9,7 +9,7 @@ import type { Tool } from '../runtime/contract.js';
 import { storeForTask } from '../approvals.js';
 import { loadVaultPolicy } from './policy.js';
 import { normalizePage } from './policy.js';
-import { OFFLINE_MSG, pickVaultNode, vaultTool } from './tool.js';
+import { OFFLINE_MSG, mcpBackend, pickVaultNode, vaultTool } from './tool.js';
 
 const bound = new WeakMap<Store, Tool[]>();
 
@@ -24,7 +24,15 @@ function vaultRouter(deps: ModuleDeps): express.Router {
   r.get('/vault/status', (_req: Request, res: Response) => {
     const policy = loadVaultPolicy(deps);
     const node = pickVaultNode(deps, policy);
-    res.json({ node: node?.name ?? null, online: !!node, vaultName: node?.vault ?? null, agentFolder: policy.agentFolder });
+    const mcp = mcpBackend(deps, policy);
+    res.json({
+      backend: mcp ? 'mcp' : node ? 'node' : null,
+      mcp: policy.mcp ? { server: policy.mcp, connected: !!mcp } : null,
+      node: node?.name ?? null,
+      online: !!mcp || !!node,
+      vaultName: node?.vault ?? null,
+      agentFolder: policy.agentFolder,
+    });
   });
   r.post('/vault/publish', async (req: Request, res: Response) => {
     const body = req.body ?? {};
@@ -33,6 +41,19 @@ function vaultRouter(deps: ModuleDeps): express.Router {
     if (!path) return res.status(400).json({ error: 'path is required (vault-relative, e.g. "Notes/idea.md")' });
     if (!content.trim()) return res.status(400).json({ error: 'content is required' });
     const policy = loadVaultPolicy(deps);
+    const mcp = mcpBackend(deps, policy);
+    if (mcp) {
+      // Quinn's own "Save to vault": create, or replace when the page exists
+      let r: any = await mcp.hub.callInternal(mcp.server, 'vault', { action: 'create', path, content });
+      if (!r?.ok && /exist/i.test(String(r?.output))) r = await mcp.hub.callInternal(mcp.server, 'vault', { action: 'update', path, content });
+      if (!r?.ok) return res.status(400).json({ error: String(r?.output ?? 'publish failed').slice(0, 300) });
+      try {
+        deps.store.appendEvent('', null, 'vault', { op: 'write', path, bytes: Buffer.byteLength(content, 'utf8'), auto: true });
+      } catch {
+        /* never break the response */
+      }
+      return res.json({ ok: true, path, via: 'mcp' });
+    }
     const node = pickVaultNode(deps, policy);
     if (!node) return res.status(503).json({ error: OFFLINE_MSG });
     try {

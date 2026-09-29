@@ -15,6 +15,9 @@ export interface McpServerConfig {
   disabled?: boolean;
   /** default true. Hides write-like tools. */
   readOnly?: boolean;
+  /** Connected, but NOT exposed as agent tools or through `connectors`: only alfred's own modules
+   *  call it (hub.callInternal), with their own policy — e.g. the Obsidian vault behind the `vault` tool. */
+  internal?: boolean;
   /** write-like tool names still exposed on a readOnly server */
   allowWrite?: string[];
   /** Environment variables this server's `${VAR}` placeholders may expand. When present, ONLY these
@@ -124,6 +127,7 @@ export class McpHub {
   }
 
   private buildTools(server: string, cfg: McpServerConfig, listed: any[]): Tool[] {
+    if (cfg.internal) return [];
     const readOnly = cfg.readOnly !== false;
     const allowed = new Set(cfg.allowWrite ?? []);
     const out: Tool[] = [];
@@ -161,6 +165,16 @@ export class McpHub {
     } catch (e) {
       return { ok: false, output: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  /** Is this server connected right now? */
+  connected(server: string): boolean {
+    return !!this.conns.get(server)?.ok;
+  }
+
+  /** Call a tool of an `internal` server from alfred's own code (the caller enforces its policy). */
+  async callInternal(server: string, tool: string, args: any, signal?: AbortSignal): Promise<ToolResult> {
+    return this.callTool(server, tool, args, signal ? ({ signal } as ToolContext) : undefined);
   }
 
   status(): { name: string; ok: boolean; tools: string[]; error?: string }[] {

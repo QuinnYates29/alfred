@@ -18,9 +18,13 @@ export default function NodesTab() {
         <div className="card-head"><h3>Vault</h3></div>
         <div className="card-body">
           <p className="muted small" style={{ margin: 0 }}>
-            {!vault ? '—' : vault.online
-              ? <>{vault.node} serves the Obsidian vault <span className="key">{vault.vaultName || '—'}</span> · agent folder <span className="mono xs">{vault.agentFolder}/</span></>
-              : 'No connected node serves a vault — set the Obsidian vault folder in the Mac app\u2019s node settings.'}
+            {!vault ? '—' : vault.backend === 'mcp'
+              ? <>Obsidian MCP plugin (<span className="mono xs">{vault.mcp?.server}</span>, connected) · agent folder <span className="mono xs">{vault.agentFolder}/</span></>
+              : vault.online
+                ? <>{vault.node} serves the Obsidian vault <span className="key">{vault.vaultName || '—'}</span> · agent folder <span className="mono xs">{vault.agentFolder}/</span>{vault.mcp ? <span className="xs faint"> · Obsidian MCP not connected (is Obsidian open?)</span> : null}</>
+                : vault.mcp
+                  ? 'Obsidian MCP not connected — open Obsidian on the Mac (its MCP plugin serves the vault), or set a vault folder in the Mac app\u2019s node settings.'
+                  : 'No connected node serves a vault — set the Obsidian vault folder in the Mac app\u2019s node settings.'}
           </p>
         </div>
       </div>

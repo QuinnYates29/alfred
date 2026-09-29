@@ -13,9 +13,11 @@ export interface VaultPolicy {
   agentFolder: string;
   /** Longest page content the server accepts (the node caps writes at 512 KB anyway). */
   maxPageBytes: number;
+  /** Internal MCP server (config/mcp.json) of the Obsidian MCP plugin; preferred over the node when connected. '' = node only. */
+  mcp: string;
 }
 
-export const DEFAULT_VAULT_POLICY: VaultPolicy = { node: '', agentFolder: 'Alfred', maxPageBytes: 200000 };
+export const DEFAULT_VAULT_POLICY: VaultPolicy = { node: '', agentFolder: 'Alfred', maxPageBytes: 200000, mcp: 'obsidian' };
 
 /** config/vault.yaml, read fresh. Missing or broken → defaults. */
 export function loadVaultPolicy(deps: ModuleDeps): VaultPolicy {
@@ -30,6 +32,7 @@ export function loadVaultPolicy(deps: ModuleDeps): VaultPolicy {
     const max = Number(raw?.maxPageBytes);
     return {
       node,
+      mcp: typeof raw?.mcp === 'string' ? raw.mcp.trim() : DEFAULT_VAULT_POLICY.mcp,
       agentFolder: folder,
       maxPageBytes: Number.isFinite(max) && max > 0 ? Math.min(max, 512_000) : DEFAULT_VAULT_POLICY.maxPageBytes,
     };
