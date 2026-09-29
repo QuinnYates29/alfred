@@ -306,6 +306,36 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
         return { ok: true, output: 'noted (saved to the task notes)' };
       }),
     },
+    {
+      schema: schema(
+        'output',
+        'Publish a deliverable to the goal page (Quinn reads it there). Use for reports, summaries, tables, drafts. Same name = update.',
+        {
+          name: { type: 'string', description: 'Output name (shown as a tab), no "/". Same name updates the same output.' },
+          content: { type: 'string', description: 'The deliverable content.' },
+          kind: {
+            type: 'string',
+            enum: ['markdown', 'text', 'json', 'csv', 'html-code'],
+            description: 'Content kind (default markdown).',
+          },
+        },
+        ['name', 'content'],
+      ),
+      kind: 'write',
+      run: safe((args, ctx) => {
+        const store = storeForTask(ctx.taskId);
+        const task = store?.getTask(ctx.taskId);
+        if (!store || !task) return { ok: false, output: 'output is for goal tasks; in chat, answer directly' };
+        const row = store.putOutput({
+          goalId: task.goalId,
+          taskId: ctx.taskId,
+          name: String(args.name ?? ''),
+          kind: args.kind == null ? undefined : String(args.kind),
+          content: String(args.content ?? ''),
+        });
+        return { ok: true, output: `published "${row.name}" (${String(args.content ?? '').length} chars) — visible on the goal page` };
+      }),
+    },
     control('finish', 'Declare the task complete; acceptance checks decide.', {
       summary: { type: 'string', description: 'What was accomplished.' },
     }, ['summary']),

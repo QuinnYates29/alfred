@@ -10,6 +10,7 @@ import { cmdData } from './cli/data.js';
 import { cmdRun } from './cli/run.js';
 import { cmdBuild, cmdBuilds, cmdConfig, cmdJira, cmdLogs, cmdModels, cmdNodes, cmdOpen, cmdPersonas, cmdQwen, cmdStats, cmdSvc } from './cli/ops.js';
 import { cmdCat, cmdDiff, cmdDiscard, cmdFiles, cmdMerge, cmdTranscript } from './cli/review.js';
+import { cmdOutput, cmdOutputs } from './cli/outputs.js';
 
 const USAGE = `alfred — the agent platform
 
@@ -69,6 +70,8 @@ Review (P15)
   alfred discard <goal>
   alfred transcript <taskId>                   the story of a run
   alfred files <goal> [path] · cat <goal> <path>
+  alfred outputs <goal>                        deliverables an agent published to the goal page
+  alfred output <goal> <name|id>               print one output's content
 
   alfred open [goal|KEY] [--print]              open the web view
 
@@ -172,6 +175,8 @@ async function main(): Promise<void> {
     case 'transcript': return cmdTranscript(api, p, need(p.rest[0], 'alfred transcript <taskId>'));
     case 'files': return cmdFiles(api, p, need(p.rest[0], 'alfred files <goal> [path]'));
     case 'cat': return cmdCat(api, p, need(p.rest[0], 'alfred cat <goal> <path>'), need(p.rest[1], 'alfred cat <goal> <path>'));
+    case 'outputs': return cmdOutputs(api, p, need(p.rest[0], 'alfred outputs <goal>'));
+    case 'output': return cmdOutput(api, p, need(p.rest[0], 'alfred output <goal> <name|id>'), need(p.rest[1], 'alfred output <goal> <name|id>'));
     case 'open': return cmdOpen(api, p);
     default:
       console.error(`unknown command: ${cmd}\n`);

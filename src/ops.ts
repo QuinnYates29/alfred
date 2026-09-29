@@ -88,6 +88,8 @@ export function retryTask(store: Store, taskId: string, note?: string): Task {
 
 export interface GoalSummary extends Goal {
   counts: Partial<Record<TaskStatus, number>>;
+  /** O1: how many outputs this goal has (names/content not included). */
+  outputs: number;
 }
 
 /** Goal plus task counts by status. */
@@ -96,7 +98,7 @@ export function goalSummary(store: Store, goalId: string): GoalSummary | undefin
   if (!goal) return undefined;
   const counts: Partial<Record<TaskStatus, number>> = {};
   for (const t of store.listTasks(goalId)) counts[t.status] = (counts[t.status] ?? 0) + 1;
-  return { ...goal, counts };
+  return { ...goal, counts, outputs: store.outputs(goalId).length };
 }
 
 /** A goal by id or slug; undefined when neither matches. (from P3b, used by the Claude door) */

@@ -73,4 +73,32 @@
 
 /* tasks | activity: side by side on desktop, stacked on phones */
 .goal-main { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-items: start; }
+
+/* O1 — outputs card: published deliverables, one tab per output */
+.outputs-card { margin-bottom: var(--s-4); }
+.outputs-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
+  flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line);
+}
+.outputs-head h3 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: var(--t-md); }
+.output-tabs { display: flex; gap: 4px; flex-wrap: wrap; padding: 8px 10px 0; }
+.output-tab {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+  border: 1px solid var(--line); border-bottom: 0; border-radius: var(--r-sm) var(--r-sm) 0 0;
+  background: transparent; color: var(--fg-2); font-size: var(--t-sm); cursor: pointer;
+}
+.output-tab:hover { background: var(--hover); }
+.output-tab.on { background: var(--surface-2); color: var(--fg); font-weight: 600; }
+.output-body { padding: 12px 14px; border-top: 1px solid var(--line); overflow-x: auto; }
+.output-pre {
+  margin: 0; font-family: var(--font-mono); font-size: var(--t-sm); white-space: pre-wrap;
+  overflow-wrap: anywhere; max-height: 70vh; overflow-y: auto;
+}
+.output-table-wrap { max-height: 70vh; overflow: auto; }
+.output-table { border-collapse: collapse; font-size: var(--t-sm); width: 100%; }
+.output-table th, .output-table td {
+  border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top;
+  max-width: 420px; overflow-wrap: anywhere;
+}
+.output-table th { background: var(--surface-2); font-weight: 600; position: sticky; top: 0; }
 @media (max-width: 900px) { .goal-main { grid-template-columns: minmax(0, 1fr); } }

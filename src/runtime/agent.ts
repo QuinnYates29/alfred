@@ -698,6 +698,12 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
       } catch {
         /* the check will fail and say so */
       }
+      try {
+        // O1: publish the report as a first-class goal output too.
+        o.store.putOutput({ goalId: task!.goalId, taskId, name: 'Report', kind: 'markdown', content: summary });
+      } catch {
+        /* best effort — never fail the task over the output */
+      }
     }
     o.store.transition(taskId, 'verifying', { by: o.workerId });
     const runner: CheckRunner = backend

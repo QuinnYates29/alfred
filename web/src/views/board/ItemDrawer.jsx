@@ -1,11 +1,27 @@
 // Item drawer: opened by clicking a card/row or via #/board/<KEY>. Edits save immediately (PATCH).
 import { useCallback, useEffect, useState } from 'react';
 import { api, post, del } from '../../api.js';
+import { useResource } from '../../lib/live.jsx';
 import { timeAgo } from '../../lib/format.js';
 import { Avatar, Button, Drawer, Icon, Markdown, Menu, Spinner, StatusChip, useToast } from '../../ui/index.jsx';
 import { PRIORITIES, appendChecklist, assigneeSuggestions, parseLabels, removeChecklist, toggleChecklist } from './model.js';
 import Dispatch from './Dispatch.jsx';
 import JiraLink from './JiraLink.jsx';
+
+/** O1 — outputs a linked goal published, listed as links to the goal page. */
+function GoalOutputs({ goalId }) {
+  const { data } = useResource(`/api/goals/${goalId}/outputs`, { on: ['output'] });
+  if (!data?.length) return null;
+  return (
+    <div className="row wrap" style={{ gap: 10, paddingLeft: 22 }}>
+      {data.map((o) => (
+        <a key={o.id} className="row xs" style={{ gap: 4 }} href={`#/goal/${goalId}`} title={`${o.kind} · ${o.bytes} bytes`}>
+          <Icon name="file" size={11} /> {o.name}
+        </a>
+      ))}
+    </div>
+  );
+}
 
 const draftFrom = (it) => ({
   title: it.title ?? '',
@@ -252,9 +268,12 @@ export default function ItemDrawer({ itemKey, board, item, goalStatus, onClose, 
           <div className="drawer-section">
             <h3>Linked goals</h3>
             {goals.length ? goals.map((g) => (
-              <div key={g.id} className="row" style={{ gap: 'var(--s-2)', padding: '3px 0' }}>
-                <StatusChip status={g.status} />
-                <a href={`#/goal/${g.id}`}>{g.title ?? g.slug ?? g.id}</a>
+              <div key={g.id}>
+                <div className="row" style={{ gap: 'var(--s-2)', padding: '3px 0' }}>
+                  <StatusChip status={g.status} />
+                  <a href={`#/goal/${g.id}`}>{g.title ?? g.slug ?? g.id}</a>
+                </div>
+                {(g.outputs ?? 0) > 0 && <GoalOutputs goalId={g.id} />}
               </div>
             )) : (it.goalIds ?? []).map((gid) => (
               <div key={gid} className="row" style={{ gap: 'var(--s-2)', padding: '3px 0' }}>
