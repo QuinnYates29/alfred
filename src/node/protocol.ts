@@ -1,11 +1,26 @@
 // P9 §1 — the wire protocol shared by the Alfred server (NodeHub) and alfred-node.
 // JSON messages over a WebSocket at GET /api/nodes/connect?token=<ALFRED_TOKEN>.
+import path from 'node:path';
 import { containedPath } from '../pathguard.js';
 
 export const PROTOCOL_VERSION = '1';
 export const OUTPUT_CAP = 8000;
 
-export type NodeOp = 'readFile' | 'writeFile' | 'listDir' | 'exec' | 'cancel' | 'ping' | CommsOp;
+export type NodeOp = 'readFile' | 'writeFile' | 'listDir' | 'exec' | 'cancel' | 'ping' | CommsOp | VaultOp;
+
+/** V1: Obsidian vault ops, served by a node started with --vault (cap `vault`). */
+export type VaultOp = 'vaultList' | 'vaultRead' | 'vaultSearch' | 'vaultWrite' | 'vaultAppend' | 'vaultMove';
+/** The cap a node must advertise for vault ops. */
+export const VAULT_CAP = 'vault';
+/** vaultRead refuses pages larger than this. */
+export const VAULT_READ_MAX = 1_000_000;
+/** vaultWrite refuses content larger than this. */
+export const VAULT_WRITE_MAX = 512_000;
+/** vaultList returns at most this many entries. */
+export const VAULT_LIST_MAX = 2000;
+/** vaultSearch walks at most this many files / reads this many bytes. */
+export const VAULT_SEARCH_MAX_FILES = 5000;
+export const VAULT_SEARCH_MAX_BYTES = 50_000_000;
 
 /** P21b: people ops, served by a node started with --messages (caps `messages` + `calls`). */
 export type CommsOp = 'sendMessage' | 'placeCall';
@@ -16,6 +31,8 @@ export interface CommsResult {
   error?: string;
   /** The request reached the node but no answer came back (disconnect/timeout): it may have happened. */
   uncertain?: boolean;
+  /** V1: the op's value (vault ops). Comms ops never set it. */
+  value?: any;
 }
 /** Longest text a message may carry (Twilio's SMS limit; Messages accepts it too). */
 export const MAX_MESSAGE_CHARS = 1600;
@@ -48,6 +65,8 @@ export interface HelloMsg {
   version: string;
   /** P10: where the node keeps sandbox workspaces (must be inside its roots). */
   sandbox?: string;
+  /** V1: the Obsidian vault this node serves — basename only, never the absolute path. */
+  vault?: { name: string };
 }
 export interface CallMsg {
   type: 'call';
@@ -76,6 +95,9 @@ export interface ExecValue {
   output: string;
   timedOut: boolean;
 }
+
+/** V1: the hello line for a vault — the folder NAME only, never the absolute path. */
+export const vaultHello = (vaultDir: string): { name: string } => ({ name: path.basename(vaultDir.replace(/[/\\]+$/, '')) || vaultDir });
 
 export function encode(msg: NodeMsg): string {
   return JSON.stringify(msg);

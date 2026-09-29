@@ -1,0 +1,4 @@
+# V1 — Quinn's Obsidian vault. Copy to config/vault.yaml (that file wins; missing = these defaults).
+node: ''            # node name; '' = the first connected node with the `vault` cap
+agentFolder: Alfred # agents write here freely (created on first write); elsewhere needs approval
+maxPageBytes: 200000

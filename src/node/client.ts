@@ -9,6 +9,7 @@ import {
   COMMS_CAP,
   MAX_MESSAGE_CHARS,
   PROTOCOL_VERSION,
+  VAULT_CAP,
   encode,
   guardRoot,
   normalizeHandle,
@@ -16,11 +17,14 @@ import {
   outsideRoots,
   parseMsg,
   tailOut,
+  vaultHello,
   type CallMsg,
   type CommsOp,
   type CommsResult,
   type NodeMsg,
+  type VaultOp,
 } from './protocol.js';
+import { runVaultOp } from './vault.js';
 import { writeFileNoFollow } from '../pathguard.js';
 import { scrubEnv } from '../sandbox.js';
 
@@ -39,7 +43,13 @@ export interface ConnectNodeOpts {
   sandbox?: string;
   /** P21b: runs sendMessage/placeCall (caps `messages`/`calls`). Default: osascript → Messages.app / `open tel:` on macOS. */
   comms?: CommsRunner;
+  /** V1: absolute path of the Obsidian vault this node serves → cap `vault` (hello reports its basename only). NOT a root. */
+  vault?: string;
 }
+
+const VAULT_OPS: VaultOp[] = ['vaultList', 'vaultRead', 'vaultSearch', 'vaultWrite', 'vaultAppend', 'vaultMove'];
+/** Expand a leading `~` (the CLI and the app both accept ~/paths). */
+export const expandHome = (p: string): string => p.replace(/^~(?=\/|$)/, process.env.HOME ?? '~');
 
 export interface CommsRunner {
   run(op: CommsOp, args: { to: string; text?: string }): Promise<CommsResult>;
@@ -264,7 +274,40 @@ function runExec(callId: string, args: any): Promise<{ exitCode: number | null; 
 // exec bookkeeping (call id → child, so `cancel` can kill the process group)
 const running = new Map<string, RunningChild>();
 
-function handleOp(callId: string, op: string, args: any, node: { caps: string[]; comms: CommsRunner }): Promise<any> {
+// V1: exported for tests (unit tests exercise vault routing + the vault-is-not-a-root refusal
+// without a websocket). Production callers use the ws dispatch below.
+export function handleOp(
+  callId: string,
+  op: string,
+  args: any,
+  node: { caps: string[]; comms: CommsRunner; vault?: string },
+): Promise<any> {
+  if ((VAULT_OPS as string[]).includes(op)) {
+    if (!node.vault) return Promise.reject(new Error('this node has no vault (start alfred-node with --vault <path>)'));
+    if (!node.caps.includes(VAULT_CAP)) return Promise.reject(new Error('vault ops are not enabled on this node'));
+    // A vault refusal is an Error with honest text; the caller turns it into {ok:false,error}.
+    return Promise.resolve().then(() => runVaultOp(node.vault!, op, args));
+  }
+  // V1: the vault is not a root — general fs/exec paths that land inside it are refused.
+  const vp = (pathOp: string, key: 'path' | 'from' | 'to') => {
+    const p = args?.[key];
+    if (node.vault && typeof p === 'string') {
+      try {
+        const abs = path.resolve(p);
+        const rel = path.relative(node.vault, abs);
+        if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
+          return Promise.reject(new Error(`outside the allowed roots: ${p} (the vault is only reachable through vault ops)`));
+        }
+      } catch {
+        /* unresolvable path: guardRoot will refuse it in its own words */
+      }
+    }
+    return null;
+  };
+  if (op === 'readFile' || op === 'writeFile' || op === 'listDir') {
+    const bad = vp(op, 'path');
+    if (bad) return bad;
+  }
   switch (op) {
     case 'sendMessage':
     case 'placeCall':
@@ -321,10 +364,13 @@ function handleOp(callId: string, op: string, args: any, node: { caps: string[];
 let rootsGlobal: string[] = [];
 
 export function connectNode(o: ConnectNodeOpts): NodeHandle {
-  const caps = o.caps ?? ['fs', 'shell', 'git'];
+  const caps = [...(o.caps ?? ['fs', 'shell', 'git'])];
+  // V1: with --vault the node serves vault ops; the vault dir is NOT a root (general fs/exec must never reach it).
+  const vaultDir = o.vault ? path.resolve(expandHome(o.vault)) : null;
+  if (vaultDir && !caps.includes(VAULT_CAP)) caps.push(VAULT_CAP);
   const reconnect = o.reconnect !== false;
   const onNotify = o.onNotify ?? defaultNotify;
-  const nodeCtx = { caps, comms: o.comms ?? defaultComms };
+  const nodeCtx = { caps, comms: o.comms ?? defaultComms, ...(vaultDir ? { vault: vaultDir } : {}) };
   rootsGlobal = o.roots.map((r) => path.resolve(r));
   const sandboxWant = path.resolve(
     (o.sandbox ?? `${process.env.HOME ?? '~'}${path.sep}alfred-sandbox`).replace(/^~(?=\/|$)/, process.env.HOME ?? '~'),
@@ -356,7 +402,10 @@ export function connectNode(o: ConnectNodeOpts): NodeHandle {
     ws.on('open', () => {
       open = true;
       backoffMs = 1_000;
-      const hello = { type: 'hello', name: o.name, roots: rootsGlobal, caps, version: PROTOCOL_VERSION, sandbox };
+      const hello = {
+        type: 'hello', name: o.name, roots: rootsGlobal, caps, version: PROTOCOL_VERSION, sandbox,
+        ...(vaultDir ? { vault: vaultHello(vaultDir) } : {}),
+      };
       ws!.send(encode(hello as NodeMsg));
     });
     ws.on('message', (data: any) => {
@@ -431,7 +480,7 @@ export function connectNode(o: ConnectNodeOpts): NodeHandle {
 // ---- CLI: alfred-node --server ws://host:port --token T --name macbook --root ~/code [--root …] [--dsh] [--messages]
 /* istanbul ignore next — daemon entry, exercised manually on the Mac */
 function cliMain(argv: string[]): void {
-  const o: { url?: string; token?: string; name?: string; roots: string[]; caps: string[] } = {
+  const o: { url?: string; token?: string; name?: string; roots: string[]; caps: string[]; vault?: string } = {
     roots: [],
     // macOS: desktop notifications on by default (--no-notify when the Mac app shows them itself)
     caps: process.platform === 'darwin' ? ['fs', 'shell', 'git', 'notify'] : ['fs', 'shell', 'git'],
@@ -447,6 +496,7 @@ function cliMain(argv: string[]): void {
     else if (a === '--notify') { if (!o.caps.includes('notify')) o.caps.push('notify'); }
     else if (a === '--no-notify') o.caps = o.caps.filter((c) => c !== 'notify');
     else if (a === '--messages') { for (const c of ['messages', 'calls']) if (!o.caps.includes(c)) o.caps.push(c); }
+    else if (a === '--vault') o.vault = next();
     else if (a === '--help' || a === '-h') {
       console.log('usage: alfred-node --server ws(s)://host:port --token $ALFRED_TOKEN --name <name> --root <abs> [--root …] [--dsh] [--notify|--no-notify] [--messages]');
       process.exit(0);
@@ -463,8 +513,9 @@ function cliMain(argv: string[]): void {
     name: o.name,
     roots: o.roots,
     caps: o.caps,
+    ...(o.vault ? { vault: expandHome(o.vault) } : {}),
   });
-  console.log(`alfred-node "${o.name}" → ${o.url} roots=${o.roots.join(',')} caps=${o.caps.join(',')}`);
+  console.log(`alfred-node "${o.name}" → ${o.url} roots=${o.roots.join(',')}${o.vault ? ` vault=${o.vault}` : ''} caps=${o.caps.join(',')}`);
   const bye = () => { handle.close(); process.exit(0); };
   process.on('SIGINT', bye);
   process.on('SIGTERM', bye);

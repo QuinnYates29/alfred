@@ -10,6 +10,7 @@ import { powersToolStubs } from '../powers/index.js';
 import { commsToolStubs } from '../comms/index.js';
 import { jevToolStubs } from '../jev/index.js';
 import { jiraToolStubs } from '../jira/index.js';
+import { vaultToolStubs } from '../vault/index.js';
 
 export function allTools(
   o: {
@@ -32,5 +33,6 @@ export function allTools(
     ...commsToolStubs(),
     ...jevToolStubs(),
     ...jiraToolStubs(),
+    ...vaultToolStubs(),
   ];
 }

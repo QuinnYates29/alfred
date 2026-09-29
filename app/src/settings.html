@@ -87,6 +87,9 @@
   <label class="row"><span>Roots (one absolute folder per line; agents can only touch these)</span><textarea id="node_roots" spellcheck="false" placeholder="/Users/quinn/code"></textarea></label>
   <label class="check"><input id="node_dsh" type="checkbox"> Allow desktop shell (dsh) + notifications</label>
   <label class="check"><input id="node_messages" type="checkbox"> Let agents text (Messages) and hand calls to my iPhone — each one still needs my approval</label>
+  <label class="row"><span>Obsidian vault folder (absolute path; agents write pages there)</span>
+    <span class="row" style="gap:6px"><input id="node_vault" type="text" spellcheck="false" placeholder="/Users/quinn/ObsidianVault"><button id="pickVault" type="button">Choose…</button></span>
+  </label>
   <div id="nodeStatus" class="hint"></div>
   <div id="agentBox" hidden>
     <div class="hint">The old LaunchAgent node (<code>com.alfred.node</code>) is installed: with the built-in node on too, the Mac connects twice and the two keep replacing each other.</div>
@@ -118,6 +121,7 @@
         roots: $('node_roots').value.split('\n').map((r) => r.trim()).filter(Boolean),
         dsh: $('node_dsh').checked,
         messages: $('node_messages').checked,
+        vault: $('node_vault').value.trim(),
       },
       updates: { auto: $('up_auto').checked },
     };
@@ -152,6 +156,7 @@
     $('node_roots').value = (s.node.roots || []).join('\n');
     $('node_dsh').checked = Boolean(s.node.dsh);
     $('node_messages').checked = Boolean(s.node.messages);
+    $('node_vault').value = s.node.vault || '';
     const st = s.nodeState;
     $('nodeStatus').textContent = !s.node.bundled ? 'This build has no bundled node (npm run build:node before packaging).'
       : st ? `Node ${st.name}: ${st.running ? 'running' : 'stopped'}${st.error ? ' (' + st.error + ')' : ''}` : 'Node: off';
@@ -195,6 +200,7 @@
     $('node_roots').value = (s.node.roots || []).join('\n');
     $('node_dsh').checked = Boolean(s.node.dsh);
     $('node_messages').checked = Boolean(s.node.messages);
+    $('node_vault').value = s.node.vault || '';
     setStatus($('nodeStatus'), `LaunchAgent disabled (${r.disabled}); built-in node on.` + (r.warning ? ' Note: ' + r.warning : ''), r.warning ? 'bad' : 'ok');
   };
 
@@ -202,6 +208,11 @@
     const t = $('token');
     t.type = t.type === 'password' ? 'text' : 'password';
     $('show').textContent = t.type === 'password' ? 'Show' : 'Hide';
+  };
+  $('pickVault').onclick = async () => {
+    if (!N.chooseFolder) return setStatus($('nodeStatus'), '⚠ folder picking needs the app', 'bad');
+    const r = await N.chooseFolder();
+    if (r && r.ok && r.path) $('node_vault').value = r.path;
   };
   $('test').onclick = async () => {
     setStatus($('testStatus'), 'Testing…');

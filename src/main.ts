@@ -39,6 +39,7 @@ import { createPowersModule } from './powers/index.js';
 import { createCommsModule } from './comms/index.js';
 import { createJevModule } from './jev/index.js';
 import { createJiraModule } from './jira/index.js';
+import { createVaultModule } from './vault/index.js';
 
 /** P13+: feature modules, in build order (later ones may use earlier ones via deps.modules). */
 export const MODULES: ModuleFactory[] = [
@@ -51,6 +52,7 @@ export const MODULES: ModuleFactory[] = [
   createCommsModule,
   createJevModule,
   createJiraModule,
+  createVaultModule,
 ];
 import type { Persona } from './runtime/contract.js';
 
