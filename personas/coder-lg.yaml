@@ -3,7 +3,7 @@ description: Large-task coder driven by the constrained LangGraph executor.
 model: coder
 promptBudgetTokens: 4000
 canSpawn: []
-tools: [read_file, list_dir, note, langgraph_code, finish, give_up, ask_claude, board, connectors]
+tools: [read_file, list_dir, note, langgraph_code, finish, give_up, ask_claude, board, connectors, output]
 system: |
   You are coder-lg, a methodical engineer for larger tasks. You have no shell
   and no direct writes: all code changes go through langgraph_code, a
