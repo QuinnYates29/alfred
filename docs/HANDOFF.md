@@ -1,5 +1,17 @@
 # HANDOFF: state of the alfred build (keep this current)
 
+## 2026-09-30 — Jev goes local + triages approvals: MERGED + DEPLOYED
+- qwen-server now runs the codacus llama.cpp fork (branch quinn-spark, ~/opt/llama.cpp-spark/current): 6 slots x 262k over
+  one 786k unified KV pool, -ncmoe 6, --cache-ram 12288, --decision-seqs 16 (POST /v1/decision). Details + the
+  GGML_CUDA_ENABLE_UNIFIED_MEMORY trap (silent NaN output past ~79 GiB): ~/bench/qwen, memory note qwen-tuning-20260929.
+- Jev backend `local` (src/jev/local.ts, config/jev.yaml): risk lines, web injection screen and jev_decide are now live, with no API key.
+  Review stays in **shadow**.
+- **Approvals triage** (src/jev/triage.ts): guards still flag deterministically. On agent tasks (never chat) Jev asks
+  safe / as asked / injected. All three clear (0.9 / 0.85 / <0.2) → it runs without Quinn, audited (`approval_auto` event + task
+  note). Otherwise Quinn gets it with Jev's line. alwaysAsk: rm -rf root, shutdown, connectors, deploy. Recalibrate with
+  `npx tsx scripts/jev-triage-eval.mts` (16/16 on 2026-09-30).
+- Before restarting qwen-server, check `GET /api/v1/agents`: /slots looks idle between an agent's model calls.
+
 ## 2026-09-29 09:15 — outputs, Jev, vault, Agents view, approvals: MERGED + DEPLOYED (635 tests)
 - O1 goal Outputs (output tool, report goals auto-publish, panel on the goal page). J2 Jev (src/jev/): review at finish
   (report=enforce, code=advisory), escalate-only risk lines on approvals, web injection screen, jev_decide — inert until
