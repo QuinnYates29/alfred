@@ -97,6 +97,84 @@ const probOf = (type: string, ans: any): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/** One question for the bulk path (asked about each item on its own). */
+function singleQuestion(args: DecideArgs): JevQuestion {
+  const instructions = args.question.trim();
+  if (args.type === 'choice') {
+    const criteria: Record<string, string | null> = {};
+    for (const o of args.options ?? []) criteria[o] = null;
+    return { type: 'choice', instructions, criteria };
+  }
+  if (args.type === 'score') return { type: 'score', instructions, criteria: [...(args.levels ?? [])] };
+  return { type: 'noul', instructions };
+}
+
+/** Bulk chunks: <= BULK_ITEMS items and ~BULK_CHARS of item text (~6k tokens, ~15 s of cold prefill). */
+export const BULK_ITEMS = 64;
+export const BULK_CHARS = 24_000;
+
+export function bulkChunks(texts: string[]): { offset: number; slice: string[] }[] {
+  const out: { offset: number; slice: string[] }[] = [];
+  let cur: string[] = [];
+  let chars = 0;
+  let start = 0;
+  texts.forEach((t, i) => {
+    if (cur.length && (cur.length >= BULK_ITEMS || chars + t.length > BULK_CHARS)) {
+      out.push({ offset: start, slice: cur });
+      cur = [];
+      chars = 0;
+      start = i;
+    }
+    cur.push(t);
+    chars += t.length;
+  });
+  if (cur.length) out.push({ offset: start, slice: cur });
+  return out;
+}
+
+/** Local backend: every item is its own context, scored in batched passes (no packing, nothing cut). */
+async function runEach(
+  jev: JevClient,
+  args: DecideArgs,
+  items: unknown[],
+  context: string,
+  threshold: number | null,
+  ctx?: ToolContext,
+): Promise<ToolResult> {
+  const q = singleQuestion(args);
+  const answers = new Map<number, any>();
+  let calls = 0;
+  let ms = 0;
+  let failed = 0;
+  for (const { offset, slice } of bulkChunks(items.map(itemText))) {
+    calls += 1;
+    const r = await jev.askEach!(context, slice, q, 'tool', { goalId: ctx?.goalId ?? '' });
+    if (!r) {
+      failed += 1;
+      continue;
+    }
+    ms += r.ms;
+    r.answers.forEach((a, j) => {
+      if (a) answers.set(offset + j, a);
+    });
+  }
+  return report(args, items, answers, threshold, calls, ms, failed);
+}
+
+function report(args: DecideArgs, items: unknown[], answers: Map<number, any>, threshold: number | null, calls: number, ms: number, failed: number): ToolResult {
+  const rows = items.map((item, i) => ({ i, ans: answers.get(i) ?? null, value: probOf(args.type, answers.get(i) ?? null) }));
+  let kept = rows;
+  if (threshold !== null) {
+    kept = rows
+      .filter((r) => r.value !== null && (r.value as number) >= threshold)
+      .sort((a, b) => (b.value as number) - (a.value as number));
+  }
+  const lines = kept.map((r) => `#${r.i} ${fmt(args.type, r.ans) ?? '?'} — ${preview(items[r.i])}`);
+  const totals = `${kept.length}/${items.length} items, ${calls} calls, ${ms} ms`;
+  const note = failed ? `\n(${failed} of ${calls} batches got no answer — those items show ?)` : '';
+  return { ok: true, output: cutMiddle([...lines, `${totals}${note}`].join('\n'), 16000) };
+}
+
 /** The jev_decide implementation, shared by the module tool and the allTools() stub. */
 export async function runDecide(
   get: () => JevClient | null,
@@ -111,6 +189,8 @@ export async function runDecide(
   const threshold = args.threshold !== undefined ? Number(args.threshold) : null;
   const items = args.items;
   const state = { context: (args.context ?? '').slice(0, 4000), items: [] as unknown[] };
+
+  if (typeof jev.askEach === 'function') return runEach(jev, args, items, state.context, threshold, ctx);
 
   const chunks: { offset: number; slice: unknown[] }[] = [];
   for (let off = 0; off < items.length; off += BATCH) chunks.push({ offset: off, slice: items.slice(off, off + BATCH) });
@@ -145,17 +225,7 @@ export async function runDecide(
     }
   }
 
-  const rows = items.map((item, i) => ({ i, ans: answers.get(i) ?? null, value: probOf(args.type, answers.get(i) ?? null) }));
-  let kept = rows;
-  if (threshold !== null) {
-    kept = rows
-      .filter((r) => r.value !== null && (r.value as number) >= threshold)
-      .sort((a, b) => (b.value as number) - (a.value as number));
-  }
-  const lines = kept.map((r) => `#${r.i} ${fmt(args.type, r.ans) ?? '?'} — ${preview(items[r.i])}`);
-  const totals = `${kept.length}/${items.length} items, ${calls} calls, ${ms} ms`;
-  const note = failed ? `\n(${failed} of ${calls} batches got no answer — those items show ?)` : '';
-  return { ok: true, output: cutMiddle([...lines, `${totals}${note}`].join('\n'), 16000) };
+  return report(args, items, answers, threshold, calls, ms, failed);
 }
 
 export const JEVA_DESCRIPTION =

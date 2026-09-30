@@ -19,6 +19,8 @@ import {
 /** Local prefill runs ~430 tok/s, so the state is capped far below the hosted API's 60k chars (~3k tokens ≈ 7 s cold). */
 export const LOCAL_STATE_CHAR_CAP = 12_000;
 export const LOCAL_MODEL = 'local-decision';
+/** One item in a bulk call (jev_decide caps items at 2000 chars already; this is the backstop). */
+export const EACH_ITEM_CHAR_CAP = 4000;
 
 const SHARED_INSTRUCTIONS =
   'You are a careful reviewer. Answer every question strictly from the state below. ' +
@@ -103,8 +105,61 @@ export function localJevClient(
     }
   };
 
+  const post = async (body: unknown, timeoutMs: number): Promise<{ json: any } | { error: string; status?: number }> => {
+    try {
+      const res = await doFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(Math.max(100, timeoutMs)),
+      });
+      const raw = await res.text().catch(() => '');
+      if (!res.ok) return { error: raw.slice(0, 300), status: res.status };
+      try {
+        return { json: JSON.parse(raw) };
+      } catch {
+        return { error: 'bad response body' };
+      }
+    } catch (e: any) {
+      return { error: String(e?.name ?? e?.message ?? e).slice(0, 200) };
+    }
+  };
+
   return {
     model: LOCAL_MODEL,
+    async askEach(context, items, question, use, call: { goalId?: string } = {}) {
+      const t0 = now();
+      const meta = { use: String(use ?? 'other'), goalId: call.goalId ?? '', backend: 'local' };
+      const bad = questionError({ q: question });
+      if (bad || !Array.isArray(items) || !items.length || items.length > 256) {
+        emit({ ...meta, ok: false, ms: 0, inTokens: 0, outTokens: 0, error: bad ?? 'items must be 1..256' });
+        return null;
+      }
+      const q = red(question) as JevQuestion;
+      const ctx = typeof context === 'string' && context.trim() ? `\nShared context for every item: ${red(context) as string}` : '';
+      const body = {
+        instructions: `${SHARED_INSTRUCTIONS}${ctx}\nThe state is ONE item; answer about that item only.`,
+        schema: { answer: toDecisionField(q) },
+        contexts: items.map((it) => cutMiddle(String(red(String(it))) || '(empty)', EACH_ITEM_CHAR_CAP)),
+        cache_prompt: true,
+      };
+      // bulk prefill is ~430 tok/s: scale the timeout with the batch instead of the single-call budget
+      const r = await post(body, Math.max(policy.localTimeoutMs, 90_000));
+      if ('error' in r) {
+        emit({ ...meta, ok: false, ms: now() - t0, inTokens: 0, outTokens: 0, ...(r.status ? { status: r.status } : {}), error: r.error });
+        return null;
+      }
+      const results = r.json?.results;
+      if (!Array.isArray(results) || results.length !== items.length) {
+        emit({ ...meta, ok: false, ms: now() - t0, inTokens: 0, outTokens: 0, error: 'bad response body' });
+        return null;
+      }
+      const answers = results.map((x: any) => toJevAnswer(q, x?.fields?.answer));
+      const inTokens = (Number(r.json?.usage?.prompt_tokens) || 0) + (Number(r.json?.usage?.context_tokens) || 0);
+      const ms = now() - t0;
+      emit({ ...meta, ok: true, ms, inTokens, outTokens: 0 });
+      return { answers, ms };
+    },
     async ask(state, questions, use, call: { goalId?: string } = {}) {
       const t0 = now();
       const meta = { use: String(use ?? 'other'), goalId: call.goalId ?? '', backend: 'local' };

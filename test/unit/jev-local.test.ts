@@ -11,6 +11,7 @@ import { localJevClient, toDecisionField, toJevAnswer, LOCAL_STATE_CHAR_CAP } fr
 import { askRisk } from '../../src/jev/risk.js';
 import { createJevModule } from '../../src/jev/index.js';
 import { jevUsage } from '../../src/jev/client.js';
+import { runDecide, bulkChunks, BULK_ITEMS, BULK_CHARS } from '../../src/jev/tool.js';
 import type { JevQuestion } from '../../src/jev/client.js';
 
 const POL = { ...DEFAULT_JEV_POLICY, backend: 'local' as const };
@@ -172,5 +173,57 @@ describe('local Jev backend — policy + module', () => {
   it('ignores an unknown backend value', () => {
     writeFileSync(join(root, 'config', 'jev.yaml'), 'backend: gpt\n');
     expect(loadJevPolicy(deps(fakeFetch(() => decision({})).fn)).backend).toBe('typesafe');
+  });
+});
+
+describe('local Jev backend — bulk jev_decide (one context per item)', () => {
+  it('chunks by item count and by characters, keeping every item exactly once', () => {
+    const short = Array.from({ length: 150 }, (_, i) => `item ${i}`);
+    const c1 = bulkChunks(short);
+    expect(c1.every((c) => c.slice.length <= BULK_ITEMS)).toBe(true);
+    expect(c1.flatMap((c) => c.slice)).toEqual(short);
+    const long = Array.from({ length: 30 }, (_, i) => `${i}:`.padEnd(1900, 'x'));
+    const c2 = bulkChunks(long);
+    expect(c2.every((c) => c.slice.join('').length <= BULK_CHARS)).toBe(true);
+    expect(c2.map((c) => c.offset)).toEqual(c2.map((_, k) => c2.slice(0, k).reduce((n, x) => n + x.slice.length, 0)));
+  });
+
+  it('sends every item whole as its own context and maps each answer back to its item', async () => {
+    // spam iff the item text contains "WIN"
+    const f = fakeFetch((body) =>
+      new Response(
+        JSON.stringify({
+          results: body.contexts.map((c: string) => ({
+            fields: { answer: c.includes('WIN') ? { value: true, probability: 0.97 } : { value: false, probability: 0.95 } },
+          })),
+          usage: { prompt_tokens: 10, context_tokens: 100 },
+        }),
+        { status: 200 },
+      ),
+    );
+    const c = localJevClient('http://127.0.0.1:1110', {}, POL, f.fn)!;
+    const items = Array.from({ length: 100 }, (_, i) => `#${i} ${i % 7 === 0 ? 'WIN A PRIZE' : 'meeting notes'} `.padEnd(1900, '.'));
+    const out = await runDecide(() => c, { items, question: 'Is this spam?', type: 'noul', threshold: 0.5 });
+    expect(out.ok).toBe(true);
+    const sent = f.calls.flatMap((x) => x.body.contexts as string[]);
+    expect(sent).toEqual(items); // nothing packed, nothing cut, order kept
+    expect(f.calls.every((x) => Object.keys(x.body.schema).join() === 'answer')).toBe(true);
+    const flagged = [...out.output.matchAll(/^#(\d+) yes/gm)].map((m) => Number(m[1])).sort((a, b) => a - b);
+    expect(flagged).toEqual(items.map((_, i) => i).filter((i) => i % 7 === 0));
+    expect(out.output).toContain('15/100 items');
+  });
+
+  it('a failed chunk leaves its items as ? and the rest still answer', async () => {
+    let n = 0;
+    const f = fakeFetch((body) => {
+      n += 1;
+      if (n === 1) return new Response('boom', { status: 500 });
+      return new Response(JSON.stringify({ results: body.contexts.map(() => ({ fields: { answer: { value: 'keep', probability: 0.9 } } })) }), { status: 200 });
+    });
+    const c = localJevClient('http://127.0.0.1:1110', {}, POL, f.fn)!;
+    const items = Array.from({ length: BULK_ITEMS + 5 }, (_, i) => `mail ${i}`);
+    const out = await runDecide(() => c, { items, question: 'Keep or delete?', type: 'choice', options: ['keep', 'delete'] });
+    expect(out.output).toContain('(1 of 2 batches got no answer');
+    expect(out.output).toMatch(new RegExp(`#${BULK_ITEMS} keep`));
   });
 });

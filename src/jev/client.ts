@@ -70,6 +70,16 @@ export interface JevClientOptions {
 
 export interface JevClient {
   readonly model: string;
+  /** Optional bulk path: ONE question asked about each item separately (the local backend scores every
+   *  item as its own context in batched passes). Resolves one answer per item (null = no answer), or
+   *  null when the whole call failed. Clients without it get jev_decide's packed-questions path. */
+  askEach?(
+    context: string,
+    items: string[],
+    question: JevQuestion,
+    use: string,
+    o?: { goalId?: string },
+  ): Promise<{ answers: (JevAnswer | null)[]; ms: number } | null>;
   ask(
     state: unknown,
     questions: Record<string, JevQuestion>,
