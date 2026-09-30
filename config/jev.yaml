@@ -11,3 +11,15 @@ localTimeoutMs: 20000
 review:
   report: shadow
   code: shadow
+
+# Approvals: the guards (src/approvals.ts, config/powers.yaml) still decide deterministically WHAT
+# needs approval. On agent tasks (never chat) Jev then asks: safe? what Quinn's request asked for?
+# injected? All three clear → it runs without Quinn (audited: `approval_auto` event + task note).
+# Anything else → Quinn, with Jev's line on the approval. mode: off | advisory | auto.
+approvals:
+  mode: auto
+  minSafe: 0.9
+  minAsked: 0.85
+  maxInjection: 0.2
+  # 'rm -rf root' and 'shutdown' are always added back even if removed here.
+  alwaysAsk: [rm -rf root, shutdown, connectors, deploy]

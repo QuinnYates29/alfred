@@ -42,7 +42,22 @@ export interface JevPolicy {
   screenWeb: boolean;
   /** The jev_decide agent tool. */
   tool: boolean;
+  /** Triage of flagged approvals on agent tasks (src/jev/triage.ts). */
+  approvals: {
+    /** off = Quinn decides everything; advisory = Jev's line on the approval only; auto = Jev may approve. */
+    mode: 'off' | 'advisory' | 'auto';
+    /** P(safe) must reach this to auto-approve. */
+    minSafe: number;
+    /** P(as asked) must reach this to auto-approve. */
+    minAsked: number;
+    /** P(injection) must stay below this to auto-approve. */
+    maxInjection: number;
+    /** Guard / power names that always go to Quinn, whatever Jev says. */
+    alwaysAsk: string[];
+  };
 }
+
+export const APPROVAL_MODES = ['off', 'advisory', 'auto'] as const;
 
 export const DEFAULT_JEV_POLICY: JevPolicy = {
   enabled: true,
@@ -56,6 +71,14 @@ export const DEFAULT_JEV_POLICY: JevPolicy = {
   risk: true,
   screenWeb: true,
   tool: true,
+  approvals: {
+    mode: 'off',
+    minSafe: 0.9,
+    minAsked: 0.85,
+    maxInjection: 0.2,
+    // catastrophic, runs code with credentials (connectors), or changes alfred itself (deploy)
+    alwaysAsk: ['rm -rf root', 'shutdown', 'connectors', 'deploy'],
+  },
 };
 
 export function jevPolicyPath(deps: ModuleDeps): string {
@@ -90,8 +113,10 @@ export function loadJevPolicy(deps: ModuleDeps): JevPolicy {
     }
   }
   const d = DEFAULT_JEV_POLICY;
-  if (!raw || typeof raw !== 'object') return { ...d, review: { ...d.review } };
+  if (!raw || typeof raw !== 'object') return { ...d, review: { ...d.review }, approvals: { ...d.approvals, alwaysAsk: [...d.approvals.alwaysAsk] } };
   const rv = raw.review && typeof raw.review === 'object' ? raw.review : {};
+  const ap = raw.approvals && typeof raw.approvals === 'object' ? raw.approvals : {};
+  const apMode = String(ap.mode ?? '').trim().toLowerCase();
   return {
     enabled: isBool(raw.enabled, d.enabled),
     backend: (JEV_BACKENDS as readonly string[]).includes(String(raw.backend ?? '').trim().toLowerCase())
@@ -111,5 +136,14 @@ export function loadJevPolicy(deps: ModuleDeps): JevPolicy {
     risk: isBool(raw.risk, d.risk),
     screenWeb: isBool(raw.screenWeb, d.screenWeb),
     tool: isBool(raw.tool, d.tool),
+    approvals: {
+      mode: (APPROVAL_MODES as readonly string[]).includes(apMode) ? (apMode as JevPolicy['approvals']['mode']) : d.approvals.mode,
+      minSafe: num(ap.minSafe, d.approvals.minSafe, 0.5, 1),
+      minAsked: num(ap.minAsked, d.approvals.minAsked, 0.5, 1),
+      maxInjection: num(ap.maxInjection, d.approvals.maxInjection, 0, 0.5),
+      alwaysAsk: Array.isArray(ap.alwaysAsk)
+        ? [...new Set([...d.approvals.alwaysAsk.filter((a) => a === 'rm -rf root' || a === 'shutdown'), ...ap.alwaysAsk.filter((a: unknown): a is string => typeof a === 'string' && !!a.trim()).map((a: string) => a.trim())])]
+        : [...d.approvals.alwaysAsk],
+    },
   };
 }

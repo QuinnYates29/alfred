@@ -214,3 +214,57 @@ export function storeForTask(taskId: string): Store | undefined {
   }
   return undefined;
 }
+
+// --- approval triage (Jev) ------------------------------------------------
+// The guards above decide deterministically WHETHER an action needs approval. A registered
+// triage (the jev module installs one when config/jev.yaml enables `approvals.mode: auto`) may
+// then decide that a flagged action is safe AND what the task asked for, and let it run without
+// Quinn. It is only ever consulted for agent tasks (never chat, where Quinn is present); any
+// error / null / timeout = Quinn decides, exactly as without it.
+export interface TriageInput {
+  taskId: string;
+  /** The guard or power that flagged it (e.g. 'git push', 'message'). */
+  action: string;
+  /** The exact command / request. */
+  detail: string;
+  /** Extra material Quinn would see (a message body, a diff, file content). */
+  info?: string;
+}
+
+export interface TriageResult {
+  /** true = run it without asking Quinn. */
+  approve: boolean;
+  /** One line for the approval row / task note, e.g. `Jev: safe 0.97, as asked 0.93 → auto-approved`. */
+  line: string;
+}
+
+export type ApprovalTriage = (input: TriageInput) => Promise<TriageResult | null>;
+
+let triageHook: ApprovalTriage | null = null;
+
+export function setApprovalTriage(fn: ApprovalTriage | null): void {
+  triageHook = fn;
+}
+
+/** Ask the registered triage; never throws, null when there is none or it fails. */
+export async function triageApproval(input: TriageInput): Promise<TriageResult | null> {
+  if (!triageHook || input.taskId.startsWith('chat:')) return null;
+  try {
+    const r = await triageHook(input);
+    return r && typeof r.line === 'string' ? { approve: r.approve === true, line: r.line } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Audit trail for an action Jev let through: an `approval_auto` event (goal feed / transcript)
+ *  and a task note, so Quinn can always see what ran without him. Best effort, never throws. */
+export function recordAutoApproval(store: Store, taskId: string, action: string, detail: string, line: string): void {
+  try {
+    const goalId = store.getTask(taskId)?.goalId ?? '';
+    store.appendEvent(goalId, taskId, 'approval_auto', { action, detail: detail.slice(0, 2000), by: 'jev', line });
+    store.appendNote(taskId, `auto-approved by Jev — ${action}: ${detail.slice(0, 300)} (${line})`);
+  } catch {
+    /* the action still runs; the audit is best effort */
+  }
+}

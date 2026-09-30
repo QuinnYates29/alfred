@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModuleDeps } from '../modules.js';
+import { recordAutoApproval, triageApproval } from '../approvals.js';
 
 export interface AutoApproveRule {
   action: string;
@@ -297,8 +298,18 @@ export async function gated(
     if (!r?.escalate) return go({ auto: true });
     // Jev escalated the pre-approved action: fall through and ask Quinn instead.
   } else {
-    const r = await askJev();
-    if (r) jevLine = r.line;
+    // Flagged by policy: Jev triage may clear it (safe AND what was asked); otherwise its line,
+    // or the plain risk annotation when triage is off, goes on the approval for Quinn.
+    const t = await triageApproval({ taskId, action, detail, info: o.info });
+    if (t?.approve) {
+      recordAutoApproval(store, taskId, action, detail, t.line);
+      return go({ jev: true });
+    }
+    if (t) jevLine = t.line;
+    else {
+      const r = await askJev();
+      if (r) jevLine = r.line;
+    }
   }
   const info = jevLine ? (o.info ? `${jevLine}\n${o.info}` : jevLine) : o.info;
   const parkedExtra = { ...(autoHit ? { escalated: 'jev' } : {}) };

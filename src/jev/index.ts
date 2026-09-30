@@ -11,6 +11,8 @@ import type { Store } from '../store.js';
 import type { Tool, ToolContext } from '../runtime/contract.js';
 import { storeForTask } from '../approvals.js';
 import { setWebScreen } from '../runtime/web.js';
+import { setApprovalTriage } from '../approvals.js';
+import { makeApprovalTriage } from './triage.js';
 import { jevClient, jevUsage, type JevClient, type JevClientOptions } from './client.js';
 import { localJevClient, LOCAL_MODEL } from './local.js';
 
@@ -120,6 +122,7 @@ export function createJevModule(deps: ModuleDeps): JevModuleSurface {
     risk,
     start() {
       registerReviewHook(makeReviewHook({ client, policy, store: deps.store }));
+      setApprovalTriage(makeApprovalTriage({ client, policy, store: deps.store }));
       setWebScreen(async (text: string): Promise<number | null> => {
         if (!policy().screenWeb) return null;
         const jev = client();
@@ -131,6 +134,7 @@ export function createJevModule(deps: ModuleDeps): JevModuleSurface {
     },
     stop() {
       registerReviewHook(null);
+      setApprovalTriage(null);
       setWebScreen(null);
     },
   };

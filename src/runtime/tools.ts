@@ -12,7 +12,7 @@ import {
   type ToolSchema,
   type WorkspaceBackend,
 } from './contract.js';
-import { guardCommand, storeForTask } from '../approvals.js';
+import { guardCommand, recordAutoApproval, storeForTask, triageApproval } from '../approvals.js';
 import { containedPath, writeFileNoFollow } from '../pathguard.js';
 import { sandboxedCommand } from '../sandbox.js';
 import { webFetchTool, webSearchTool } from './web.js';
@@ -280,7 +280,13 @@ export function builtinTools(o?: { approvals?: boolean }): Tool[] {
               }
               // One approved command buys exactly one run.
               if (!store.consumeApproval(ctx.taskId, cmd)) {
-                store.requestApproval(ctx.taskId, guard, cmd);
+                // The guard flagged it; Jev may clear it (safe AND what was asked), else Quinn decides.
+                const t = await triageApproval({ taskId: ctx.taskId, action: guard, detail: cmd });
+                if (t?.approve) {
+                  recordAutoApproval(store, ctx.taskId, guard, cmd, t.line);
+                  return await runShell({ ...args, cmd }, ctx);
+                }
+                store.requestApproval(ctx.taskId, guard, cmd, t?.line);
                 const reason = `approval needed: ${guard}: ${cmd}`;
                 return { ok: false, output: reason, park: { status: 'blocked', reason } };
               }
