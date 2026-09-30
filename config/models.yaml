@@ -2,7 +2,7 @@ models:
   - name: qwen-local
     baseUrl: http://127.0.0.1:1110
     model: qwen3.8-flash-next
-    slots: 3
+    slots: 6
     contextWindow: 262144
     maxTokens: 8192
 roles:

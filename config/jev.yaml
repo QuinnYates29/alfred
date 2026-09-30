@@ -1,0 +1,13 @@
+# Jev decision layer (src/jev/). Missing keys = DEFAULT_JEV_POLICY in src/jev/policy.ts.
+# backend: local = the Spark's llama-server POST /v1/decision (qwen-server.service runs with
+# --decision-seqs 16): constrained, single-pass scoring with exact probabilities, ~0.3-0.6 s warm,
+# no API key, nothing leaves the box. backend: typesafe = the hosted API (needs TYPESAFE_API_KEY).
+backend: local
+localUrl: http://127.0.0.1:1110
+localTimeoutMs: 20000
+
+# Review starts in shadow mode on the local model: verdicts are recorded, nothing is rejected.
+# Raise report/code to advisory or enforce after reading a few days of verdicts.
+review:
+  report: shadow
+  code: shadow

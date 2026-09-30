@@ -11,7 +11,8 @@ import type { Store } from '../store.js';
 import type { Tool, ToolContext } from '../runtime/contract.js';
 import { storeForTask } from '../approvals.js';
 import { setWebScreen } from '../runtime/web.js';
-import { jevClient, jevUsage, type JevClient } from './client.js';
+import { jevClient, jevUsage, type JevClient, type JevClientOptions } from './client.js';
+import { localJevClient } from './local.js';
 import { loadJevPolicy, type JevPolicy } from './policy.js';
 import { makeReviewHook, registerReviewHook } from './review.js';
 import { askRisk, INJECTION_INSTRUCTIONS, type RiskInput, type RiskResult } from './risk.js';
@@ -43,24 +44,30 @@ export function createJevModule(deps: ModuleDeps): JevModuleSurface {
     return u.inTokens + u.outTokens;
   };
 
-  const client = (): JevClient | null =>
-    jevClient(deps.env ?? {}, policy(), fetchImpl, {
-      now,
-      tokensToday,
-      onCall: (r) => {
-        try {
-          deps.store.appendEvent(r.goalId || '', null, 'jev', {
-            use: r.use,
-            ok: r.ok,
-            ms: r.ms,
-            inTokens: r.inTokens,
-            outTokens: r.outTokens,
-          });
-        } catch {
-          /* accounting must never break a call */
-        }
-      },
-    });
+  const client = (): JevClient | null => {
+    const pol = policy();
+    return pol.backend === 'local'
+      ? localJevClient(pol.localUrl, deps.env ?? {}, pol, fetchImpl, clientOpts)
+      : jevClient(deps.env ?? {}, pol, fetchImpl, clientOpts);
+  };
+  const clientOpts: JevClientOptions = {
+    now,
+    tokensToday,
+    onCall: (r) => {
+      try {
+        deps.store.appendEvent(r.goalId || '', null, 'jev', {
+          use: r.use,
+          ok: r.ok,
+          ms: r.ms,
+          inTokens: r.inTokens,
+          outTokens: r.outTokens,
+          ...(r.backend ? { backend: r.backend } : {}),
+        });
+      } catch {
+        /* accounting must never break a call */
+      }
+    },
+  };
 
   const risk = async (input: RiskInput): Promise<RiskResult | null> => {
     if (!policy().risk) return null;

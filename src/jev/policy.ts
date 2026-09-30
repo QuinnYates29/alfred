@@ -10,8 +10,17 @@ import { powersRoot } from '../powers/gate.js';
 export const JEV_MODES = ['off', 'shadow', 'advisory', 'enforce'] as const;
 export type JevMode = (typeof JEV_MODES)[number];
 
+export const JEV_BACKENDS = ['typesafe', 'local'] as const;
+export type JevBackend = (typeof JEV_BACKENDS)[number];
+
 export interface JevPolicy {
   enabled: boolean;
+  /** typesafe = the hosted API (needs TYPESAFE_API_KEY); local = llama-server /v1/decision on the Spark. */
+  backend: JevBackend;
+  /** Base URL of the local llama-server (served with --decision-seqs). */
+  localUrl: string;
+  /** Local calls may need a cold prefill (~430 tok/s), so they get their own, longer timeout. */
+  localTimeoutMs: number;
   /** Pinned model id — never `jev-latest` for gates. */
   model: string;
   timeoutMs: number;
@@ -37,6 +46,9 @@ export interface JevPolicy {
 
 export const DEFAULT_JEV_POLICY: JevPolicy = {
   enabled: true,
+  backend: 'typesafe',
+  localUrl: 'http://127.0.0.1:1110',
+  localTimeoutMs: 20_000,
   model: 'jev-1.13.0',
   timeoutMs: 3000,
   dailyTokenCap: 20_000_000,
@@ -82,6 +94,11 @@ export function loadJevPolicy(deps: ModuleDeps): JevPolicy {
   const rv = raw.review && typeof raw.review === 'object' ? raw.review : {};
   return {
     enabled: isBool(raw.enabled, d.enabled),
+    backend: (JEV_BACKENDS as readonly string[]).includes(String(raw.backend ?? '').trim().toLowerCase())
+      ? (String(raw.backend).trim().toLowerCase() as JevBackend)
+      : d.backend,
+    localUrl: typeof raw.localUrl === 'string' && raw.localUrl.trim() ? raw.localUrl.trim() : d.localUrl,
+    localTimeoutMs: num(raw.localTimeoutMs, d.localTimeoutMs, 200, 120_000),
     model: typeof raw.model === 'string' && raw.model.trim() ? raw.model.trim() : d.model,
     timeoutMs: num(raw.timeoutMs, d.timeoutMs, 200, 60_000),
     dailyTokenCap: num(raw.dailyTokenCap, d.dailyTokenCap, 0, 1_000_000_000),
