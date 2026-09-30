@@ -478,7 +478,7 @@ describe('jev_decide', () => {
   it('no client → not configured; bad args → refused without a call', async () => {
     const off = await runDecide(() => null, { items: ['a'], question: 'q', type: 'noul' }, ctx());
     expect(off.ok).toBe(false);
-    expect(off.output).toContain('Jev is not configured (TYPESAFE_API_KEY)');
+    expect(off.output).toContain('Jev is not configured');
     const { client, calls } = clientFor(() => jevResponse({}));
     const bad = await runDecide(client, { items: [], question: 'q', type: 'noul' }, ctx());
     expect(bad.ok).toBe(false);

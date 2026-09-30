@@ -10,6 +10,7 @@ import { DEFAULT_JEV_POLICY, loadJevPolicy } from '../../src/jev/policy.js';
 import { localJevClient, toDecisionField, toJevAnswer, LOCAL_STATE_CHAR_CAP } from '../../src/jev/local.js';
 import { askRisk } from '../../src/jev/risk.js';
 import { createJevModule } from '../../src/jev/index.js';
+import { jevUsage } from '../../src/jev/client.js';
 import type { JevQuestion } from '../../src/jev/client.js';
 
 const POL = { ...DEFAULT_JEV_POLICY, backend: 'local' as const };
@@ -151,6 +152,21 @@ describe('local Jev backend — policy + module', () => {
     expect(f.calls[0].url).toBe('http://127.0.0.1:1111/v1/decision');
     const ev = store.events('').filter((e) => e.kind === 'jev');
     expect(ev[0].data).toMatchObject({ ok: true, backend: 'local' });
+  });
+
+  it('status reports a local backend as configured, and local calls cost $0', async () => {
+    writeFileSync(join(root, 'config', 'jev.yaml'), 'backend: local\n');
+    const f = fakeFetch(() => decision({ ok: { value: true, probability: 0.9 } }));
+    const m: any = createJevModule(deps(f.fn));
+    await m.client().ask('x', { ok: { type: 'noul', instructions: 'ok?' } }, 'health');
+    const u = jevUsage(deps(f.fn), 0);
+    expect(u.calls).toBe(1);
+    expect(u.inTokens).toBe(100);
+    expect(u.estUsd).toBe(0);
+    let body: any = null;
+    const layer = m.router.stack.find((l: any) => l.route?.path === '/jev/status');
+    layer.route.stack[0].handle({}, { json: (b: any) => (body = b), status: () => ({ json: () => {} }) });
+    expect(body).toMatchObject({ configured: true, enabled: true, backend: 'local', model: 'local-decision' });
   });
 
   it('ignores an unknown backend value', () => {

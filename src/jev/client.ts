@@ -270,6 +270,7 @@ export const estUsdFor = (inTokens: number) => Math.round(((inTokens / 1_000_000
 export function jevUsage(deps: ModuleDeps, sinceMs: number): JevUsage {
   const total = emptyStats();
   const byUse: Record<string, JevUseStats> = {};
+  let billedTokens = 0;
   try {
     const rows = deps.store
       .raw()
@@ -283,14 +284,17 @@ export function jevUsage(deps: ModuleDeps, sinceMs: number): JevUsage {
         continue;
       }
       const use = typeof d?.use === 'string' ? d.use : 'other';
+      // local calls cost nothing: keep them in the call counts but out of the $ estimate
+      const billed = d?.backend !== 'local';
       if (!byUse[use]) byUse[use] = emptyStats();
       add(total, Number(d?.ms) || 0, d?.ok === true, Number(d?.inTokens) || 0, Number(d?.outTokens) || 0);
+      if (billed && d?.ok === true) billedTokens += Number(d?.inTokens) || 0;
       add(byUse[use], Number(d?.ms) || 0, d?.ok === true, Number(d?.inTokens) || 0, Number(d?.outTokens) || 0);
     }
   } catch {
     /* no store (stub deps) — report zeros */
   }
-  const out: JevUsage = { ...finish(total), estUsd: estUsdFor(total.inTokens), byUse: {} };
+  const out: JevUsage = { ...finish(total), estUsd: estUsdFor(billedTokens), byUse: {} };
   for (const [k, v] of Object.entries(byUse)) out.byUse[k] = finish(v);
   return out;
 }

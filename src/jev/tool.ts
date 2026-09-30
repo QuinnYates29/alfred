@@ -106,7 +106,7 @@ export async function runDecide(
   const err = decideArgsError(raw);
   if (err) return { ok: false, output: `jev_decide: ${err}` };
   const jev = get();
-  if (!jev) return { ok: false, output: 'Jev is not configured (TYPESAFE_API_KEY)' };
+  if (!jev) return { ok: false, output: 'Jev is not configured (config/jev.yaml backend: local, or TYPESAFE_API_KEY for the hosted API)' };
   const args = raw as DecideArgs;
   const threshold = args.threshold !== undefined ? Number(args.threshold) : null;
   const items = args.items;

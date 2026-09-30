@@ -12,7 +12,9 @@ import type { Tool, ToolContext } from '../runtime/contract.js';
 import { storeForTask } from '../approvals.js';
 import { setWebScreen } from '../runtime/web.js';
 import { jevClient, jevUsage, type JevClient, type JevClientOptions } from './client.js';
-import { localJevClient } from './local.js';
+import { localJevClient, LOCAL_MODEL } from './local.js';
+
+const NOT_CONFIGURED = 'Jev is not configured (config/jev.yaml backend: local, or TYPESAFE_API_KEY for the hosted API)';
 import { loadJevPolicy, type JevPolicy } from './policy.js';
 import { makeReviewHook, registerReviewHook } from './review.js';
 import { askRisk, INJECTION_INSTRUCTIONS, type RiskInput, type RiskResult } from './risk.js';
@@ -82,12 +84,13 @@ export function createJevModule(deps: ModuleDeps): JevModuleSurface {
   router.get('/jev/status', (_req: Request, res: Response) => {
     try {
       const pol = policy();
-      const configured = !!deps.env?.TYPESAFE_API_KEY?.trim();
+      const configured = pol.backend === 'local' || !!deps.env?.TYPESAFE_API_KEY?.trim();
       const u = jevUsage(deps, startOfToday(now));
       res.json({
         configured,
         enabled: configured && pol.enabled,
-        model: pol.model,
+        backend: pol.backend,
+        model: pol.backend === 'local' ? LOCAL_MODEL : pol.model,
         policy: pol,
         today: { calls: u.calls, inTokens: u.inTokens, estUsd: u.estUsd, avgMs: u.avgMs, byUse: u.byUse },
       });
@@ -98,7 +101,7 @@ export function createJevModule(deps: ModuleDeps): JevModuleSurface {
   router.post('/jev/test', async (_req: Request, res: Response) => {
     const jev = client();
     if (!jev) {
-      res.status(400).json({ ok: false, error: 'Jev is not configured (TYPESAFE_API_KEY)' });
+      res.status(400).json({ ok: false, error: NOT_CONFIGURED });
       return;
     }
     const out = await jev.ask('ping', { ok: { type: 'noul', instructions: 'Is this text a health-check ping that should be answered yes?' } }, 'test');
@@ -148,7 +151,7 @@ export function jevToolStubs(): Tool[] {
       run: async (args: any, ctx: ToolContext) => {
         const store = storeForTask(ctx.taskId);
         const real = store ? bound.get(store)?.find((x) => x.schema.name === t.schema.name) : undefined;
-        return real ? real.run(args, ctx) : { ok: false, output: 'Jev is not configured (TYPESAFE_API_KEY)' };
+        return real ? real.run(args, ctx) : { ok: false, output: NOT_CONFIGURED };
       },
     },
   ];
