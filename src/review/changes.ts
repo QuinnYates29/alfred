@@ -23,18 +23,21 @@ export function resolveRepo(store: Store, goal: { meta?: Record<string, any> }):
   return store.listRepos().find((r) => Object.values(r.paths ?? {}).includes(v)) ?? null;
 }
 
-/** The goal's pushed branches from `pushed` events; latest event per branch wins. */
+/** The goal's pushed branches from `pushed` events; latest event per branch wins; most recently pushed first. */
 export function pushedBranches(store: Store, goalId: string): PushedBranch[] {
   const byBranch = new Map<string, PushedBranch>();
   for (const e of store.events(goalId)) {
     if (e.kind !== 'pushed' || !e.data?.branch) continue;
+    byBranch.delete(String(e.data.branch)); // re-pushed → moves to the end
     byBranch.set(String(e.data.branch), {
       branch: String(e.data.branch),
       sha: String(e.data.sha ?? ''),
       taskId: String(e.taskId ?? ''),
     });
   }
-  return [...byBranch.values()];
+  // ALF-7: most recently pushed first — the default branch everywhere (Changes, merge, deploy, peer
+  // review) is the latest attempt's, not an abandoned first attempt's (possibly empty) branch.
+  return [...byBranch.values()].reverse();
 }
 
 /** repo.defaultBranch, else the hub's HEAD branch (if it exists), else main, else master. */

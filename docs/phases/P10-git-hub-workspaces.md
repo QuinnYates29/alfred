@@ -53,5 +53,12 @@ The existing P2a behavior (`workspaceFor` with no hub → a local worktree) stay
   `git push spark HEAD:<branch>` in the workspace. This is best-effort: event `pushed` `{branch, sha}` or `push_failed` `{error}` (never fails the task).
 - `alfred repo add <name> --path [<where>:]<abs>`, `alfred repo ls`, `alfred repo fetch <name>` (prints the branches in the hub). API: `GET/POST /api/repos`.
 
+## ALF-7 addendum (2026-10-01): retries continue
+The workspace key (`<id8>` in `<slug>/<id8>` and `alfred/<slug>/<id8>`) is `workspaceKey(store, task)`: the root task's id,
+except that a later root task of the same goal (a retry) reuses the latest earlier root's key (from its `workspace` event).
+So a retry works in the same workspace on the same branch; if that workspace is gone, `setupClone` checks out `spark/<branch>`
+(the attempt's pushed work) instead of the base, and repo-mode worktrees re-attach an existing branch.
+`pushedBranches` is most-recently-pushed first, so every default (Changes, merge, deploy, peer review) is the latest attempt.
+
 ## Done when
 `npx vitest run test/acceptance/p10` + all earlier suites + typecheck are green on `p10-git`.

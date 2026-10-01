@@ -2,7 +2,7 @@
 // checked when a goal is made or edited, goals on `alfred` get the dev gate and an isolated clone,
 // pushes from them always reach Quinn, and a landed merge can be rolled back.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, lstatSync, readlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, lstatSync, readlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -15,6 +15,7 @@ import { hungLLM } from '../../src/runtime/testing.js';
 import { createApp } from '../../src/server/app.js';
 import { RepoHub } from '../../src/git/hub.js';
 import { createReviewModule } from '../../src/review/index.js';
+import { pushedBranches } from '../../src/review/changes.js';
 import { resolveWorkspace } from '../../src/workspace.js';
 import { makeApprovalTriage } from '../../src/jev/triage.js';
 import { DEFAULT_JEV_POLICY, loadJevPolicy } from '../../src/jev/policy.js';
@@ -117,7 +118,9 @@ describe('workspace for a goal on alfred', () => {
     const checkout = join(root, 'alfred');
     mkdirSync(join(checkout, 'node_modules', 'dep'), { recursive: true });
     writeFileSync(join(checkout, 'node_modules', 'dep', 'index.js'), '');
-    writeFileSync(join(checkout, '.gitignore'), 'node_modules\n');
+    mkdirSync(join(checkout, 'sidecar', '.venv', 'bin'), { recursive: true });
+    writeFileSync(join(checkout, 'sidecar', 'setup.sh'), ''); // sidecar/ is tracked in the real repo
+    writeFileSync(join(checkout, '.gitignore'), 'node_modules\nsidecar/.venv\n');
     writeFileSync(join(checkout, 'a.txt'), '1\n');
     git(root, 'init', '-q', checkout);
     git(checkout, 'add', '-A');
@@ -133,6 +136,7 @@ describe('workspace for a goal on alfred', () => {
     expect(git(ws.path, 'rev-parse', '--git-common-dir')).toBe('.git'); // its own repo, not the live checkout's
     expect(lstatSync(join(ws.path, 'node_modules')).isSymbolicLink()).toBe(true);
     expect(readlinkSync(join(ws.path, 'node_modules'))).toBe(join(checkout, 'node_modules'));
+    expect(readlinkSync(join(ws.path, 'sidecar', '.venv'))).toBe(join(checkout, 'sidecar', '.venv')); // the LangGraph tests need it
     expect(git(ws.path, 'status', '--porcelain')).toBe('');
     expect(git(checkout, 'branch', '--list', 'alfred/*')).toBe(''); // nothing created in the live checkout
 
@@ -225,5 +229,63 @@ describe('rollback', () => {
     expect(store.events(g.id).some((e) => e.kind === 'goal_reverted')).toBe(true);
     expect((await call(url, 'GET', `/goals/${g.id}/changes`)).body.landed).toBeNull();
     expect((await call(url, 'POST', `/goals/${g.id}/revert`, { confirm: true })).status).toBe(409);
+  });
+});
+
+describe('a retry picks up where the last attempt stopped', () => {
+  it('continues the previous attempt\'s workspace and branch — even when that workspace was deleted', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'alf7-retry-'));
+    const src = join(root, 'proj');
+    mkdirSync(src);
+    git(src, 'init', '-q');
+    writeFileSync(join(src, 'a.txt'), '1\n');
+    git(src, 'add', '-A');
+    git(src, 'commit', '-qm', 'init');
+    const store = openStore(':memory:');
+    store.upsertRepo({ name: 'proj', paths: { local: src }, defaultBranch: 'main' });
+    const hub = new RepoHub({ root: join(root, 'hub') });
+    const work = join(root, 'work');
+    const goal = store.createGoal({ title: 'feature', meta: { repo: 'proj', mode: 'sandbox' } });
+
+    // attempt 1: works, commits, pushes (the runtime does this on every exit), then stops
+    const t1 = store.createTask({ goalId: goal.id, persona: 'coder', title: 'T', spec: 's' });
+    const ws1 = await resolveWorkspace(store, t1, { root: work, hub });
+    store.appendEvent(goal.id, t1.id, 'workspace', { path: ws1.path, node: 'local', branch: ws1.branch });
+    writeFileSync(join(ws1.path, 'b.txt'), 'half done\n');
+    git(ws1.path, 'add', '-A');
+    git(ws1.path, 'commit', '-qm', 'partial');
+    git(ws1.path, 'push', '-q', 'spark', `HEAD:${ws1.branch}`);
+    store.transition(t1.id, 'stopped', { reason: 'turn budget exhausted (60)' });
+
+    // attempt 2 (retry): same workspace, same branch, the partial commit is there, and it is told so
+    const t2 = retryTask(store, t1.id);
+    expect(t2.notes).toMatch(/continues on the previous attempt's branch/);
+    const ws2 = await resolveWorkspace(store, t2, { root: work, hub });
+    expect(ws2.path).toBe(ws1.path);
+    expect(ws2.branch).toBe(ws1.branch);
+    store.appendEvent(goal.id, t2.id, 'workspace', { path: ws2.path, node: 'local', branch: ws2.branch });
+    store.transition(t2.id, 'stopped', { reason: 'x' });
+
+    // attempt 3, after the workspace was cleaned up: a fresh clone, but of the attempt branch, not main
+    rmSync(ws1.path, { recursive: true, force: true });
+    const t3 = retryTask(store, t2.id);
+    const ws3 = await resolveWorkspace(store, t3, { root: work, hub });
+    expect(ws3.branch).toBe(ws1.branch);
+    expect(readFileSync(join(ws3.path, 'b.txt'), 'utf8')).toBe('half done\n');
+    expect(git(ws3.path, 'log', '-1', '--format=%s')).toBe('partial');
+
+    // a different goal never inherits it
+    const other = store.createGoal({ title: 'other', meta: { repo: 'proj', mode: 'sandbox' } });
+    const ot = store.createTask({ goalId: other.id, persona: 'coder', title: 'T', spec: 's' });
+    expect((await resolveWorkspace(store, ot, { root: work, hub })).branch).toBe(`alfred/${other.slug}/${ot.id.slice(0, 8)}`);
+  });
+
+  it('the default branch everywhere is the most recently pushed one', () => {
+    const store = openStore(':memory:');
+    const g = store.createGoal({ title: 'g' });
+    const t = store.createTask({ goalId: g.id, persona: 'coder', title: 'a' });
+    store.appendEvent(g.id, t.id, 'pushed', { branch: 'alfred/g/aaaaaaaa', sha: '1' }); // abandoned first attempt
+    store.appendEvent(g.id, t.id, 'pushed', { branch: 'alfred/g/bbbbbbbb', sha: '2' });
+    expect(pushedBranches(store, g.id).map((b) => b.branch)).toEqual(['alfred/g/bbbbbbbb', 'alfred/g/aaaaaaaa']);
   });
 });

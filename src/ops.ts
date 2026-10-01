@@ -41,8 +41,10 @@ export const SELF_REPO = 'alfred';
 /** The done-gate for a change to alfred itself: both suites + typecheck (+ the web build for area `web`). */
 export function devAcceptance(area?: string): AcceptanceCheck[] {
   return [
-    ...(area === 'web' ? [{ name: 'build-web', cmd: 'npm run build:web', timeoutMs: 600_000 }] : []),
-    { name: 'tests', cmd: 'npx vitest run test/acceptance/ test/unit/', timeoutMs: 1_200_000 },
+    // The deps are the server's, mounted read-only: build with them (`build:web` would `npm install`).
+    ...(area === 'web' ? [{ name: 'build-web', cmd: 'npm run build:web:local', timeoutMs: 600_000 }] : []),
+    // p18 drives the Electron Mac app: it needs a display and the app's deps, so it runs on the Mac, not here.
+    { name: 'tests', cmd: "npx vitest run test/acceptance/ test/unit/ --exclude 'test/acceptance/p18/**'", timeoutMs: 1_200_000 },
     { name: 'typecheck', cmd: 'npx tsc --noEmit -p tsconfig.src.json', timeoutMs: 600_000 },
   ];
 }
@@ -136,6 +138,10 @@ export function retryTask(store: Store, taskId: string, note?: string): Task {
     .filter((s): s is string => !!s && !!s.trim())
     .join(' — ');
   if (extra) store.appendNote(fresh.id, extra);
+  // ALF-7: a retry on a repo continues the previous attempt's branch (workspace.ts workspaceKey).
+  if (!src.parentTaskId && store.getGoal(src.goalId)?.meta?.repo) {
+    store.appendNote(fresh.id, 'This retry continues on the previous attempt\'s branch: its committed work is already in your workspace. Start with `git log --oneline -5` and `git status`; build on it, do not redo it.');
+  }
   return store.getTask(fresh.id)!;
 }
 

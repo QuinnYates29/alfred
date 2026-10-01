@@ -75,7 +75,9 @@ after chat (already done in `src/main.ts`).
      or `inPlace` are refused by goal creation, PATCH and `resolveWorkspace`), so an agent can't move the live checkout's refs.
      (Quinn, 2026-09-30: the P21 acceptance test now expects `mode: 'sandbox'`.) `node_modules` and `web/node_modules` are symlinked from `repoRoot`
      and mounted read-only in the bwrap sandbox (`registerSharedReadonly`), so the dev gate can run.
-   - No acceptance → `devAcceptance()` (also on retry of a check-less task).
+   - No acceptance → `devAcceptance()` (also on retry of a check-less task): the suites without p18 (Electron needs a display
+     and the app's deps — it runs on the Mac), `tsc`, and for area web `npm run build:web:local` (not `build:web`, which
+     would `npm install` into the read-only deps). Clones also get `sidecar/.venv` linked, for the LangGraph suites.
    - Jev triage (`src/jev/triage.ts`): a `git push` (to anything but the hub's `spark`) from such a goal always goes to Quinn;
      `deploy` can't be removed from `approvals.alwaysAsk` by `config/jev.yaml`.
    - `deploy` (and `rollback`) refuse to rebuild/restart when the merge didn't fast-forward `repoRoot` (`localUpdated: false`).

@@ -34,12 +34,32 @@ function rootAncestor(store: Store, task: Task): Task {
   return cur;
 }
 
+/**
+ * ALF-7: the workspace key (`id8` in `<slug>/<id8>` and `alfred/<slug>/<id8>`) a task works under. It is
+ * its root task's id — except that a retry (a later root task of the same goal) continues the latest
+ * earlier root's workspace and branch, so partial work (committed + pushed on every exit) is picked up
+ * instead of redone from the base branch.
+ */
+export function workspaceKey(store: Store, task: Task): string {
+  const root = rootAncestor(store, task);
+  let key = root.id.slice(0, 8);
+  for (const e of store.events(root.goalId)) {
+    if (e.kind !== 'workspace' || !e.taskId || e.taskId === root.id) continue;
+    const t = store.getTask(e.taskId);
+    if (!t || t.parentTaskId || t.createdAt > root.createdAt) continue; // earlier root tasks only
+    const fromBranch = typeof e.data?.branch === 'string' ? e.data.branch.split('/').pop() : '';
+    const fromPath = typeof e.data?.path === 'string' ? basename(e.data.path) : '';
+    const k = ID8.test(fromBranch ?? '') ? fromBranch! : ID8.test(fromPath) ? fromPath : null;
+    if (k) key = k; // events are oldest first: the latest earlier attempt wins
+  }
+  return key;
+}
+const ID8 = /^[0-9a-f]{8}$/;
+
 export function workspaceFor(store: Store, task: Task, o?: WorkspaceOpts): string {
   const base = o?.root ?? join(homedir(), '.alfred', 'work');
   const goal = store.getGoal(task.goalId);
   if (!goal) throw new Error(`no such goal: ${task.goalId}`);
-
-  const root = rootAncestor(store, task);
 
   const repo = typeof goal.meta?.repo === 'string' ? goal.meta.repo : null;
   if (!repo) {
@@ -48,16 +68,18 @@ export function workspaceFor(store: Store, task: Task, o?: WorkspaceOpts): strin
     return dir;
   }
 
-  const id8 = root.id.slice(0, 8);
+  const id8 = workspaceKey(store, task);
   const ws = join(base, goal.slug, id8);
   if (existsSync(ws)) return ws;
 
   mkdirSync(join(base, goal.slug), { recursive: true });
   const branch = `alfred/${goal.slug}/${id8}`;
-  execFileSync('git', ['-C', repo, 'worktree', 'add', '-b', branch, ws, 'HEAD'], {
-    stdio: 'pipe',
-    env: scrubEnv(process.env),
-  });
+  const wt = (args: string[]) => execFileSync('git', ['-C', repo, 'worktree', 'add', ...args], { stdio: 'pipe', env: scrubEnv(process.env) });
+  try {
+    wt([ws, branch]); // the branch survives from an earlier attempt: continue on it
+  } catch {
+    wt(['-b', branch, ws, 'HEAD']);
+  }
   return ws;
 }
 
@@ -141,22 +163,23 @@ async function setupClone(
   }
   await tbe(backend, cwd, `git clone --origin spark ${shq(url)} ${shq(ws)}`, 120_000);
   const def = (await tbe(backend, cwd, `git -C ${shq(ws)} symbolic-ref --short HEAD`, 15_000)).trim();
-  // An empty hub has no commits yet: branch the unborn HEAD instead.
-  const has = await texec(backend, `git -C ${shq(ws)} rev-parse --verify --quiet spark/${shq(def)}`, { cwd, timeoutMs: 15_000 });
-  const from = has.exitCode === 0 ? ` spark/${shq(def)}` : '';
+  const hasRef = async (ref: string) => (await texec(backend, `git -C ${shq(ws)} rev-parse --verify --quiet ${shq(ref)}`, { cwd, timeoutMs: 15_000 })).exitCode === 0;
+  // ALF-7: the task branch is already in the hub (an earlier attempt pushed it): continue from it.
+  // Else branch the base; an empty hub has no commits yet: branch the unborn HEAD instead.
+  const from = (await hasRef(`spark/${branch}`)) ? ` ${shq(`spark/${branch}`)}` : (await hasRef(`spark/${def}`)) ? ` spark/${shq(def)}` : '';
   await tbe(backend, cwd, `git -C ${shq(ws)} -c core.hooksPath=/dev/null checkout -B ${shq(branch)}${from}`);
   await tbe(backend, cwd, `git -C ${shq(ws)} config branch.${shq(branch)}.remote spark`);
   await tbe(backend, cwd, `git -C ${shq(ws)} config branch.${shq(branch)}.merge refs/heads/${shq(branch)}`);
 }
 
 /**
- * A clone of alfred has no node_modules, and the sandbox hides $HOME (where the checkout lives), so the
- * dev gate (vitest, tsc) could never run. Link the server's installed deps in, and let the sandbox
+ * A clone of alfred has no node_modules (nor the LangGraph sidecar's venv), and the sandbox hides $HOME
+ * (where the checkout lives), so the dev gate (vitest, tsc) could never run. Link the server's installed deps in, and let the sandbox
  * mount them read-only. Only these server-made links are mounted — never a link an agent made.
  */
 export function linkSelfDeps(ws: string, checkout: string | undefined): void {
   if (!checkout) return;
-  for (const rel of ['node_modules', 'web/node_modules']) {
+  for (const rel of ['node_modules', 'web/node_modules', 'sidecar/.venv']) {
     const src = join(checkout, rel);
     if (!existsSync(src)) continue;
     const dest = join(ws, rel);
@@ -221,8 +244,7 @@ export async function resolveWorkspace(
     backend = o.nodes.backend(nodeName);
   }
 
-  const root = rootAncestor(store, task);
-  const id8 = root.id.slice(0, 8);
+  const id8 = workspaceKey(store, task);
   const branch = `alfred/${goal.slug}/${id8}`;
   const base = o.root ?? join(homedir(), '.alfred', 'work');
 
@@ -318,7 +340,7 @@ export async function resolveWorkspace(
   const ws = joinPosix(repoAbs, '.alfred-worktrees', id8);
   const exists = await texec(backend, `test -d ${shq(ws)}`, { cwd: repoAbs, timeoutMs: 15_000 });
   if (exists.exitCode !== 0) {
-    await tbe(backend, repoAbs, `git worktree add -b ${shq(branch)} ${shq(ws)} HEAD`);
+    await tbe(backend, repoAbs, `git worktree add ${shq(ws)} ${shq(branch)} 2>/dev/null || git worktree add -b ${shq(branch)} ${shq(ws)} HEAD`);
   }
   await ensureSparkRemote(repoAbs);
   return { backend, path: ws, branch, ...(name ? { remote: 'spark' } : {}) };
@@ -339,8 +361,7 @@ async function resolveOnNode(
   const repo = typeof goal.meta?.repo === 'string' && goal.meta.repo ? goal.meta.repo : null;
   if (!repo) throw new Error(`goal ${goal.slug} runs on node ${nodeName} but has no meta.repo`);
 
-  const root = rootAncestor(store, task);
-  const id8 = root.id.slice(0, 8);
+  const id8 = workspaceKey(store, task);
   const caps = o.nodes.info(nodeName)?.caps ?? [];
   if (caps.includes('git')) {
     try {
@@ -349,7 +370,8 @@ async function resolveOnNode(
         const ws = `${repo.replace(/\/+$/, '')}/.alfred-worktrees/${id8}`;
         const exists = await texec(backend, `test -d ${shq(ws)}`, { cwd: repo, timeoutMs: 15_000 });
         if (exists.exitCode !== 0) {
-          await tbe(backend, repo, `git worktree add -b ${shq(`alfred/${goal.slug}/${id8}`)} ${shq(ws)} HEAD`);
+          const br = shq(`alfred/${goal.slug}/${id8}`);
+          await tbe(backend, repo, `git worktree add ${shq(ws)} ${br} 2>/dev/null || git worktree add -b ${br} ${shq(ws)} HEAD`);
         }
         return { backend, path: ws };
       }

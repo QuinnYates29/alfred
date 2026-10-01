@@ -47,7 +47,7 @@ describe('resolveRepo', () => {
 });
 
 describe('pushedBranches', () => {
-  it('keeps the latest event per branch, in first-seen order', () => {
+  it('keeps the latest event per branch, most recently pushed first', () => {
     const g = store.createGoal({ title: 'g' });
     const t1 = store.createTask({ goalId: g.id, persona: 'coder', title: 'a' });
     const t2 = store.createTask({ goalId: g.id, persona: 'coder', title: 'b' });
