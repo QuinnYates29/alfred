@@ -110,7 +110,8 @@ async function doReview(deps: ModuleDeps, goal: Goal): Promise<PeerReview> {
         testCmd: cmds.length ? cmds.join(' && ') : 'true',
         baseUrl: spec?.baseUrl ?? 'http://127.0.0.1:1110',
         model: spec?.model ?? 'qwen3.8-flash-next',
-        spec: goal.body || goal.title,
+        // The goal body, else the root task's spec (MCP/door goals keep the spec there), else the title.
+        spec: goal.body || deps.store.listTasks(goal.id).find((t) => !t.parentTaskId)?.spec || goal.title,
         files,
         diff,
       },
