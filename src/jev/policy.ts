@@ -100,6 +100,9 @@ function mode(v: any, dflt: JevMode): JevMode {
 
 const isBool = (v: any, dflt: boolean) => (typeof v === 'boolean' ? v : dflt);
 
+/** alwaysAsk entries config/jev.yaml cannot remove (ALF-7: deploying or rolling back alfred is always Quinn's). */
+const STICKY_ASK = ['rm -rf root', 'shutdown', 'deploy'];
+
 /** config/jev.yaml over the defaults. Never throws: a broken file is the defaults. */
 export function loadJevPolicy(deps: ModuleDeps): JevPolicy {
   const path = jevPolicyPath(deps);
@@ -142,7 +145,7 @@ export function loadJevPolicy(deps: ModuleDeps): JevPolicy {
       minAsked: num(ap.minAsked, d.approvals.minAsked, 0.5, 1),
       maxInjection: num(ap.maxInjection, d.approvals.maxInjection, 0, 0.5),
       alwaysAsk: Array.isArray(ap.alwaysAsk)
-        ? [...new Set([...d.approvals.alwaysAsk.filter((a) => a === 'rm -rf root' || a === 'shutdown'), ...ap.alwaysAsk.filter((a: unknown): a is string => typeof a === 'string' && !!a.trim()).map((a: string) => a.trim())])]
+        ? [...new Set([...d.approvals.alwaysAsk.filter((a) => STICKY_ASK.includes(a)), ...ap.alwaysAsk.filter((a: unknown): a is string => typeof a === 'string' && !!a.trim()).map((a: string) => a.trim())])]
         : [...d.approvals.alwaysAsk],
     },
   };

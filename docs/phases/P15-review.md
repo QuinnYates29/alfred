@@ -44,6 +44,25 @@ Every mutating route needs `confirm: true` (400 otherwise). Git failures → 500
   `git -C <local> fetch <bare> <into>` + `git -C <local> merge --ff-only FETCH_HEAD`. Failures here are reported, not fatal.
 - Event `goal_merged {branch, into, sha, strategy}` on the goal. → 200 `{ ok: true, into, sha /* new tip of into */, localUpdated: boolean }`.
 
+## 4b. Revert (ALF-7)
+`POST /goals/:id/revert { sha?, confirm: true }` undoes a landed merge: `sha` (default: the latest `goal_merged` without a
+`goal_reverted`) is reverted on the branch it landed on, in a temp clone (`git revert --no-edit`, `-m 1` for merge commits),
+then landed like a merge (fetch + compare-and-swap of the base ref) and the clean Spark checkout fast-forwarded.
+History is kept, so a revert can itself be reverted. Nothing landed / already reverted / not on the base → 409; conflicts → 409
+`{error:'revert conflict', conflicts}`, nothing changes. Event `goal_reverted {into, sha, reverted}` →
+`{ ok: true, into, sha, reverted, files /* paths the revert changed */, localUpdated }`.
+`GET /goals/:id/changes` also returns `landed: {sha, into} | null` (what a revert would undo); the Changes tab shows **Roll back**.
+
+## 4c. Peer review (ALF-7, `src/review/peer.ts`)
+`POST /goals/:id/peer-review {confirm:true}` → 202 (409 without a repo/pushed branch); also automatic on `goal_status: done` for
+goals with `meta.peerReview: true`. Clones the hub at the branch head into `<workRoot>/.peer-review/` (removed after), links
+alfred's deps for a goal on `alfred`, and runs the LangGraph sidecar in `mode: "review"` (`sidecar/langgraph_coder/review.py`):
+checks → each changed file in order (read-only tools, temperature 0, JSON rubric, ≤ 8 steps; an unusable answer is a `major`
+finding) → one scope question. The verdict is code (`verdictOf`): `error` if it didn't run; `needs_human` if any file matches
+`GUARDRAIL_RE`; `changes_requested` on failing checks or any blocker/major; else `approve`. Events `peer_review_started`,
+`peer_review {sha, branch, base, verdict, checksOk, findings, reviewed, error?}`; output **Peer review** (markdown).
+`/changes` returns the latest as `peerReview`. `alfred_dev deploy` of an opted-in goal requires an `approve` of the exact commit.
+
 ## 5. Discard
 Deletes the goal's pushed branch(es) from the hub (`git --git-dir <bare> branch -D <branch>`; only `branch` if given), and removes
 local workspaces of the goal's tasks: a path inside `deps.workRoot` → `rm -rf`; a path containing `/.alfred-worktrees/` on the local

@@ -114,11 +114,55 @@ export default function ChangesTab({ id }) {
       reload();
     }, null);
 
+  // ALF-7: undo the latest landed merge (a revert commit; on alfred itself also rebuild + restart).
+  const landed = data?.landed ?? null;
+  const rollback = () =>
+    act(async () => {
+      const self = data?.repo === 'alfred';
+      if (!(await confirm({
+        title: 'Roll back this merge?',
+        body: `Reverts ${String(landed.sha).slice(0, 8)} on ${landed.into} with a new commit (history is kept, so this can be undone too).${self ? ' alfred is rebuilt and restarted as needed.' : ''}`,
+        danger: true,
+        ok: 'Roll back',
+      }))) return;
+      const r = await post(`/api/goals/${id}/rollback`, { confirm: true });
+      toast(r?.output ? String(r.output).split('\n').pop() : 'Rolled back', 'ok');
+      reload();
+    }, null);
+  // ALF-7: coder-lg's peer review of the branch head (read-only, deterministic verdict).
+  const pr = data?.peerReview ?? null;
+  const prStale = pr && data?.branches?.[0]?.sha && pr.sha !== data.branches[0].sha;
+  const PR_TONE = { approve: 'ok', changes_requested: 'bad', needs_human: 'warn', error: 'bad' };
+  const reviewChip = pr ? (
+    <span className={`chip ${prStale ? '' : PR_TONE[pr.verdict] ?? ''}`} title={`coder-lg review of ${String(pr.sha).slice(0, 8)}${prStale ? ' (older commit)' : ''} — details in Outputs`}>
+      LG review: {String(pr.verdict).replace('_', ' ')}{prStale ? ' (older commit)' : ''}
+    </span>
+  ) : null;
+  const peerReview = () =>
+    act(async () => {
+      await post(`/api/goals/${id}/peer-review`, { confirm: true });
+      toast('coder-lg is reviewing — the verdict appears here and in Outputs', 'ok');
+    }, null);
+
+  const rollbackBtn = landed ? (
+    <Button variant="danger" size="sm" icon="retry" data-testid="rollback-btn" onClick={rollback} title={`Revert merge ${String(landed.sha).slice(0, 8)} on ${landed.into}`}>
+      Roll back
+    </Button>
+  ) : null;
+
   if (loading && !data) {
     return <div className="row"><Spinner /> <span className="muted">Loading changes…</span></div>;
   }
   if (error) return <Empty icon="alert" title={`Could not load changes: ${error.message}`} />;
-  if (!branch) return <Empty icon="git" title="No code changes pushed" />;
+  if (!branch) {
+    return landed ? (
+      <div className="row wrap" style={{ gap: 10 }}>
+        <span className="chip" title="landed">merged {String(landed.sha).slice(0, 7)} into {landed.into}</span>
+        <span className="grow" />
+        {rollbackBtn}
+      </div>
+    ) : <Empty icon="git" title="No code changes pushed" />;
+  }
 
   return (
     <div className="stack">
@@ -127,6 +171,9 @@ export default function ChangesTab({ id }) {
         {data.base ? <span className="chip" title="base">base {data.base}</span> : null}
         {data.repo ? <span className="chip" title="repo">{data.repo}</span> : null}
         <span className="grow" />
+        {reviewChip}
+        <Button size="sm" variant="ghost" data-testid="peer-review-btn" onClick={peerReview} title="Have coder-lg review this branch (read-only)">LG review</Button>
+        {rollbackBtn}
         <Button variant="danger" size="sm" data-testid="discard-btn" onClick={discard}>Discard</Button>
         <Button variant="primary" size="sm" icon="merge" data-testid="merge-btn" onClick={() => setMerging(true)}>Merge</Button>
       </div>

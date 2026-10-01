@@ -119,7 +119,19 @@ export class Scheduler {
       signal: ac.signal,
     })
       .then(() => undefined)
-      .catch(() => undefined)
+      .catch((e) => {
+        // A run that throws (unknown repo, missing persona, workspace setup…) used to leave its task
+        // `running` until the lease expired, then get reclaimed and re-claimed forever (ALF-7: 66
+        // attempts, no other events). If we still hold it, fail it with the reason instead.
+        try {
+          const t = this.o.store.getTask(taskId);
+          if (t?.status === 'running' && t.leaseOwner === workerId) {
+            this.o.store.transition(taskId, 'failed', { reason: `run error: ${e?.message ?? String(e)}`, by: workerId });
+          }
+        } catch {
+          // It moved on by itself meanwhile; nothing to do.
+        }
+      })
       .finally(() => {
         this.runningMap.delete(taskId);
         this.aborts.delete(taskId);

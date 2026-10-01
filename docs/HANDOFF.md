@@ -1,5 +1,21 @@
 # HANDOFF: state of the alfred build (keep this current)
 
+## 2026-09-30 — ALF-7 fallout: self-dev safety, editable goal repo, rollback (branch `alf-7-self-dev-safety`, NOT deployed)
+- Root cause of ALF-7 "active, reclaimed every 5 min, 66 attempts": the board item named repo `alfred`, which was only
+  registered by `alfred_dev propose` (never run) → `resolveWorkspace` threw `unknown repo` → the scheduler swallowed the error
+  and the task sat `running` until its lease expired, forever. Now: a run that throws fails the task with `run error: …`;
+  repos are validated when a goal is made/edited; `alfred` is registered at boot.
+- `PATCH /goals/:id` + **Edit where** on the goal page (repo/node/mode while nothing runs).
+- Goals on `alfred`: sandbox only (hub clone; worktree/in-place refused; P21 acceptance test updated with Quinn's OK), deps linked read-only, dev gate by default,
+  pushes off the Spark + deploy/rollback always Quinn's. Rollback = revert commit (`POST /goals/:id/revert`, `/rollback`,
+  `alfred_dev rollback`, Roll back button). Details: README "alfred working on itself", P21 §4, P15 §4b.
+- `.gitignore`: `.alfred-worktrees/` (made `~/repos/alfred` permanently dirty → deploy could never fast-forward it) and
+  `web/node_modules` without the slash (a symlink there would have been committed).
+- Optional coder-lg peer review (`meta.peerReview`): LangGraph sidecar `mode: review`, read-only, verdict in code, safety-rail
+  files always `needs_human`; agent deploys need its `approve` of the exact commit. NOT yet run against the real sidecar/Qwen —
+  first real use: `alfred_dev review` on a small goal and read the Peer review output.
+- To retry ALF-7 after deploying: Retry on its goal page (repo `alfred` now resolves; the retry gets the dev gate).
+
 ## 2026-09-30 — Jev goes local + triages approvals: MERGED + DEPLOYED
 - qwen-server now runs the codacus llama.cpp fork (branch quinn-spark, ~/opt/llama.cpp-spark/current): 6 slots x 262k over
   one 786k unified KV pool, -ncmoe 6, --cache-ram 12288, --decision-seqs 16 (POST /v1/decision). Details + the

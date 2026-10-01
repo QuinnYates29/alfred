@@ -1,11 +1,13 @@
 // P21a §4 — self-development: agents change alfred itself, safely.
-// propose → a coder goal in a worktree of repo `alfred` (never in place);
+// propose → a coder goal in a sandbox clone of repo `alfred` (never a worktree, never in place);
 // Quinn reviews it in Goals → Changes; deploy (gated) merges, rebuilds, restarts.
 import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModuleDeps } from '../modules.js';
-import type { AcceptanceCheck } from '../types.js';
-import { createGoalWithRoot, resolveGoal } from '../ops.js';
+import { createGoalWithRoot, devAcceptance, isSelfRepo, resolveGoal, SELF_REPO } from '../ops.js';
 import { pushedBranches, resolveBase, resolveRepo } from '../review/changes.js';
+import { landedMerges } from '../review/land.js';
+import { peerReviewBlocks, runPeerReview } from '../review/peer.js';
+import express from 'express';
 import { selfApi, apiError } from './api.js';
 import { gated, powersRoot } from './gate.js';
 
@@ -15,16 +17,11 @@ const RESTART_RE = /^(src|personas|config)\//;
 /** …and rebuilds the Mac app (Settings → Updates then offers it) when it touched what the app bundles. */
 export const APP_REBUILD_RE = /^(app\/|src\/node\/|src\/cli)/;
 
-export function devAcceptance(area?: string): AcceptanceCheck[] {
-  return [
-    ...(area === 'web' ? [{ name: 'build-web', cmd: 'npm run build:web', timeoutMs: 600_000 }] : []),
-    { name: 'tests', cmd: 'npx vitest run test/acceptance/ test/unit/', timeoutMs: 1_200_000 },
-    { name: 'typecheck', cmd: 'npx tsc --noEmit -p tsconfig.src.json', timeoutMs: 600_000 },
-  ];
-}
+export { devAcceptance };
 
-function ensureRepo(deps: ModuleDeps): void {
-  if (!deps.store.getRepo('alfred')) deps.store.upsertRepo({ name: 'alfred', paths: { local: powersRoot(deps) } });
+/** Register alfred's own checkout as repo `alfred` (main calls this at boot; propose on first use). */
+export function ensureSelfRepo(deps: Pick<ModuleDeps, 'store' | 'repoRoot' | 'extra'>): void {
+  if (!deps.store.getRepo(SELF_REPO)) deps.store.upsertRepo({ name: SELF_REPO, paths: { local: powersRoot(deps as ModuleDeps) } });
 }
 
 function propose(deps: ModuleDeps, a: any): ToolResult {
@@ -33,7 +30,7 @@ function propose(deps: ModuleDeps, a: any): ToolResult {
   if (!title || !spec) return { ok: false, output: 'propose needs title and spec' };
   const area = a.area === undefined || a.area === null || a.area === '' ? undefined : String(a.area);
   if (area && !(AREAS as readonly string[]).includes(area)) return { ok: false, output: `area must be ${AREAS.join('|')}` };
-  ensureRepo(deps);
+  ensureSelfRepo(deps);
   const body = `${spec}\n\n(alfred self-change${area ? `, area ${area}` : ''}: work on your branch in the worktree; do not deploy — Quinn reviews and deploys.)`;
   const { goal } = createGoalWithRoot(deps.store, {
     title,
@@ -41,9 +38,9 @@ function propose(deps: ModuleDeps, a: any): ToolResult {
     spec: body,
     persona: 'coder',
     acceptance: devAcceptance(area),
-    repo: 'alfred',
+    repo: SELF_REPO,
   });
-  deps.store.setGoalMeta(goal.id, { mode: 'repo' });
+  if (a.review === true) deps.store.setGoalMeta(goal.id, { peerReview: true });
   return { ok: true, output: `started goal ${goal.slug}: review it in Goals → Changes, then deploy` };
 }
 
@@ -87,7 +84,6 @@ export function deployDetail(slug: string, pin: DeployPin | null): string {
 /** Exported for tests of the post-approval sequence (merge → build-web → Mac app → restart); the tool gates it. */
 export async function deploy(deps: ModuleDeps, goalId: string, pin?: DeployPin | null): Promise<ToolResult> {
   const steps: string[] = [];
-  const say = (ok: boolean) => ({ ok, output: steps.join('\n') });
   const changes = await selfApi(deps, 'GET', `/goals/${encodeURIComponent(goalId)}/changes`);
   const files: string[] = changes.ok ? (changes.body?.files ?? []).map((f: any) => String(f.path)) : [];
 
@@ -97,9 +93,36 @@ export async function deploy(deps: ModuleDeps, goalId: string, pin?: DeployPin |
   });
   if (!merge.ok) {
     steps.push(`merge: failed (${apiError(merge)})`);
-    return say(false);
+    return { ok: false, output: steps.join('\n') };
   }
   steps.push(`merge: ok → ${merge.body?.into ?? 'base'} ${String(merge.body?.sha ?? '').slice(0, 8)}`);
+  return applyLanded(deps, files, merge.body?.localUpdated, steps);
+}
+
+/**
+ * ALF-7 — undo a deploy: revert the goal's merge on the base branch (a new commit; history is kept,
+ * so a rollback is itself reversible), then rebuild/restart exactly as a deploy would.
+ */
+export async function rollback(deps: ModuleDeps, goalId: string, merged?: string): Promise<ToolResult> {
+  const steps: string[] = [];
+  const rev = await selfApi(deps, 'POST', `/goals/${encodeURIComponent(goalId)}/revert`, { confirm: true, ...(merged ? { sha: merged } : {}) });
+  if (!rev.ok) {
+    steps.push(`revert: failed (${apiError(rev)})`);
+    return { ok: false, output: steps.join('\n') };
+  }
+  steps.push(`revert: ok → ${rev.body?.into ?? 'base'} ${String(rev.body?.sha ?? '').slice(0, 8)} (reverts ${String(rev.body?.reverted ?? '').slice(0, 8)})`);
+  const files: string[] = Array.isArray(rev.body?.files) ? rev.body.files.map(String) : [];
+  return applyLanded(deps, files, rev.body?.localUpdated, steps);
+}
+
+/** After a merge or revert landed on the base: build the web, rebuild the Mac app, restart — as the diff needs. */
+async function applyLanded(deps: ModuleDeps, files: string[], localUpdated: unknown, steps: string[]): Promise<ToolResult> {
+  const say = (ok: boolean) => ({ ok, output: steps.join('\n') });
+  // The server runs from its checkout: if that didn't move, a build/restart would ship the old code.
+  if (localUpdated === false) {
+    steps.push(`local checkout: not updated (dirty or not on the base branch) — not rebuilding or restarting; clean it, then: git -C ${powersRoot(deps)} pull`);
+    return say(false);
+  }
 
   const build = await selfApi(deps, 'POST', '/ops/alfred/build-web', { confirm: true, by: 'agent' });
   if (!build.ok) {
@@ -144,17 +167,49 @@ export async function deploy(deps: ModuleDeps, goalId: string, pin?: DeployPin |
   return say(restart.ok);
 }
 
+/** The goal's latest merge that has not been reverted yet. */
+export function lastMerge(deps: Pick<ModuleDeps, 'store'>, goalId: string): string | null {
+  return landedMerges(deps.store, goalId).pop()?.sha ?? null;
+}
+
+/**
+ * `POST /goals/:id/rollback {confirm:true}` — Quinn's Roll back button: a goal on alfred is reverted and
+ * rebuilt/restarted like a deploy; any other goal just gets its merge reverted in the hub.
+ */
+export function devRouter(deps: ModuleDeps): express.Router {
+  const r = express.Router();
+  r.post('/goals/:id/rollback', async (req, res) => {
+    try {
+      const goal = resolveGoal(deps.store, req.params.id);
+      if (!goal) return void res.status(404).json({ error: 'no such goal' });
+      if (req.body?.confirm !== true) return void res.status(400).json({ error: 'confirm: true required' });
+      const merged = lastMerge(deps, goal.id);
+      if (!merged) return void res.status(409).json({ error: 'nothing to roll back' });
+      if (!isSelfRepo(deps.store, goal.meta?.repo)) {
+        const rev = await selfApi(deps, 'POST', `/goals/${encodeURIComponent(goal.id)}/revert`, { confirm: true, sha: merged });
+        return void res.status(rev.ok ? 200 : rev.status || 500).json(rev.ok ? { ok: true, output: `revert: ok → ${rev.body?.into} ${String(rev.body?.sha ?? '').slice(0, 8)}` } : { error: apiError(rev) });
+      }
+      const out = await rollback(deps, goal.id, merged);
+      res.status(out.ok ? 200 : 500).json(out.ok ? { ok: true, output: out.output } : { error: out.output });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message ?? String(e) });
+    }
+  });
+  return r;
+}
+
 export function alfredDevTool(deps: ModuleDeps): Tool {
   return {
     kind: 'exec',
     schema: {
       name: 'alfred_dev',
       description:
-        "Change alfred itself. propose{title,spec,area}: a coder goal on a branch. status{goal}. deploy{goal} (needs approval): merge, rebuild web (+ Mac app if app/ changed), restart if server code changed.",
+        'Change alfred itself. propose{title,spec,area,review?}: coder goal on a branch (review=coder-lg must approve). status, review (run coder-lg), deploy, rollback {goal}; deploy/rollback need approval and rebuild/restart as needed.',
       parameters: {
         type: 'object',
         properties: {
-          op: { type: 'string', enum: ['propose', 'status', 'deploy'] },
+          op: { type: 'string', enum: ['propose', 'status', 'review', 'deploy', 'rollback'] },
+          review: { type: 'boolean' },
           title: { type: 'string' },
           spec: { type: 'string' },
           area: { type: 'string', enum: [...AREAS] },
@@ -172,13 +227,32 @@ export function alfredDevTool(deps: ModuleDeps): Tool {
         if (op === 'deploy') {
           const goal = resolveGoal(deps.store, String(a.goal ?? ''));
           if (!goal) return { ok: false, output: `no such goal: ${a.goal ?? ''}` };
-          if (goal.meta?.repo !== 'alfred') return { ok: false, output: `${goal.slug} is not an alfred change (repo ${goal.meta?.repo ?? 'none'})` };
+          if (!isSelfRepo(deps.store, goal.meta?.repo)) return { ok: false, output: `${goal.slug} is not an alfred change (repo ${goal.meta?.repo ?? 'none'})` };
           // SB: the detail names the hub's branch head + base head; the merge lands exactly those, and a
           // moved base or new commits mean a different detail — a fresh OK.
           const pin = await deployPin(deps, goal);
+          // ALF-7: a goal that opted into peer review lands only a commit coder-lg approved.
+          const blocked = pin ? peerReviewBlocks(deps, goal, pin.sha) : null;
+          if (blocked) return { ok: false, output: `${blocked}\n(Quinn can still review and Merge it himself in Goals → Changes.)` };
           return await gated({ deps, tool: ctx }, 'deploy', deployDetail(goal.slug, pin), async () =>
             pin ? deploy(deps, goal.id, pin) : { ok: false, output: `nothing to deploy: ${goal.slug} has no branch in the hub yet` },
           );
+        }
+        if (op === 'review') {
+          const goal = resolveGoal(deps.store, String(a.goal ?? ''));
+          if (!goal) return { ok: false, output: `no such goal: ${a.goal ?? ''}` };
+          const r = await runPeerReview(deps, goal);
+          const top = r.findings.filter((f) => f.severity !== 'minor').slice(0, 8).map((f) => `- [${f.severity}] ${f.file ?? '(change)'}: ${f.what.split('\n')[0]}`);
+          return { ok: true, output: [`peer review of ${r.sha.slice(0, 8)}: ${r.verdict} (checks ${r.checksOk ? 'pass' : 'fail'})`, ...top].join('\n') };
+        }
+        if (op === 'rollback') {
+          const goal = resolveGoal(deps.store, String(a.goal ?? ''));
+          if (!goal) return { ok: false, output: `no such goal: ${a.goal ?? ''}` };
+          if (!isSelfRepo(deps.store, goal.meta?.repo)) return { ok: false, output: `${goal.slug} is not an alfred change (repo ${goal.meta?.repo ?? 'none'})` };
+          const merged = lastMerge(deps, goal.id);
+          if (!merged) return { ok: false, output: `nothing to roll back: ${goal.slug} has no deployed merge` };
+          // Same action as deploy (always Quinn's), pinned to the exact merge commit being reverted.
+          return await gated({ deps, tool: ctx }, 'deploy', `rollback:${goal.slug} ${merged}`, async () => rollback(deps, goal.id, merged));
         }
         return { ok: false, output: `unknown op: ${op}` };
       } catch (e: any) {

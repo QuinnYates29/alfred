@@ -10,7 +10,8 @@ config/contacts.yaml
 sidecar/.venv
 __pycache__/
 .npm-cache/
-web/node_modules/
+web/node_modules
+.alfred-worktrees/
 web/dist/
 .dbg/
 .alfred-backup/

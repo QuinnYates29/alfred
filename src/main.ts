@@ -36,6 +36,7 @@ import { createReviewModule } from './review/index.js';
 import { createChatModule } from './chat/index.js';
 import { createSlackModule } from './slack/index.js';
 import { createPowersModule } from './powers/index.js';
+import { ensureSelfRepo } from './powers/dev.js';
 import { createCommsModule } from './comms/index.js';
 import { createJevModule } from './jev/index.js';
 import { createJiraModule } from './jira/index.js';
@@ -194,6 +195,8 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
     modules: {},
     personas,
   };
+  // ALF-7: repo `alfred` resolves from boot on (a board item or goal can name it before any alfred_dev propose).
+  ensureSelfRepo(moduleDeps);
   const moduleList: AlfredModule[] = [];
   for (const factory of c.modules ?? MODULES) {
     const m = await factory(moduleDeps);

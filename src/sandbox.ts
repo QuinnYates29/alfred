@@ -274,6 +274,13 @@ const gitHubs = new Set<string>();
 export function registerGitHub(root: string): void {
   gitHubs.add(path.resolve(root));
 }
+/** Read-only mounts every sandboxed command gets: the server's own deps, linked into alfred clones (ALF-7). */
+const sharedReadonly = new Set<string>();
+
+/** Mount `p` read-only in every agent sandbox. Only for server-chosen paths (never one an agent names). */
+export function registerSharedReadonly(p: string): void {
+  sharedReadonly.add(path.resolve(p));
+}
 let initialised = false;
 
 /** Run a trivial command under the real policy; null = OK, else the failure. */
@@ -361,7 +368,7 @@ export function sandboxedCommand(
   const cwd = o.cwd ?? o.workspace;
   if (mode !== 'bwrap') return { file, args, env, cwd, sandboxed: false };
   // An executable named by absolute path (a configured tool binary) must be visible inside.
-  const readonly = [...(o.readonly ?? []), ...(path.isAbsolute(file) ? [path.dirname(file)] : [])];
+  const readonly = [...(o.readonly ?? []), ...sharedReadonly, ...(path.isAbsolute(file) ? [path.dirname(file)] : [])];
   const w = sandboxSpawnArgs([file, ...args], { ...o, readonly, gitHub: [...gitHubs] });
   // bwrap itself chdirs; spawn from '/' so a hidden cwd can't fail the spawn.
   return { file: w.file, args: w.args, env, cwd: '/', sandboxed: true };

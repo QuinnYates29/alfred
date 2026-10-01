@@ -11,6 +11,7 @@ import type { ApprovalTriage, TriageInput, TriageResult } from '../approvals.js'
 import type { JevAnswer, JevClient, JevQuestion } from './client.js';
 import type { JevPolicy } from './policy.js';
 import { INJECTION_INSTRUCTIONS } from './risk.js';
+import { isSelfRepo } from '../ops.js';
 
 const CAP = { request: 3000, subtask: 1500, detail: 2000, info: 4000 };
 const cap = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n)}…[cut]`);
@@ -90,10 +91,20 @@ export function triageState(store: Pick<Store, 'getTask' | 'getGoal'>, input: Tr
   ].join('\n');
 }
 
+function goalOf(store: TriageDeps['store'], taskId: string) {
+  try {
+    const t = store.getTask(taskId);
+    return t ? store.getGoal(t.goalId) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface TriageDeps {
   client: () => JevClient | null;
   policy: () => JevPolicy;
-  store: Pick<Store, 'getTask' | 'getGoal'>;
+  /** getRepo (optional) also matches a goal that names alfred by its path. */
+  store: Pick<Store, 'getTask' | 'getGoal'> & Partial<Pick<Store, 'getRepo'>>;
 }
 
 /** The hook the jev module registers with setApprovalTriage. */
@@ -102,6 +113,11 @@ export function makeApprovalTriage(d: TriageDeps): ApprovalTriage {
     const pol = d.policy().approvals;
     if (pol.mode === 'off') return null;
     if (pol.alwaysAsk.includes(input.action)) return { approve: false, line: `Jev: '${input.action}' always goes to Quinn (approvals.alwaysAsk)` };
+    // ALF-7: work on alfred itself is reviewed before it leaves the Spark — a push to any remote other
+    // than the hub (`spark` pushes are never guarded) is Quinn's call, whatever Jev thinks of it.
+    if (input.action === 'git push' && isSelfRepo(d.store, goalOf(d.store, input.taskId)?.meta?.repo)) {
+      return { approve: false, line: "Jev: a push from a goal on alfred itself always goes to Quinn" };
+    }
     const c = d.client();
     if (!c) return null;
     let goalId: string | undefined;

@@ -105,6 +105,80 @@ export async function startBridge(ctx: ToolContext): Promise<{ url: string; secr
   return { url: `http://127.0.0.1:${port}`, secret, close: () => server.close() };
 }
 
+export type SidecarRun =
+  | { ok: true; result: any; tail: string }
+  | { ok: false; error: string; tail: string };
+
+/**
+ * Run `python -m langgraph_coder` sandboxed (it, and the test command it runs, see only `workspace`, the
+ * toolchain allowlist and the sidecar's own code; env scrubbed), in its own process group (abort/timeout
+ * SIGKILL the group). `request` goes on stdin; JSON `{progress}` lines on stderr are reported; the result
+ * is the last stdout line parsed as JSON. Shared by langgraph_code and the peer review (ALF-7).
+ */
+export function runSidecar(o: {
+  python: string;
+  workspace: string;
+  request: Record<string, any>;
+  timeoutMs: number;
+  signal?: AbortSignal;
+  onProgress?: (msg: string) => void;
+}): Promise<SidecarRun> {
+  return new Promise<SidecarRun>((resolve) => {
+    const sc = sandboxedCommand(o.python, ['-m', 'langgraph_coder'], {
+      workspace: o.workspace,
+      // + the venv root (python is <venv>/bin/python; the venv may be a symlink elsewhere)
+      readonly: [join(REPO_ROOT, 'sidecar'), dirname(dirname(o.python))],
+      extraEnv: { PYTHONPATH: join(REPO_ROOT, 'sidecar') },
+    });
+    const child = spawn(sc.file, sc.args, { cwd: sc.cwd, env: sc.env, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+    child.stdin.on('error', () => { /* child died early: 'close' reports it */ });
+    child.stdin.end(JSON.stringify(o.request));
+
+    let stdout = '';
+    let stderrTail = '';
+    let errBuf = '';
+    let settled = false;
+    const tail = () => (stderrTail + errBuf).slice(-2000);
+    const kill = () => { try { process.kill(-child.pid!, 'SIGKILL'); } catch { /* gone */ } };
+    const done = (r: SidecarRun) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      o.signal?.removeEventListener('abort', onAbort);
+      resolve(r);
+    };
+    const timer = setTimeout(() => { kill(); done({ ok: false, error: 'timeout', tail: tail() }); }, o.timeoutMs);
+    const onAbort = () => { kill(); done({ ok: false, error: 'cancelled', tail: tail() }); };
+    if (o.signal?.aborted) onAbort();
+    else o.signal?.addEventListener('abort', onAbort, { once: true });
+
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    child.stderr.on('data', (d: Buffer) => {
+      errBuf += d.toString();
+      let nl: number;
+      while ((nl = errBuf.indexOf('\n')) >= 0) {
+        const line = errBuf.slice(0, nl).trim();
+        errBuf = errBuf.slice(nl + 1);
+        if (!line) continue;
+        stderrTail = (stderrTail + line + '\n').slice(-8000);
+        try {
+          const p = JSON.parse(line);
+          if (typeof p?.progress === 'string') o.onProgress?.(p.progress);
+        } catch { /* non-JSON stderr is allowed and ignored */ }
+      }
+    });
+    child.on('error', (e) => done({ ok: false, error: `failed to start sidecar (${o.python}): ${e.message}`, tail: tail() }));
+    child.on('close', (code) => {
+      const last = stdout.trimEnd().split('\n').filter(Boolean).pop() ?? '';
+      try {
+        const p = JSON.parse(last);
+        if (p && typeof p === 'object') return done({ ok: true, result: p, tail: tail() });
+      } catch { /* fall through */ }
+      done({ ok: false, error: `sidecar produced no final JSON (exit=${code})`, tail: tail() });
+    });
+  });
+}
+
 export function langgraphTool(o?: {
   python?: string; /* <repo>/sidecar/.venv/bin/python */
   baseUrl?: string;
@@ -156,106 +230,33 @@ export function langgraphTool(o?: {
         }
       }
       try {
-        return await new Promise<ToolResult>(resolve => {
         if (remote) scratch = mkdtempSync(join(tmpdir(), 'alfred-langgraph-'));
-        const localWs = scratch ?? ctx.workspace;
-        // Sandboxed: the sidecar (and the test command it runs) sees only the workspace,
-        // the toolchain allowlist and its own code; the env is scrubbed.
-        const sc = sandboxedCommand(python, ['-m', 'langgraph_coder'], {
-          workspace: localWs,
-          // + the venv root (python is <venv>/bin/python; the venv may be a symlink elsewhere)
-          readonly: [join(REPO_ROOT, 'sidecar'), dirname(dirname(python))],
-          extraEnv: { PYTHONPATH: join(REPO_ROOT, 'sidecar') },
+        const run = await runSidecar({
+          python,
+          workspace: scratch ?? ctx.workspace,
+          request: {
+            task, workspace: ctx.workspace, testCmd, maxIterations, baseUrl, model,
+            ...(bridge ? { bridgeUrl: bridge.url, bridgeToken: bridge.secret } : {}),
+          },
+          timeoutMs,
+          signal: ctx.signal,
+          onProgress: (m) => ctx.progress('langgraph: ' + m),
         });
-        const child = spawn(sc.file, sc.args, {
-          cwd: sc.cwd,
-          env: sc.env,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          detached: true, // own process group; kill the group on abort/timeout
-        });
-        child.stdin.on('error', () => { /* child died early: 'close' reports it */ });
-        child.stdin.end(JSON.stringify({
-          task, workspace: ctx.workspace, testCmd, maxIterations, baseUrl, model,
-          ...(bridge ? { bridgeUrl: bridge.url, bridgeToken: bridge.secret } : {}),
-        }));
-
-        let stdout = '';
-        let stderrTail = '';
-        let settled = false;
-        const kill = () => { try { process.kill(-child.pid!, 'SIGKILL'); } catch { /* gone */ } };
-
-        const timer = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          kill();
-          resolve({ ok: false, output: `langgraph_code timed out after ${defaultTimeoutMin} min\n${stderrTail}` });
-        }, timeoutMs);
-        const onAbort = () => {
-          if (settled) return;
-          settled = true;
-          kill();
-          clearTimeout(timer);
-          resolve({ ok: false, output: 'cancelled' });
+        if (!run.ok) return { ok: false, output: run.error === 'timeout' ? `langgraph_code timed out after ${defaultTimeoutMin} min\n${run.tail}` : run.error === 'cancelled' ? 'cancelled' : `${run.error}\n${run.tail}` };
+        const p = run.result;
+        if (typeof p?.ok !== 'boolean') return { ok: false, output: `sidecar produced no final JSON\n${run.tail}` };
+        const r: SidecarResult = {
+          ok: p.ok,
+          iterations: Number(p.iterations) || 0,
+          testOutput: String(p.testOutput ?? ''),
+          filesChanged: Array.isArray(p.filesChanged) ? p.filesChanged.map(String) : [],
         };
-        if (ctx.signal.aborted) onAbort();
-        else ctx.signal.addEventListener('abort', onAbort, { once: true });
-
-        child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-        let errBuf = '';
-        child.stderr.on('data', (d: Buffer) => {
-          errBuf += d.toString();
-          let nl: number;
-          while ((nl = errBuf.indexOf('\n')) >= 0) {
-            const line = errBuf.slice(0, nl).trim();
-            errBuf = errBuf.slice(nl + 1);
-            if (!line) continue;
-            stderrTail = (stderrTail + line + '\n').slice(-8000);
-            try {
-              const p = JSON.parse(line);
-              if (typeof p?.progress === 'string') ctx.progress('langgraph: ' + p.progress);
-            } catch { /* non-JSON stderr is allowed and ignored */ }
-          }
-        });
-
-        child.on('error', e => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          ctx.signal.removeEventListener('abort', onAbort);
-          resolve({ ok: false, output: `failed to start sidecar (${python}): ${e.message}` });
-        });
-
-        child.on('close', code => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          ctx.signal.removeEventListener('abort', onAbort);
-          const tail = (stderrTail + (errBuf || '')).slice(-2000);
-          const lastLine = stdout.trimEnd().split('\n').filter(Boolean).pop() ?? '';
-          let r: SidecarResult | null = null;
-          try {
-            const p = JSON.parse(lastLine);
-            if (p && typeof p === 'object' && typeof p.ok === 'boolean') {
-              r = {
-                ok: p.ok,
-                iterations: Number(p.iterations) || 0,
-                testOutput: String(p.testOutput ?? ''),
-                filesChanged: Array.isArray(p.filesChanged) ? p.filesChanged.map(String) : [],
-              };
-            }
-          } catch { /* fall through */ }
-          if (!r) {
-            resolve({ ok: false, output: `sidecar produced no final JSON (exit=${code})\n${tail}` });
-            return;
-          }
-          const output = [
-            `ok=${r.ok} iterations=${r.iterations}`,
-            `filesChanged: ${r.filesChanged.length ? r.filesChanged.join(', ') : '(none)'}`,
-            `testOutput:\n${r.testOutput}`.slice(0, 5000),
-          ].join('\n').slice(0, 8000);
-          resolve({ ok: r.ok, output });
-        });
-        });
+        const output = [
+          `ok=${r.ok} iterations=${r.iterations}`,
+          `filesChanged: ${r.filesChanged.length ? r.filesChanged.join(', ') : '(none)'}`,
+          `testOutput:\n${r.testOutput}`.slice(0, 5000),
+        ].join('\n').slice(0, 8000);
+        return { ok: r.ok, output };
       } finally {
         bridge?.close();
         if (scratch) {

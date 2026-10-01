@@ -1,10 +1,10 @@
 // #/goal/<id>[/<tab>] — goal header (status, meta, actions) + Overview / Transcript / Changes / Files.
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useResource } from '../lib/live.jsx';
 import { go, href } from '../lib/router.js';
 import { dateTime, duration } from '../lib/format.js';
-import { del, post, apiText } from '../api.js';
-import { Button, Icon, StatusChip, Tabs, Empty, Spinner, Field, Modal, useToast, useAction, Markdown } from '../ui/index.jsx';
+import { api, del, patch, post, apiText } from '../api.js';
+import { Button, Icon, StatusChip, Tabs, Empty, Spinner, Field, Modal, Seg, useToast, useAction, Markdown } from '../ui/index.jsx';
 import { rootTask, stoppable } from './goal/model.js';
 import OverviewTab from './goal/OverviewTab.jsx';
 import TranscriptTab from './goal/TranscriptTab.jsx';
@@ -60,6 +60,62 @@ function renderOutput(kind, content) {
     );
   }
   return <pre className="output-pre">{content}</pre>;
+}
+
+/** ALF-7 — change where a goal works (repo / node / workspace), e.g. one made from a board item. */
+function EditWhereDialog({ goal, onClose, onSaved }) {
+  const { toast } = useToast();
+  const [repo, setRepo] = useState(goal.meta?.repo ?? '');
+  const [where, setWhere] = useState(goal.meta?.node ?? 'local');
+  const [mode, setMode] = useState(goal.meta?.mode ?? 'auto');
+  const [peerReview, setPeerReview] = useState(goal.meta?.peerReview === true);
+  const [repos, setRepos] = useState([]);
+  const [nodes, setNodes] = useState([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api('/api/ops/repos').then(setRepos).catch(() => {});
+    api('/api/nodes').then(setNodes).catch(() => {});
+  }, []);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await patch(`/api/goals/${goal.id}`, { repo: repo.trim() || null, node: where === 'local' ? null : where, mode: mode === 'auto' ? null : mode, peerReview });
+      toast('Saved — Retry to run it there', 'ok');
+      onSaved();
+      onClose();
+    } catch (e) {
+      toast(e?.message ?? String(e), 'bad');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title="Where this goal works"
+      onClose={onClose}
+      footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={busy} onClick={save}>Save</Button></>}
+    >
+      <Field label="Repo" htmlFor="gw-repo" hint="Registered name or absolute path; empty = scratch sandbox. alfred = this platform (isolated clone, reviewed before deploy).">
+        <input id="gw-repo" className="input" list="gw-repos" autoFocus value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="e.g. alfred or /home/quinna/code/app" />
+        <datalist id="gw-repos">{repos.map((r) => <option key={r.name} value={r.name} />)}</datalist>
+      </Field>
+      <div className="form-row">
+        <Field label="Where" htmlFor="gw-where">
+          <select id="gw-where" className="select" value={where} onChange={(e) => setWhere(e.target.value)}>
+            <option value="local">Spark</option>
+            {nodes.map((n) => <option key={n.name} value={n.name}>{n.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Workspace" hint={repo.trim() === 'alfred' ? 'alfred: sandbox clone only' : undefined}>
+          <Seg value={mode} onChange={setMode} options={[['auto', 'Auto'], ['sandbox', 'Sandbox clone'], ['repo', 'Worktree']]} />
+        </Field>
+      </div>
+      <label className="row" style={{ gap: 8 }}>
+        <input type="checkbox" checked={peerReview} onChange={(e) => setPeerReview(e.target.checked)} />
+        <span>Peer review by coder-lg when done (an agent deploy needs its approve)</span>
+      </label>
+    </Modal>
+  );
 }
 
 /** O1 — deliverables the agent published for Quinn: one tab per output, newest first. */
@@ -137,6 +193,7 @@ export default function GoalDetail({ id, tab = '' }) {
   const { toast, confirm } = useToast();
   const act = useAction();
   const [noteOpen, setNoteOpen] = useState(false);
+  const [whereOpen, setWhereOpen] = useState(false);
   const [note, setNote] = useState('');
 
   const goal = data?.goal;
@@ -224,6 +281,11 @@ export default function GoalDetail({ id, tab = '' }) {
             </Button>
           )}
           {retryRoot && <Button icon="retry" onClick={retryRootTask}>Retry</Button>}
+          <Button icon="git" variant="ghost" data-testid="goal-where" title="Change the repo / machine / workspace this goal works in"
+            disabled={tasks.some((t) => t.status === 'running' || t.status === 'verifying')}
+            onClick={() => setWhereOpen(true)}>
+            Edit where
+          </Button>
           {root && (
             <Button icon="comment" variant="ghost" onClick={() => setNoteOpen(true)}>Add note</Button>
           )}
@@ -254,6 +316,8 @@ export default function GoalDetail({ id, tab = '' }) {
       ) : (
         <OverviewTab goal={goal} tasks={tasks} events={data.events ?? []} usage={data.usage} />
       )}
+
+      {whereOpen && <EditWhereDialog goal={goal} onClose={() => setWhereOpen(false)} onSaved={reload} />}
 
       {noteOpen && (
         <Modal

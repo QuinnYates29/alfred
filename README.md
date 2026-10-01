@@ -12,8 +12,8 @@ Everything runs on the Spark (`gx10-de9a`); the Mac, phone, Slack and Claude are
 | **Mac app** | `app/` → `npm --prefix app run pack:mac` → `app/dist/Alfred-mac-arm64.zip` | Menu bar, quick add (global shortcut), notifications with Approve/Deny, dashboard window, embedded node (Mac as a workspace), bundled CLI. Install: `app/README.md`. |
 | **CLI** | `npm run build:cli` → `dist/alfred.mjs` (single file, needs only `node`) | `alfred login --url … --token …`, then `status`, `inbox`, `board`, `add`, `send`, `ask`, `chat`, `diff`, `stats`, `tail` … (`alfred --help`). Mutations ask before acting; `--yes` in scripts. |
 | **Slack** | Socket Mode app (`deploy/slack-manifest.yaml`) | DMs / @mentions → chat with alfred; `/alfred status\|inbox\|add …`; approval requests with buttons. Only `SLACK_ALLOWED_USERS` may act. |
-| **Agent powers** | tools `platform`, `connectors`, `alfred_dev`, `board`, `contacts`, `message`, `call` | Agents run the platform, add connectors, propose changes to alfred itself (you review → deploy), text and call. Reading is free; changes, messages, calls and deploys need your approval (pre-approve in `config/powers.yaml`). |
-| **Coding agents** | Qwen3.8-Flash on the Spark (`:1110`) via DSH | Goals run in git worktrees; review diffs in Goals → Changes and merge from there. |
+| **Agent powers** | tools `platform`, `connectors`, `alfred_dev`, `board`, `contacts`, `message`, `call` | Agents run the platform, add connectors, propose changes to alfred itself (you review → deploy → roll back if needed; see below), text and call. Reading is free; changes, messages, calls and deploys need your approval (pre-approve in `config/powers.yaml`). |
+| **Coding agents** | Qwen3.8-Flash on the Spark (`:1110`) via DSH | Goals run on a branch (a worktree or a hub clone); review diffs in Goals → Changes, merge from there, Roll back to undo. **Edit where** on a goal changes its repo/machine. |
 
 Setup for remote access, the Mac, Slack and a custom domain: [`docs/REMOTE-ACCESS.md`](docs/REMOTE-ACCESS.md).
 HTTP API: [`docs/API.md`](docs/API.md). Build history and orchestration notes: [`docs/HANDOFF.md`](docs/HANDOFF.md).
@@ -83,6 +83,25 @@ Foreground/debug: `bin/alfred-node --server … --name … --root …`.
 Give a goal `meta.node = "macbook"` and `meta.repo = "<path on the Mac>"` and
 tools, the acceptance gate and the mirror (`ALFRED_MIRROR=node:macbook:/abs/path`)
 run there. Desktop notifications reach the Mac (cap `notify`).
+
+**alfred working on itself** — a goal (or board item) with repo `alfred` changes this platform. Safety rails:
+- Sandbox only (`mode: sandbox`): an isolated clone of the Spark hub (`~/.alfred/work/<goal>/<id8>`) with its own `.git`.
+  A worktree or in-place work on `alfred` is refused. The server's `node_modules` are linked in read-only.
+- No checks given → the dev gate (`vitest` acceptance + unit, `tsc`); Jev's done-gate review runs on top.
+- Agents can only push their own `alfred/<goal>/<id>` branch to the hub; base branches are hook-protected. A push to any
+  other remote from these goals always asks you (Jev triage can't auto-approve it), and so do `deploy` and `rollback`.
+- Landing = `alfred_dev deploy` (approved) or **Merge** in Goals → Changes: a merge commit on `master` in the hub, then
+  `~/repos/alfred` fast-forwards. Deploy refuses to rebuild/restart if that checkout didn't move (dirty or off `master`).
+- Optional second opinion: tick **Peer review by coder-lg** (Edit where), `alfred_dev propose {review:true}`, or
+  `peerReview: true` on the goal. When the goal is done (or on **LG review** in Goals → Changes / `alfred_dev review`),
+  the LangGraph sidecar reviews the exact commit in a fresh clone: re-runs the checks, reviews each changed file with
+  read-only tools at temperature 0, checks scope against the spec. The verdict is computed in code: `approve` only with
+  passing checks and nothing above minor; a change to a safety rail (sandbox, approvals, gates, Jev policy, hub/landing,
+  workspaces, the reviewer, acceptance tests) is always `needs_human`. `deploy` then lands only a commit coder-lg approved;
+  your own Merge is never blocked. Report: the goal's **Peer review** output.
+- Every landing is reversible: **Roll back** (Goals → Changes) or `alfred_dev rollback` reverts the merge with a new commit,
+  then rebuilds/restarts as a deploy would. Nothing is rewritten, so a rollback can be rolled back too.
+- Nothing leaves the Spark on its own: `~/repos/alfred`'s own remote (GitHub etc.) is only ever pushed by you, after review.
 
 **Claude Code on the Mac** — the door is also HTTP MCP:
 

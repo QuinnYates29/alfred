@@ -8,7 +8,8 @@ import { storeForTask } from '../approvals.js';
 import { capabilityCard } from './card.js';
 import { Connectors, connectorsRouter, connectorsTool } from './connectors.js';
 import { platformTool } from './platform.js';
-import { alfredDevTool } from './dev.js';
+import { alfredDevTool, devRouter } from './dev.js';
+import express from 'express';
 import { notifyTool } from './notify.js';
 
 /** Each running instance's tools, by its store (for the unbound stubs below). */
@@ -24,7 +25,7 @@ export function createPowersModule(deps: ModuleDeps): AlfredModule {
   bound.set(deps.store, tools);
   const mod: AlfredModule = {
     name: 'powers',
-    router: connectorsRouter(deps, conns),
+    router: express.Router().use(connectorsRouter(deps, conns), devRouter(deps)),
     tools,
   };
   (mod as any).card = () => capabilityCard(deps);

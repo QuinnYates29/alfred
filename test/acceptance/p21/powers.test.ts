@@ -139,7 +139,7 @@ describe('self-development', () => {
     const r = await tool('alfred_dev', { op: 'propose', title: 'Add a clock to the top bar', spec: 'show HH:MM', area: 'web' });
     expect(r.ok).toBe(true);
     const goal = alfred.store.listGoals().find(g => g.title === 'Add a clock to the top bar')!;
-    expect(goal.meta).toMatchObject({ repo: 'alfred', mode: 'repo' });
+    expect(goal.meta).toMatchObject({ repo: 'alfred', mode: 'sandbox' }); // ALF-7 (Quinn, 2026-09-30): self-changes are sandbox-only
     expect(alfred.store.getRepo('alfred')!.paths.local).toBe(repoRoot);
     const root = alfred.store.listTasks(goal.id)[0];
     expect(root.persona).toBe('coder');

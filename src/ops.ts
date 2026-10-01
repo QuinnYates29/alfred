@@ -1,6 +1,7 @@
 // P4 §1 — operations shared by the API, the CLI and the Claude door.
 import type { AcceptanceCheck, Budget, Goal, Task, TaskStatus } from './types.js';
 import type { Store } from './store.js';
+import { isAbsolute } from 'node:path';
 
 export interface CreateGoalWithRootInput {
   title: string;
@@ -32,21 +33,72 @@ export function isReportCheck(c: AcceptanceCheck): boolean {
   return c.name === REPORT_CHECK.name && c.cmd === REPORT_CHECK.cmd;
 }
 
+// ---- alfred working on itself (ALF-7) ----
+
+/** The repo name of alfred's own checkout. Registered at boot, so a board item or goal can just say `alfred`. */
+export const SELF_REPO = 'alfred';
+
+/** The done-gate for a change to alfred itself: both suites + typecheck (+ the web build for area `web`). */
+export function devAcceptance(area?: string): AcceptanceCheck[] {
+  return [
+    ...(area === 'web' ? [{ name: 'build-web', cmd: 'npm run build:web', timeoutMs: 600_000 }] : []),
+    { name: 'tests', cmd: 'npx vitest run test/acceptance/ test/unit/', timeoutMs: 1_200_000 },
+    { name: 'typecheck', cmd: 'npx tsc --noEmit -p tsconfig.src.json', timeoutMs: 600_000 },
+  ];
+}
+
+/** Does a goal's `meta.repo` name alfred's own repo (by name, or by its registered path)? */
+export function isSelfRepo(store: Partial<Pick<Store, 'getRepo'>>, ref: unknown): boolean {
+  if (typeof ref !== 'string' || !ref) return false;
+  if (ref === SELF_REPO) return true;
+  const self = store.getRepo?.(SELF_REPO);
+  return !!self && Object.values(self.paths).includes(ref);
+}
+
+/**
+ * A goal's repo must resolve when it runs: a registered name, a registered path, or an absolute path
+ * (auto-registered on first run). Anything else used to fail only inside the scheduler (ALF-7).
+ */
+export function checkRepo(store: Store, ref: string): void {
+  if (store.getRepo(ref) || isAbsolute(ref) || store.listRepos().some((r) => Object.values(r.paths).includes(ref))) return;
+  throw new Error(`unknown repo: ${ref} (register it under System → Repos, or give an absolute path)`);
+}
+
+/**
+ * alfred's own checkout runs the server: its goals work only in a sandbox (an isolated clone of the hub),
+ * never in a worktree sharing the live checkout's .git and never in place. Landing needs Quinn (deploy/Merge).
+ */
+export function checkSelfMeta(store: Store, meta: Record<string, any>): void {
+  if (isSelfRepo(store, meta.repo) && (meta.inPlace === true || meta.mode === 'repo')) {
+    throw new Error(`repo ${SELF_REPO} is the running server's checkout: its goals work in a sandbox clone only (no worktree, never in place)`);
+  }
+}
+
 /** Create a goal plus its single root task in one call. */
 export function createGoalWithRoot(
   store: Store,
   input: CreateGoalWithRootInput,
 ): { goal: Goal; task: Task } {
   if (!input.title || !input.title.trim()) throw new Error('title is required');
+  if (input.repo) checkRepo(store, input.repo);
   const body = input.body ?? '';
   const reportGoal = !(input.acceptance ?? []).length && !input.repo;
-  const acceptance = reportGoal ? [REPORT_CHECK] : input.acceptance ?? [];
+  // A change to alfred without checks would be refused at the gate anyway: give it the dev gate.
+  const acceptance = reportGoal
+    ? [REPORT_CHECK]
+    : (input.acceptance ?? []).length || !isSelfRepo(store, input.repo)
+      ? input.acceptance ?? []
+      : devAcceptance();
   const goal = store.createGoal({
     title: input.title,
     body,
     acceptance,
     budget: input.budget,
-    meta: { ...(input.repo ? { repo: input.repo } : {}), ...(input.model ? { model: input.model } : {}) },
+    meta: {
+      ...(input.repo ? { repo: input.repo } : {}),
+      ...(input.model ? { model: input.model } : {}),
+      ...(isSelfRepo(store, input.repo) ? { mode: 'sandbox' } : {}),
+    },
   });
   const task = store.createTask({
     goalId: goal.id,
@@ -75,7 +127,8 @@ export function retryTask(store: Store, taskId: string, note?: string): Task {
     persona: src.persona,
     title: src.title,
     spec: src.spec,
-    acceptance: src.acceptance,
+    // A check-less task on alfred itself (made before the dev gate defaulted) retries with it.
+    acceptance: src.acceptance.length || !isSelfRepo(store, store.getGoal(src.goalId)?.meta?.repo) ? src.acceptance : devAcceptance(),
     budget: src.budget,
   });
   if (src.notes && src.notes.trim()) store.appendNote(fresh.id, src.notes.trimEnd());

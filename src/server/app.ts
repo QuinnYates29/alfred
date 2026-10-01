@@ -16,7 +16,7 @@ import type { ToolRegistry } from '../runtime/tools.js';
 import type { ModelRegistry } from '../models.js';
 import { promptCost } from '../runtime/personas.js';
 import type { PluginRouteReg, AlfredPlugin } from '../plugins.js';
-import { createGoalWithRoot, retryTask, goalSummary } from '../ops.js';
+import { createGoalWithRoot, retryTask, goalSummary, checkRepo, checkSelfMeta } from '../ops.js';
 import { DISPATCH_SYNTAX, dispatchPrompt, parseDispatch } from '../dispatch.js';
 import { agentsOverview } from './agents.js';
 import { hostGuard, safeEqual, securityHeaders, TicketBook } from './security.js';
@@ -83,6 +83,9 @@ export const EVENT_KINDS: { kind: string; meaning: string }[] = [
   { kind: 'ops', meaning: "An ops action ran (goalId ''; data: action, target, ok, by)." },
   { kind: 'goal_merged', meaning: 'A goal branch was merged in the hub (data: branch, into, sha).' },
   { kind: 'goal_discarded', meaning: 'A goal branch was discarded (data: branches).' },
+  { kind: 'goal_reverted', meaning: 'A landed goal was reverted on its base (data: into, sha, reverted).' },
+  { kind: 'peer_review_started', meaning: 'coder-lg started reviewing a goal branch (data: sha, branch, base).' },
+  { kind: 'peer_review', meaning: 'coder-lg reviewed a goal branch (data: sha, branch, base, verdict, checksOk, findings, reviewed).' },
 ];
 
 function getToken(req: Request): string {
@@ -166,6 +169,8 @@ function buildRouter(d: AppDeps): express.Router {
       if (typeof b.node === 'string' && b.node && b.node !== 'local') meta.node = b.node;
       if (b.mode === 'sandbox' || b.mode === 'repo') meta.mode = b.mode;
       if (b.inPlace === true) meta.inPlace = true;
+      if (b.peerReview === true) meta.peerReview = true;
+      checkSelfMeta(d.store, { repo: b.repo, ...meta });
       if (Object.keys(meta).length) out.goal = d.store.setGoalMeta(out.goal.id, meta);
       res.status(201).json(out);
     } catch (e: any) {
@@ -222,6 +227,40 @@ function buildRouter(d: AppDeps): express.Router {
       return send(res, 409, { error: e?.message ?? String(e) });
     }
     res.json({ ok: true, deleted: goal.id });
+  });
+
+  // ALF-7 — change where a goal works (repo / node / mode / inPlace), e.g. a goal made from a board
+  // item. Only while none of its tasks is running; the next run or retry uses it. `null` clears a key.
+  r.patch('/goals/:id', (req, res) => {
+    const goal = findGoal(req.params.id);
+    if (!goal) return send(res, 404, { error: 'no such goal' });
+    const b = req.body ?? {};
+    const live = d.store.listTasks(goal.id).find((t) => t.status === 'running' || t.status === 'verifying');
+    if (live) return send(res, 409, { error: `task ${live.id.slice(0, 8)} is ${live.status}; stop it first` });
+    const patch: Record<string, any> = {};
+    const str = (k: string) => {
+      if (!(k in b)) return;
+      if (b[k] === null || b[k] === '') patch[k] = undefined;
+      else if (typeof b[k] === 'string') patch[k] = b[k].trim();
+      else throw new Error(`${k} must be a string or null`);
+    };
+    try {
+      str('repo');
+      str('node');
+      if ('mode' in b) {
+        if (b.mode !== null && b.mode !== 'sandbox' && b.mode !== 'repo') throw new Error('mode must be sandbox, repo or null');
+        patch.mode = b.mode ?? undefined;
+      }
+      if ('inPlace' in b) patch.inPlace = b.inPlace === true ? true : undefined;
+      if ('peerReview' in b) patch.peerReview = b.peerReview === true ? true : undefined;
+      if (patch.node === 'local') patch.node = undefined;
+      if (!Object.keys(patch).length) throw new Error('nothing to change (repo, node, mode, inPlace, peerReview)');
+      if (patch.repo) checkRepo(d.store, patch.repo);
+      checkSelfMeta(d.store, { ...goal.meta, ...patch });
+    } catch (e: any) {
+      return send(res, 400, { error: e?.message ?? String(e) });
+    }
+    res.json({ goal: d.store.setGoalMeta(goal.id, patch) });
   });
 
   r.get('/goals/:id', (req, res) => {

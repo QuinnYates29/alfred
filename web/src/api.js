@@ -73,6 +73,7 @@ export async function api(path, opts = {}) {
 
 export const post = (path, body) => api(path, { method: 'POST', body: body ?? {} });
 export const del = (path) => api(path, { method: 'DELETE' });
+export const patch = (path, body) => api(path, { method: 'PATCH', body: body ?? {} });
 
 /** Same auth as api(), but returns the raw text (JSONL exports…). Throws on non-2xx. */
 export async function apiText(path) {

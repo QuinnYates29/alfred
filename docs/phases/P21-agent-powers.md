@@ -59,7 +59,7 @@ after chat (already done in `src/main.ts`).
    Tool `connectors({op:'list'|'add'|'remove'|'reconnect', …})`, add/remove gated (action `connectors`, detail `connector:<name>:<add|remove>`).
    UI: System → **Connectors** tab: list with status chips + tools count, Add form (name; transport stdio → command/args/env, or http → url/headers), Remove, Reconnect.
 4. **Self-development** `alfred_dev` tool (the agents can change alfred itself, safely):
-   - `propose {title, spec, area?: 'web'|'server'|'app'|'cli'}` → starts a goal with persona `coder` on repo `alfred` (registered on first use:
+   - `propose {title, spec, area?: 'web'|'server'|'app'|'cli'}` → starts a goal with persona `coder` on repo `alfred` (ALF-7: sandbox clone, not a worktree — see below; registered on first use:
      `store.upsertRepo({name:'alfred', paths:{local: deps.repoRoot}})`), `mode: 'repo'` (a worktree; never in place), acceptance
      `npm run build:web` (area web) + `npx vitest run test/acceptance/ test/unit/` + `npx tsc --noEmit -p tsconfig.src.json`. Not gated (it only creates a branch).
      Output: `started goal <slug>: review it in Goals → Changes, then deploy`.
@@ -67,6 +67,23 @@ after chat (already done in `src/main.ts`).
    - `deploy {goal}` → gated (action `deploy`, detail `deploy:<goal slug>`): merge the goal's branch into master (`POST /goals/:id/merge`), then
      `POST /ops/alfred/build-web`, then (only when the diff touched `src/` or `personas/` or `config/`) `POST /ops/services/alfred/restart`. Reports each step.
    The persona prompt line: "To change the dashboard or alfred itself, use alfred_dev: propose → Quinn reviews → deploy."
+   **ALF-7 additions (2026-09-30)** — any goal on repo `alfred` (alfred_dev, a board item, the API), not only proposals:
+   - Repo `alfred` → `repoRoot` is registered at boot (`ensureSelfRepo`), so a board item can name it before any propose.
+     Goal creation (every path, `createGoalWithRoot`) and `PATCH /goals/:id` refuse a repo that is not a registered name,
+     a registered path or an absolute path (`checkRepo`) — it used to fail only inside the scheduler.
+   - Workspace: sandbox only — an isolated hub clone (`meta.mode: 'sandbox'`, set at creation and by propose; `mode: 'repo'`
+     or `inPlace` are refused by goal creation, PATCH and `resolveWorkspace`), so an agent can't move the live checkout's refs.
+     (Quinn, 2026-09-30: the P21 acceptance test now expects `mode: 'sandbox'`.) `node_modules` and `web/node_modules` are symlinked from `repoRoot`
+     and mounted read-only in the bwrap sandbox (`registerSharedReadonly`), so the dev gate can run.
+   - No acceptance → `devAcceptance()` (also on retry of a check-less task).
+   - Jev triage (`src/jev/triage.ts`): a `git push` (to anything but the hub's `spark`) from such a goal always goes to Quinn;
+     `deploy` can't be removed from `approvals.alwaysAsk` by `config/jev.yaml`.
+   - `deploy` (and `rollback`) refuse to rebuild/restart when the merge didn't fast-forward `repoRoot` (`localUpdated: false`).
+   - `propose {…, review: true}` → `meta.peerReview` (P15 §4c); `review {goal}` runs coder-lg's peer review and waits for it;
+     `deploy` of an opted-in goal refuses (no approval asked) unless that review `approve`d exactly the commit it would land.
+   - `rollback {goal}` → gated (action `deploy`, detail `rollback:<slug> <merge sha>`): `POST /goals/:id/revert` (P15 §4b), then
+     the same build-web / Mac app / restart steps as deploy. HTTP for the dashboard button: `POST /goals/:id/rollback {confirm:true}`
+     (a non-alfred goal just gets the revert).
 
 ## P21b — people: contacts, texting, calling
 Scope: `src/comms/**` (new module `createCommsModule`, after powers), `src/node/client.ts` + `src/node/protocol.ts` + `src/node/hub.ts` (new node ops + `call`),

@@ -5,6 +5,9 @@ stdin  = one JSON object {task, workspace, testCmd, maxIterations, baseUrl,
 stderr = JSON lines {"progress": "<msg>"} (flushed)
 stdout = exactly one final JSON line
          {"ok": bool, "iterations": int, "testOutput": str<=3000, "filesChanged": [str]}
+
+mode "review" (ALF-7, review.py): stdin {mode, workspace, testCmd, baseUrl, model, spec, files, diff,
+maxStepsPerFile?} → {"ok": ran, "checksOk", "checksOutput", "findings": [{file, severity, line, what}], "reviewed", "error"?}
 """
 import json
 import sys
@@ -22,6 +25,10 @@ def emit(result: dict) -> None:
 
 def main() -> int:
     req = json.load(sys.stdin)
+    if req.get("mode") == "review":
+        from .review import run_review
+        emit(run_review(req, progress))
+        return 0
     task = str(req.get("task", ""))
     workspace = str(req.get("workspace", ""))
     test_cmd = str(req.get("testCmd", ""))

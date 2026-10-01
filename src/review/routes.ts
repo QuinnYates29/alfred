@@ -1,8 +1,9 @@
 // P15 §3 — the review routes. Mounted at /api/v1 + /api behind the token.
 import { Router } from 'express';
 import type { ModuleDeps } from '../modules.js';
-import { getChanges, getFileDiff } from './changes.js';
-import { mergeGoal, discardGoal, HttpError } from './land.js';
+import { getChanges, getFileDiff, resolveRepo, pushedBranches } from './changes.js';
+import { mergeGoal, discardGoal, revertGoal, landedMerges, HttpError } from './land.js';
+import { runPeerReview, latestPeerReview } from './peer.js';
 import { transcriptFor } from './transcript.js';
 import { resolveWorkspace, listWorkspace, readWorkspaceFile } from './files.js';
 
@@ -34,7 +35,12 @@ export function reviewRouter(deps: ModuleDeps): Router {
       const branch = q(req.query.branch);
       const file = q(req.query.file);
       if (file) return res.json(await getFileDiff(store, deps.repoHub, goal, file, branch));
-      res.json(await getChanges(store, deps.repoHub, goal, branch));
+      // ALF-7: the latest landed, unreverted merge (what Roll back would undo), or null.
+      res.json({
+        ...(await getChanges(store, deps.repoHub, goal, branch)),
+        landed: landedMerges(store, goal.id).pop() ?? null,
+        peerReview: latestPeerReview(deps, goal.id),
+      });
     }),
   );
 
@@ -56,6 +62,32 @@ export function reviewRouter(deps: ModuleDeps): Router {
         baseSha: q(b.baseSha),
       });
       res.json(out);
+    }),
+  );
+
+  // ALF-7: start a peer review of the goal's branch head (coder-lg, read-only); the result lands as a
+  // `peer_review` event + a "Peer review" output. Runs in the background: 202.
+  r.post(
+    '/goals/:id/peer-review',
+    h(async (req, res) => {
+      const goal = findGoal(req.params.id);
+      if (!goal) return res.status(404).json({ error: 'no such goal' });
+      if ((req.body ?? {}).confirm !== true) return res.status(400).json({ error: 'confirm: true required' });
+      if (!resolveRepo(store, goal) || !pushedBranches(store, goal.id).length) return res.status(409).json({ error: 'nothing to review (no pushed branch)' });
+      runPeerReview(deps, goal).catch((e) => console.error(`[peer-review] ${goal.slug}: ${e?.message ?? e}`));
+      res.status(202).json({ started: true });
+    }),
+  );
+
+  // ALF-7: undo a landed goal (a revert commit on its base; see land.ts revertGoal).
+  r.post(
+    '/goals/:id/revert',
+    h(async (req, res) => {
+      const goal = findGoal(req.params.id);
+      if (!goal) return res.status(404).json({ error: 'no such goal' });
+      const b = req.body ?? {};
+      if (b.confirm !== true) return res.status(400).json({ error: 'confirm: true required' });
+      res.json(await revertGoal(store, deps.repoHub, goal, { sha: q(b.sha) }));
     }),
   );
 

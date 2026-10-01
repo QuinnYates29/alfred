@@ -4,14 +4,15 @@
 // - repo goals (goal.meta.repo set): a git worktree at <root>/<goal.slug>/<rootTaskId[0..8]>
 //   on branch alfred/<goal.slug>/<rootTaskId[0..8]>, created from the repo's current HEAD.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, lstatSync, symlinkSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
-import { basename, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import type { Store } from './store.js';
 import type { Goal, Task } from './types.js';
 import type { WorkspaceBackend } from './runtime/contract.js';
 import { NodeOfflineError } from './runtime/contract.js';
-import { registerGitHub, scrubEnv } from './sandbox.js';
+import { registerGitHub, registerSharedReadonly, scrubEnv } from './sandbox.js';
+import { SELF_REPO } from './ops.js';
 import type { NodeHub } from './node/hub.js';
 
 export interface WorkspaceOpts {
@@ -148,6 +149,29 @@ async function setupClone(
   await tbe(backend, cwd, `git -C ${shq(ws)} config branch.${shq(branch)}.merge refs/heads/${shq(branch)}`);
 }
 
+/**
+ * A clone of alfred has no node_modules, and the sandbox hides $HOME (where the checkout lives), so the
+ * dev gate (vitest, tsc) could never run. Link the server's installed deps in, and let the sandbox
+ * mount them read-only. Only these server-made links are mounted — never a link an agent made.
+ */
+export function linkSelfDeps(ws: string, checkout: string | undefined): void {
+  if (!checkout) return;
+  for (const rel of ['node_modules', 'web/node_modules']) {
+    const src = join(checkout, rel);
+    if (!existsSync(src)) continue;
+    const dest = join(ws, rel);
+    let present = false;
+    try {
+      lstatSync(dest);
+      present = true;
+    } catch {
+      /* not there yet */
+    }
+    if (!present && existsSync(dirname(dest))) symlinkSync(src, dest);
+    registerSharedReadonly(src);
+  }
+}
+
 /** The repo path registered on the Spark, used to seed the hub (null when unregistered). */
 function sparkSource(store: Store, name: string): string | undefined {
   return store.getRepo(name)?.paths.local ?? undefined;
@@ -222,8 +246,15 @@ export async function resolveWorkspace(
     }
   }
 
+  // ALF-7: alfred's own checkout is the running server. Its goals only get a sandbox: an isolated clone
+  // of the hub (own .git, base branches protected by the hub hook) — never a worktree that shares the
+  // live checkout's refs, never the checkout itself. Only Quinn lands it (deploy approval or Merge).
+  const self = name === SELF_REPO;
+  if (self && (meta.inPlace === true || meta.mode === 'repo')) {
+    throw new Error(`repo ${SELF_REPO} is the running server's checkout: sandbox clone only (no worktree, never in place)`);
+  }
   const mode: 'repo' | 'sandbox' =
-    meta.mode === 'repo' || (meta.mode !== 'sandbox' && !!repoPath) ? 'repo' : 'sandbox';
+    !self && (meta.mode === 'repo' || (meta.mode !== 'sandbox' && !!repoPath)) ? 'repo' : 'sandbox';
 
   if (mode === 'repo' && !repoPath) {
     throw new Error(`repo ${name} has no path on ${nodeName} (use sandbox mode, or register it there)`);
@@ -248,6 +279,7 @@ export async function resolveWorkspace(
       const parent = joinPosix(sandboxRoot, goal.slug);
       mkdirSync(parent, { recursive: true });
       await setupClone(backend, parent, joinPosix(parent, id8), url, branch);
+      if (self) linkSelfDeps(joinPosix(parent, id8), sparkSource(store, name));
     } else {
       await ensureDir(backend, sandboxRoot, nodeExecCwd(o, nodeName, base));
       await setupClone(backend, nodeExecCwd(o, nodeName, base), joinPosix(sandboxRoot, goal.slug, id8), url, branch);

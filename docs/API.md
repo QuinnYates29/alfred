@@ -33,8 +33,9 @@ tests (`NODE_ENV=test`) or an explicit `allowNoToken` run tokenless.
 | Route | Body → Response |
 |---|---|
 | `GET /api/v1/goals` | → `[goalSummary]` newest first; `goalSummary = {goal, counts:{<status>:n}}` |
-| `POST /api/v1/goals` | `{title, body?, persona?, spec?, acceptance?[{name,cmd,cwd?,timeoutMs?}], repo?, budget?, model?, node?, mode?: 'sandbox'\|'repo', inPlace?}` → `201 {goal, task}`; `400` missing title / unknown persona |
+| `POST /api/v1/goals` | `{title, body?, persona?, spec?, acceptance?[{name,cmd,cwd?,timeoutMs?}], repo?, budget?, model?, node?, mode?: 'sandbox'\|'repo', inPlace?, peerReview?}` → `201 {goal, task}`; `400` missing title / unknown persona / unknown repo (`repo` must be a registered name, a registered path or an absolute path) / `inPlace` or `mode: 'repo'` on repo `alfred` (sandbox only). A goal on `alfred` with no `acceptance` gets the dev gate (tests + typecheck) |
 | `GET /api/v1/goals/:id` | id **or slug** → `{goal, tasks, events(last 200), usage?}`; `404` if unknown |
+| `PATCH /api/v1/goals/:id` | `{repo?, node?, mode?: 'sandbox'\|'repo', inPlace?, peerReview?}` (`null` clears a key) → `{goal}`; the next run/retry works there. `400` unknown repo / bad value / worktree or in-place on `alfred`; `409` while a task is running or verifying |
 | `POST /api/v1/tasks/:id/stop` | `{reason?}` → `{ok:true}` (running → cancelled via scheduler, else transition `stopped`); `409` illegal transition |
 | `POST /api/v1/tasks/:id/retry` | `{note?}` → `201 {task}` (clone, notes carry over) |
 | `POST /api/v1/tasks/:id/note` | `{text}` → `{ok:true}` |
@@ -90,10 +91,10 @@ tables live with their specs:
 |---|---|---|
 | board | `/boards…`, `/items…` (CRUD, move, check, comments, dispatch), `/board/dispatch` | `docs/phases/P13-board.md` |
 | ops | `/stats`, `/ops/services…`, `/ops/qwen`, `/ops/logs/:name`, `/ops/config…`, `/ops/repos`, `/ops/dispatch`, `/ops/alfred/build-web` | `docs/phases/P14-ops.md` |
-| review | `/goals/:id/changes`, `/goals/:id/files`, `/goals/:id/file`, `/goals/:id/merge` | `docs/phases/P15-review.md` |
+| review | `/goals/:id/changes` (+ `landed`: the latest unreverted merge, `peerReview`: the latest coder-lg review), `/goals/:id/peer-review` (POST, 202), `/goals/:id/files`, `/goals/:id/file`, `/goals/:id/merge`, `/goals/:id/revert`, `/goals/:id/discard` | `docs/phases/P15-review.md` |
 | chat | `/chat`, `/chat/threads…` | `docs/phases/P16-chat.md` |
 | slack | `/slack/status` | `docs/phases/P20-slack.md` |
-| powers | `/connectors…` | `docs/phases/P21-agent-powers.md` (P21a) |
+| powers | `/connectors…`, `/goals/:id/rollback` | `docs/phases/P21-agent-powers.md` (P21a) |
 | comms | `/contacts` (GET, PUT) | `docs/phases/P21-agent-powers.md` (P21b) |
 
 Live event kinds (including the module ones: `item_*`, `ops`, `chat_*`, `power`, `comms`) are listed by `GET /api/v1/schema/events`;

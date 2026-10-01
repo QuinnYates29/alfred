@@ -99,13 +99,7 @@ export async function mergeGoal(
       if (!c.ok) throw new Error(`squash commit failed: ${c.tail}`);
     }
 
-    sha = (await git(['rev-parse', 'HEAD'], tmp)).trim();
-    // Not a push (the hub's pre-receive hook refuses pushes to base branches): bring the objects
-    // into the hub and move the base ref with a compare-and-swap against the reviewed base head.
-    await git(['--git-dir', bare, 'fetch', '-q', '--no-tags', '--', tmp, `+refs/heads/${into}:refs/alfred/landing`]);
-    const upd = await gitTry(['--git-dir', bare, 'update-ref', '-m', `alfred merge ${branch}`, `refs/heads/${into}`, sha, baseHead]);
-    await gitTry(['--git-dir', bare, 'update-ref', '-d', 'refs/alfred/landing']);
-    if (!upd.ok) throw new HttpError(409, `base ${into} moved during the merge; try again`);
+    sha = await landInHub(bare, tmp, into, baseHead, `alfred merge ${branch}`);
     if (deleteBranch) {
       // Only if nobody pushed more to it meanwhile (expected old value = what we merged from).
       await gitTry(['--git-dir', bare, 'update-ref', '-d', `refs/heads/${branch}`, branchHead]);
@@ -118,6 +112,83 @@ export async function mergeGoal(
 
   store.appendEvent(goal.id, null, 'goal_merged', { branch, into, sha, strategy });
   return { ok: true, into, sha, localUpdated };
+}
+
+/**
+ * Not a push (the hub's pre-receive hook refuses pushes to base branches): bring the clone's `into`
+ * into the hub and move the base ref with a compare-and-swap against the head it was built on.
+ */
+async function landInHub(bare: string, tmp: string, into: string, baseHead: string, why: string): Promise<string> {
+  const sha = (await git(['rev-parse', 'HEAD'], tmp)).trim();
+  await git(['--git-dir', bare, 'fetch', '-q', '--no-tags', '--', tmp, `+refs/heads/${into}:refs/alfred/landing`]);
+  const upd = await gitTry(['--git-dir', bare, 'update-ref', '-m', why, `refs/heads/${into}`, sha, baseHead]);
+  await gitTry(['--git-dir', bare, 'update-ref', '-d', 'refs/alfred/landing']);
+  if (!upd.ok) throw new HttpError(409, `base ${into} moved meanwhile; try again`);
+  return sha;
+}
+
+/** The goal's merges that are landed and not reverted yet, oldest first (from goal_merged / goal_reverted). */
+export function landedMerges(store: Pick<Store, 'events'>, goalId: string): { sha: string; into: string }[] {
+  const reverted = new Set<string>();
+  const merges: { sha: string; into: string }[] = [];
+  for (const e of store.events(goalId)) {
+    if (e.kind === 'goal_reverted' && typeof e.data?.reverted === 'string') reverted.add(e.data.reverted);
+    if (e.kind === 'goal_merged' && typeof e.data?.sha === 'string') merges.push({ sha: e.data.sha, into: String(e.data.into) });
+  }
+  return merges.filter((m) => !reverted.has(m.sha));
+}
+
+/**
+ * ALF-7 — undo a landed goal: `git revert` its merge (`sha`, default: the latest goal_merged not yet
+ * reverted) on the branch it landed on, as a new commit. Nothing is rewritten, so the rollback can
+ * itself be reverted. Conflicts (later work touched the same lines) → 409, nothing changes.
+ */
+export async function revertGoal(
+  store: Store,
+  repoHub: RepoHub,
+  goal: { id: string; title: string; meta?: Record<string, any> },
+  input: { sha?: string },
+): Promise<{ ok: true; into: string; sha: string; reverted: string; files: string[]; localUpdated: boolean }> {
+  if (input.sha !== undefined && !SHA_RE.test(String(input.sha))) throw new HttpError(400, 'invalid sha: must be a full commit sha');
+  const repo = resolveRepo(store, goal);
+  const open = landedMerges(store, goal.id);
+  const target = input.sha ? open.find((m) => m.sha === input.sha) : open[open.length - 1];
+  if (!repo || !target) throw new HttpError(409, input.sha ? `merge ${input.sha.slice(0, 8)} is not a landed, unreverted merge of this goal` : 'nothing to revert');
+  const into = target.into;
+  try {
+    assertBranch(into, 'into');
+  } catch (e: any) {
+    throw new HttpError(400, e.message);
+  }
+  repoHub.protect(repo.name, [into]);
+  const bare = repoHub.barePath(repo.name);
+  const baseHead = await repoHub.headSha(repo.name, into);
+  if (!baseHead) throw new HttpError(409, `base ${into} is not in the hub`);
+  const onBase = await gitTry(['--git-dir', bare, 'merge-base', '--is-ancestor', target.sha, baseHead]);
+  if (!onBase.ok) throw new HttpError(409, `merge ${target.sha.slice(0, 8)} is not on ${into}`);
+
+  const tmp = await mkdtemp(join(tmpdir(), 'alfred-revert-'));
+  let sha = '';
+  let files: string[] = [];
+  try {
+    await git(['clone', '-q', '--', bare, tmp]);
+    await git(['checkout', '-q', '-B', into, baseHead], tmp);
+    const parents = (await git(['rev-list', '--parents', '-n', '1', target.sha], tmp)).trim().split(/\s+/).length - 1;
+    const r = await gitTry([...IDENTITY, 'revert', '--no-edit', ...(parents > 1 ? ['-m', '1'] : []), target.sha], tmp);
+    if (!r.ok) {
+      const conflicts = await conflictPaths(tmp);
+      await gitTry(['revert', '--abort'], tmp);
+      throw new HttpError(409, 'revert conflict', { conflicts });
+    }
+    files = (await git(['diff', '--name-only', baseHead, 'HEAD'], tmp)).split('\n').map((f) => f.trim()).filter(Boolean);
+    sha = await landInHub(bare, tmp, into, baseHead, `alfred revert ${target.sha.slice(0, 8)}`);
+  } finally {
+    await rm(tmp, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
+  }
+
+  const localUpdated = await fastForwardLocal(repo.paths?.local, bare, into);
+  store.appendEvent(goal.id, null, 'goal_reverted', { into, sha, reverted: target.sha });
+  return { ok: true, into, sha, reverted: target.sha, files, localUpdated };
 }
 
 async function conflictPaths(cwd: string): Promise<string[]> {
