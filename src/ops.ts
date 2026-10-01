@@ -40,7 +40,10 @@ export function isReportCheck(c: AcceptanceCheck): boolean {
 export const SELF_REPO = 'alfred';
 
 /** The deps are the server's, mounted read-only: build with them (`build:web` would `npm install`). */
-export const BUILD_WEB_CHECK: AcceptanceCheck = { name: 'build-web', cmd: 'npm run build:web:local', timeoutMs: 600_000 };
+// `--configLoader runner`: Vite otherwise writes a temp config into web/node_modules, which is read-only in the
+// sandbox. The fallback covers branches cut before the `build:web:local` script existed.
+export const WEB_BUILD_CMD = 'npm run -s build:web:local 2>/dev/null || (cd web && npx vite build --configLoader runner)';
+export const BUILD_WEB_CHECK: AcceptanceCheck = { name: 'build-web', cmd: WEB_BUILD_CMD, timeoutMs: 600_000 };
 /** The running server's own checkout (this file is <root>/src/ops.ts). */
 export const SERVER_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 /**

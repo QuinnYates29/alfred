@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import type { Store } from './store.js';
 import type { Tool, ToolContext, ToolResult } from './runtime/contract.js';
 import { storeForTask } from './approvals.js';
-import { isSelfRepo, UI_RUNNER } from './ops.js';
+import { isSelfRepo, UI_RUNNER, WEB_BUILD_CMD } from './ops.js';
 
 export const UI_DIR = '.ui-test';
 const STEPS_FILE = '.ui-test-steps.json';
@@ -81,7 +81,7 @@ export function uiTestTool(o: { runShell: (args: any, ctx: ToolContext) => Promi
       writeFileSync(join(ctx.workspace, STEPS_FILE), JSON.stringify(steps));
       ctx.progress('ui_test: booting a copy of alfred and driving it');
       // Rebuild the UI from the workspace first, so the copy shows the change being made.
-      const run = await o.runShell({ cmd: `npm run build:web:local >/dev/null 2>&1; npx tsx '${UI_RUNNER}' --steps ${STEPS_FILE}`, timeoutSec: 600 }, ctx);
+      const run = await o.runShell({ cmd: `(${WEB_BUILD_CMD}) >/dev/null 2>&1; npx tsx '${UI_RUNNER}' --steps ${STEPS_FILE}`, timeoutSec: 600 }, ctx);
       rmSync(join(ctx.workspace, STEPS_FILE), { force: true });
       const title = String(args?.title ?? '').trim().slice(0, 60) || 'UI test';
       const r = publishUiRun(store, ctx.goalId, ctx.taskId, ctx.workspace, `UI: ${title}`);

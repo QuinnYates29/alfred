@@ -156,7 +156,7 @@ describe('a review in progress, and goals on alfred', () => {
     expect(reviewInProgress(deps, g.id)).toBeNull();
     const req = JSON.parse(readFileSync(join(root, 'request.json'), 'utf8'));
     expect(req.testCmd).toContain("--exclude 'test/acceptance/p18/**'"); // not the stale 'npm test'
-    expect(req.testCmd).toContain('npm run build:web:local'); // web/ changed → build first …
+    expect(req.testCmd.startsWith('npm run -s build:web:local 2>/dev/null || (cd web && npx vite build --configLoader runner)')).toBe(true); // web/ changed → build first (any branch age) …
     expect(req.testCmd).toMatch(/scripts\/ui-test\.mts' --smoke$/); // … and the server's own UI runner last
     expect(req.testCmd).not.toContain(join(root, 'work')); // never a runner from the reviewed checkout
   });

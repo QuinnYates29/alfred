@@ -13,7 +13,7 @@
     "test:p5": "vitest run test/acceptance/p5",
     "build:cli": "node scripts/build-cli.mjs",
     "build:web": "npm --prefix web install && npm --prefix web run build",
-    "build:web:local": "npm --prefix web run build",
+    "build:web:local": "npm --prefix web run build -- --configLoader runner",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

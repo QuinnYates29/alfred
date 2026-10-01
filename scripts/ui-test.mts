@@ -75,7 +75,8 @@ async function main() {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
   // The workspace's own UI: build it if this checkout hasn't (deps are linked read-only: no npm install).
-  if (!existsSync('web/dist/index.html')) execSync('npm run build:web:local', { stdio: 'inherit' });
+  // (same command as the gate's build-web check: no temp files in the read-only deps, works on older branches)
+  if (!existsSync('web/dist/index.html')) execSync('npm run -s build:web:local 2>/dev/null || (cd web && npx vite build --configLoader runner)', { stdio: 'inherit' });
 
   const base = mkdtempSync(join(tmpdir(), 'alfred-ui-'));
   const { startAlfred } = await import(pathToFileURL(resolve('src/main.ts')).href);
