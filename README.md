@@ -87,8 +87,12 @@ run there. Desktop notifications reach the Mac (cap `notify`).
 **alfred working on itself** — a goal (or board item) with repo `alfred` changes this platform. Safety rails:
 - Sandbox only (`mode: sandbox`): an isolated clone of the Spark hub (`~/.alfred/work/<goal>/<id8>`) with its own `.git`.
   A worktree or in-place work on `alfred` is refused. The server's `node_modules` are linked in read-only.
-- No checks given → the dev gate (`vitest` acceptance + unit except the Electron app suite p18, `tsc`; area web adds
-  `npm run build:web:local`, a build without `npm install`); Jev's done-gate review runs on top.
+- Checks: **Auto** by default — you don't need to know them up front. The gate starts with the suites (minus the Electron
+  app suite p18) + `tsc`, and at finish adds what the diff needs: touching `web/` adds the web build and a **UI smoke test**
+  (a sandboxed copy of alfred, every page at desktop + phone width, fails on page errors; screenshots land on the goal).
+  **Edit goal** switches to a custom list (applied to retries too). Jev's done-gate review runs on top.
+- Agents can click through their UI change themselves with the `ui_test` tool (a copy built from their workspace; scripted
+  goto/click/fill/expect/screenshot); the screenshots reach you as a gallery output on the goal.
 - Partial work is never lost: every exit (stop, failure, turn budget) commits and pushes the attempt's branch, and
   **Retry** continues on that same branch and workspace (a fresh clone of the branch if the workspace was cleaned up).
 - Agents can only push their own `alfred/<goal>/<id>` branch to the hub; base branches are hook-protected. A push to any

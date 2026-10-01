@@ -63,6 +63,10 @@ finding) → one scope question. The verdict is code (`verdictOf`): `error` if i
 `peer_review {sha, branch, base, verdict, checksOk, findings, reviewed, error?}`; output **Peer review** (markdown).
 `/changes` returns the latest as `peerReview`. `alfred_dev deploy` of an opted-in goal requires an `approve` of the exact commit.
 
+## 4d. Transcript fix (ALF-7)
+`transcriptFor` read `store.allEvents()` — the first 500 events ever recorded — so every task after those had an empty
+transcript. It reads the task's goal events (`store.events(goalId)`). The tab opens on the latest root task (the latest attempt).
+
 ## 5. Discard
 Deletes the goal's pushed branch(es) from the hub (`git --git-dir <bare> branch -D <branch>`; only `branch` if given), and removes
 local workspaces of the goal's tasks: a path inside `deps.workRoot` → `rm -rf`; a path containing `/.alfred-worktrees/` on the local

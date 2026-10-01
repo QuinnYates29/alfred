@@ -17,6 +17,10 @@
 - 2026-10-01: graph-view goal ran out of turns fighting env-only test failures (no sidecar venv in clones; p18 can't run
   headless). Fixed: venv linked, p18 out of the dev gate, web check = vite build, newest pushed branch is the default,
   and Retry now continues the previous attempt's branch/workspace (P10 addendum) — partial work is picked up.
+- 2026-10-01 (26017ac, DEPLOYED): Auto checks grown from the diff + Edit goal check editing (carries into retries);
+  sandboxed UI tests (`ui_test` tool for coder, `ui-smoke` gate check) with screenshot galleries — verified in bwrap on the
+  Spark (22 shots, 660 KB); Transcript tab fixed (it read the first 500 events ever). `ui_test` must stay registered in
+  main.ts too (the server's registry isn't allTools(): a persona naming an unregistered tool is skipped at load).
 - To retry ALF-7 after deploying: Retry on its goal page (repo `alfred` now resolves; the retry gets the dev gate).
 
 ## 2026-09-30 — Jev goes local + triages approvals: MERGED + DEPLOYED

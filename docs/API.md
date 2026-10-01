@@ -35,7 +35,7 @@ tests (`NODE_ENV=test`) or an explicit `allowNoToken` run tokenless.
 | `GET /api/v1/goals` | → `[goalSummary]` newest first; `goalSummary = {goal, counts:{<status>:n}}` |
 | `POST /api/v1/goals` | `{title, body?, persona?, spec?, acceptance?[{name,cmd,cwd?,timeoutMs?}], repo?, budget?, model?, node?, mode?: 'sandbox'\|'repo', inPlace?, peerReview?}` → `201 {goal, task}`; `400` missing title / unknown persona / unknown repo (`repo` must be a registered name, a registered path or an absolute path) / `inPlace` or `mode: 'repo'` on repo `alfred` (sandbox only). A goal on `alfred` with no `acceptance` gets the dev gate (tests + typecheck) |
 | `GET /api/v1/goals/:id` | id **or slug** → `{goal, tasks, events(last 200), usage?}`; `404` if unknown |
-| `PATCH /api/v1/goals/:id` | `{repo?, node?, mode?: 'sandbox'\|'repo', inPlace?, peerReview?}` (`null` clears a key) → `{goal}`; the next run/retry works there. `400` unknown repo / bad value / worktree or in-place on `alfred`; `409` while a task is running or verifying |
+| `PATCH /api/v1/goals/:id` | `{repo?, node?, mode?: 'sandbox'\|'repo', inPlace?, peerReview?, checks?: 'auto'\|[{name,cmd,timeoutMs?}]}` (checks replace the goal's and its unfinished tasks' — what a retry copies; `auto` only on alfred) (`null` clears a key) → `{goal}`; the next run/retry works there. `400` unknown repo / bad value / worktree or in-place on `alfred`; `409` while a task is running or verifying |
 | `POST /api/v1/tasks/:id/stop` | `{reason?}` → `{ok:true}` (running → cancelled via scheduler, else transition `stopped`); `409` illegal transition |
 | `POST /api/v1/tasks/:id/retry` | `{note?}` → `201 {task}` (clone, notes carry over) |
 | `POST /api/v1/tasks/:id/note` | `{text}` → `{ok:true}` |

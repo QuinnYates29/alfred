@@ -78,6 +78,15 @@ after chat (already done in `src/main.ts`).
    - No acceptance → `devAcceptance()` (also on retry of a check-less task): the suites without p18 (Electron needs a display
      and the app's deps — it runs on the Mac), `tsc`, and for area web `npm run build:web:local` (not `build:web`, which
      would `npm install` into the read-only deps). Clones also get `sidecar/.venv` linked, for the LangGraph suites.
+   - **Auto checks** (`autoChecks`/`usesAutoChecks` in src/ops.ts): unless `meta.checks: 'custom'`, the gate of a goal on
+     alfred runs `autoChecks(acceptance, changedFiles)` — web/ touched → `build-web` first and `ui-smoke`
+     (`npx tsx scripts/ui-test.mts --smoke`) last. The peer review runs the same list. `PATCH /goals/:id {checks}` /
+     Edit goal switch Auto ↔ custom (`store.setAcceptance` updates the goal and its unfinished tasks).
+   - **UI tests** (`scripts/ui-test.mts`, `src/uitest.ts`): boots `startAlfred` from the workspace (temp DB, port 0, an
+     idle model, a demo goal + subtask), Chromium headless_shell with the Mesa EGL/Vulkan env (see the P17 harness);
+     `--smoke` = 11 routes × desktop/phone, fails on page errors; `--steps` = the `ui_test` tool's plan. `.ui-test/` →
+     an `images` output (JSON [{name, src: data:image/jpeg}], ≤ 8 MB, a gallery on the goal page) + a `ui_test` event,
+     then removed. The runner and uitest.ts are safety rails (GUARDRAIL_RE).
    - Jev triage (`src/jev/triage.ts`): a `git push` (to anything but the hub's `spark`) from such a goal always goes to Quinn;
      `deploy` can't be removed from `approvals.alwaysAsk` by `config/jev.yaml`.
    - `deploy` (and `rollback`) refuse to rebuild/restart when the merge didn't fast-forward `repoRoot` (`localUpdated: false`).
