@@ -136,13 +136,17 @@ def build_review_graph(workspace: str, test_cmd: str, base_url: str, model: str,
     per_file = split_diff(diff)
 
     def ask(prompt: str) -> Optional[dict]:
-        """A bounded read-only tool loop that must end in one JSON object (one nudge if it doesn't)."""
+        """A bounded read-only tool loop that must end in one JSON object. The last step takes the tools away
+        and demands the answer: the model otherwise kept reading files until it ran out of steps (no verdict)."""
         msgs: list = [SystemMessage(SYSTEM), HumanMessage(prompt)]
         nudged = False
-        for _ in range(max_steps):
-            msg = llm_tools.invoke(msgs)
+        for step in range(max_steps):
+            last = step == max_steps - 1
+            if last:
+                msgs.append(HumanMessage("No more reading. Answer now with the JSON object only."))
+            msg = (llm if last else llm_tools).invoke(msgs)
             msgs.append(msg)
-            calls = getattr(msg, "tool_calls", None) or []
+            calls = [] if last else (getattr(msg, "tool_calls", None) or [])
             if calls:
                 for c in calls:
                     fn = tools.get(c.get("name"))
@@ -150,7 +154,7 @@ def build_review_graph(workspace: str, test_cmd: str, base_url: str, model: str,
                     msgs.append(ToolMessage(content=str(out)[:20_000], tool_call_id=c.get("id", "")))
                 continue
             obj = parse_json(msg.content if isinstance(msg, AIMessage) else "")
-            if obj is not None or nudged:
+            if obj is not None or nudged or last:
                 return obj
             nudged = True
             msgs.append(HumanMessage("Answer with the JSON object only."))
