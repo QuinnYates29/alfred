@@ -23,6 +23,7 @@ export const BUILTIN_CAPS: Record<string, ToolCap[]> = {
   dsh_code: ['exec', 'fs-write', 'network'],
   pipeline_run: ['exec', 'fs-write', 'network'],
   langgraph_code: ['exec', 'fs-write', 'network'],
+  ui_test: ['exec', 'fs-write', 'network'],
   write_file: ['fs-write'],
   message: ['people', 'network'],
   call: ['people', 'network'],

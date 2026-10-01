@@ -1,7 +1,8 @@
 // P2 wiring: every tool a persona can be given — builtins plus the three executors.
 import type { Tool } from './contract.js';
 import type { ModelRegistry } from '../models.js';
-import { builtinTools } from './tools.js';
+import { builtinTools, runShell } from './tools.js';
+import { uiTestTool } from '../uitest.js';
 import { dshTool } from '../executors/dsh.js';
 import { pipelineTool } from '../executors/pipeline.js';
 import { langgraphTool } from '../executors/langgraph.js';
@@ -28,6 +29,7 @@ export function allTools(
     dshTool(o.dsh),
     pipelineTool({ ...o.pipeline, models: o.pipeline?.models ?? o.models }),
     langgraphTool({ ...o.langgraph, models: o.langgraph?.models ?? o.models }),
+    uiTestTool({ runShell }),
     boardTool(),
     ...powersToolStubs(),
     ...commsToolStubs(),

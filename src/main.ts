@@ -7,7 +7,8 @@ import type { Server } from 'node:http';
 import type { LLM } from './runtime/contract.js';
 import { openStore, type Store } from './store.js';
 import { ToolRegistry } from './runtime/tools.js';
-import { builtinTools } from './runtime/tools.js';
+import { builtinTools, runShell } from './runtime/tools.js';
+import { uiTestTool } from './uitest.js';
 import { loadPersonas } from './runtime/personas.js';
 import { Scheduler } from './runtime/scheduler.js';
 import { openaiLLM, limitLLM } from './runtime/openai.js';
@@ -164,6 +165,7 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
   const store = openStore(dbPath, { redact: envRedactor({ ...process.env, ...env, ...(token ? { ALFRED_TOKEN: token } : {}) }) });
   const registry = new ToolRegistry();
   for (const t of builtinTools()) registry.register(t);
+  registry.register(uiTestTool({ runShell })); // ALF-7: agents test alfred's UI in a sandboxed copy
 
   const notifier = new Notifier([]);
   const deckState: DeckState = { url: null };

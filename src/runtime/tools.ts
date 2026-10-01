@@ -113,7 +113,7 @@ async function readText(abs: string, ctx: ToolContext): Promise<string> {
   return readFileSync(abs, 'utf8');
 }
 
-function runShell(args: any, ctx: ToolContext): Promise<ToolResult> {
+export function runShell(args: any, ctx: ToolContext): Promise<ToolResult> {
   const cmd = String(args?.cmd ?? '');
   const requested = Number(args?.timeoutSec);
   const timeoutSec = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 600) : 120;

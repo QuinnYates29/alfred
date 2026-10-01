@@ -16,7 +16,9 @@ import {
   type WorkspaceBackend,
 } from './contract.js';
 import { verifyAndComplete, defaultRunner } from '../gate.js';
-import { isReportCheck } from '../ops.js';
+import { isReportCheck, autoChecks, usesAutoChecks } from '../ops.js';
+import { publishUiRun } from '../uitest.js';
+import { execFileSync } from 'node:child_process';
 import type { Store } from '../store.js';
 import {
   PARKED,
@@ -261,6 +263,26 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
    */
   let publishInflight: Promise<void> | null = null;
   let lastPublishedSha: string | null = null;
+  /** ALF-7: files this attempt changed against the base it started from (committed or not, incl. new files). */
+  const changedFiles = async (): Promise<string[]> => {
+    const cmd =
+      'b=$(git rev-parse -q --verify spark/HEAD || git rev-parse -q --verify spark/master || git rev-parse -q --verify spark/main || git rev-parse HEAD); ' +
+      'git diff --name-only "$(git merge-base HEAD "$b")"; git ls-files --others --exclude-standard';
+    try {
+      const out = backend
+        ? (await backend.exec(cmd, { cwd: workspace, workspace, timeoutMs: 30_000 })).output
+        : execFileSync('bash', ['-c', cmd], { cwd: workspace, encoding: 'utf8', timeout: 30_000 });
+      return out.split('\n').map((s) => s.trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  };
+  /** ALF-7: screenshots a gate check (ui-smoke) left in the workspace → a goal output. Spark workspaces only. */
+  const publishUiShots = async (): Promise<void> => {
+    if (backend && backend.node !== 'local') return;
+    publishUiRun(o.store, task!.goalId, taskId, workspace, 'UI smoke');
+  };
+
   const publishWork = (): Promise<void> => {
     // v1 publishes Spark-side work; node workspaces push themselves via their own git.
     if (!(o.hub && o.workRoot && !o.workspaceFor && backend && wsRemote && wsBranch && backend.node === 'local')) {
@@ -762,9 +784,16 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
           o.runner
             ? o.runner({ ...check, cwd: check.cwd ?? workspace })
             : defaultRunner({ ...check, cwd: check.cwd ?? workspace }, { workspace });
+    // ALF-7: Auto checks — the gate grows with what this change actually touched.
+    let checks: AcceptanceCheck[] | undefined;
+    if (usesAutoChecks(o.store, o.store.getGoal(task!.goalId))) {
+      checks = autoChecks(task!.acceptance, await changedFiles());
+      if (checks.length !== task!.acceptance.length) record('progress', { msg: `auto checks: ${checks.map((c) => c.name).join(', ')}` });
+    }
     let v: { ok: boolean; results: import('../types.js').CheckResult[] };
     try {
-      v = await verifyAndComplete(o.store, taskId, { runner, by: o.workerId });
+      v = await verifyAndComplete(o.store, taskId, { runner, by: o.workerId, ...(checks ? { checks } : {}) });
+      await publishUiShots();
     } catch (e) {
       if (e instanceof NodeOfflineError) {
         // The gate could not reach the node: back to running (legal from verifying),

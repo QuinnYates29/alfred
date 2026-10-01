@@ -102,3 +102,9 @@
 }
 .output-table th { background: var(--surface-2); font-weight: 600; position: sticky; top: 0; }
 @media (max-width: 900px) { .goal-main { grid-template-columns: minmax(0, 1fr); } }
+
+/* ALF-7: UI test screenshots */
+.output-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); }
+.output-shot { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); color: var(--fg-2); text-align: left; cursor: zoom-in; min-width: 0; }
+.output-shot:hover { border-color: var(--accent-line); }
+.output-shot img { width: 100%; height: auto; border-radius: var(--r-xs); display: block; }

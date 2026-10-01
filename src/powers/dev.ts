@@ -40,7 +40,8 @@ function propose(deps: ModuleDeps, a: any): ToolResult {
     acceptance: devAcceptance(area),
     repo: SELF_REPO,
   });
-  if (a.review === true) deps.store.setGoalMeta(goal.id, { peerReview: true });
+  // The dev gate given above is the Auto gate (it grows with the diff), not checks Quinn chose.
+  deps.store.setGoalMeta(goal.id, { checks: undefined, ...(a.review === true ? { peerReview: true } : {}) });
   return { ok: true, output: `started goal ${goal.slug}: review it in Goals → Changes, then deploy` };
 }
 

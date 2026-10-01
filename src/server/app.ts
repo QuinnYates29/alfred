@@ -16,7 +16,7 @@ import type { ToolRegistry } from '../runtime/tools.js';
 import type { ModelRegistry } from '../models.js';
 import { promptCost } from '../runtime/personas.js';
 import type { PluginRouteReg, AlfredPlugin } from '../plugins.js';
-import { createGoalWithRoot, retryTask, goalSummary, checkRepo, checkSelfMeta } from '../ops.js';
+import { createGoalWithRoot, retryTask, goalSummary, checkRepo, checkSelfMeta, devAcceptance, isSelfRepo, parseChecks } from '../ops.js';
 import { DISPATCH_SYNTAX, dispatchPrompt, parseDispatch } from '../dispatch.js';
 import { agentsOverview } from './agents.js';
 import { hostGuard, safeEqual, securityHeaders, TicketBook } from './security.js';
@@ -84,6 +84,8 @@ export const EVENT_KINDS: { kind: string; meaning: string }[] = [
   { kind: 'goal_merged', meaning: 'A goal branch was merged in the hub (data: branch, into, sha).' },
   { kind: 'goal_discarded', meaning: 'A goal branch was discarded (data: branches).' },
   { kind: 'goal_reverted', meaning: 'A landed goal was reverted on its base (data: into, sha, reverted).' },
+  { kind: 'goal_checks', meaning: 'A goal\'s acceptance checks were replaced (data: checks).' },
+  { kind: 'ui_test', meaning: 'A UI test ran against a sandboxed copy of alfred (data: ok, mode, shots, errors).' },
   { kind: 'peer_review_started', meaning: 'coder-lg started reviewing a goal branch (data: sha, branch, base).' },
   { kind: 'peer_review', meaning: 'coder-lg reviewed a goal branch (data: sha, branch, base, verdict, checksOk, findings, reviewed).' },
 ];
@@ -254,13 +256,28 @@ function buildRouter(d: AppDeps): express.Router {
       if ('inPlace' in b) patch.inPlace = b.inPlace === true ? true : undefined;
       if ('peerReview' in b) patch.peerReview = b.peerReview === true ? true : undefined;
       if (patch.node === 'local') patch.node = undefined;
-      if (!Object.keys(patch).length) throw new Error('nothing to change (repo, node, mode, inPlace, peerReview)');
+      // ALF-7: checks — 'auto' (goals on alfred: the dev gate, grown from the diff at finish) or a custom list.
+      // Applied to the goal and its unfinished tasks, so the next retry gates on them.
+      let checks: import('../types.js').AcceptanceCheck[] | null = null;
+      if ('checks' in b) {
+        const self = isSelfRepo(d.store, 'repo' in patch ? patch.repo : goal.meta?.repo);
+        if (b.checks === 'auto') {
+          if (!self) throw new Error('auto checks exist for goals on alfred only; give a list of checks');
+          checks = devAcceptance();
+          patch.checks = undefined;
+        } else {
+          checks = parseChecks(b.checks);
+          if (self) patch.checks = 'custom';
+        }
+      }
+      if (!Object.keys(patch).length && !checks) throw new Error('nothing to change (repo, node, mode, inPlace, peerReview, checks)');
       if (patch.repo) checkRepo(d.store, patch.repo);
       checkSelfMeta(d.store, { ...goal.meta, ...patch });
+      if (checks) d.store.setAcceptance(goal.id, checks);
     } catch (e: any) {
       return send(res, 400, { error: e?.message ?? String(e) });
     }
-    res.json({ goal: d.store.setGoalMeta(goal.id, patch) });
+    res.json({ goal: Object.keys(patch).length ? d.store.setGoalMeta(goal.id, patch) : d.store.getGoal(goal.id) });
   });
 
   r.get('/goals/:id', (req, res) => {
@@ -285,13 +302,14 @@ function buildRouter(d: AppDeps): express.Router {
     if (!row || row.goalId !== goal.id) return { err: 404 };
     return { goal, row };
   };
-  const OUTPUT_EXT: Record<string, string> = { markdown: 'md', text: 'txt', json: 'json', csv: 'csv', 'html-code': 'html' };
+  const OUTPUT_EXT: Record<string, string> = { markdown: 'md', text: 'txt', json: 'json', csv: 'csv', 'html-code': 'html', images: 'json' };
   const OUTPUT_CT: Record<string, string> = {
     markdown: 'text/markdown; charset=utf-8',
     text: 'text/plain; charset=utf-8',
     json: 'application/json; charset=utf-8',
     csv: 'text/csv; charset=utf-8',
     'html-code': 'text/plain; charset=utf-8',
+    images: 'application/json; charset=utf-8',
   };
 
   r.get('/goals/:id/outputs', (req, res) => {

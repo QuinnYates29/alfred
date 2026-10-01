@@ -75,7 +75,7 @@ export const defaultRunner = (check: AcceptanceCheck, o?: { workspace?: string }
 export async function verifyAndComplete(
   store: Store,
   taskId: string,
-  opts?: { runner?: CheckRunner; by?: string },
+  opts?: { runner?: CheckRunner; by?: string; /** ALF-7: run these instead of task.acceptance (Auto checks). */ checks?: AcceptanceCheck[] },
 ): Promise<{ ok: boolean; results: CheckResult[] }> {
   const task = store.getTask(taskId);
   if (!task) throw new Error(`no such task: ${taskId}`);
@@ -83,7 +83,8 @@ export async function verifyAndComplete(
     throw new IllegalTransitionError(`task ${taskId} is not verifying (status: ${task.status})`);
   }
 
-  if (task.acceptance.length === 0) {
+  const checks = opts?.checks ?? task.acceptance;
+  if (checks.length === 0) {
     store.transition(taskId, 'failed', {
       reason: 'no acceptance checks: refusing to mark done',
       by: opts?.by,
@@ -93,7 +94,7 @@ export async function verifyAndComplete(
 
   const runner = opts?.runner ?? defaultRunner;
   const results: CheckResult[] = [];
-  for (const check of task.acceptance) {
+  for (const check of checks) {
     results.push(await runner(check));
   }
 

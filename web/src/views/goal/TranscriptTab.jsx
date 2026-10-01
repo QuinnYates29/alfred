@@ -14,7 +14,7 @@ const NOTE_KINDS = {
   progress: (d) => d.message ?? d.text ?? '',
   approval_requested: (d) => `approval requested: ${d.action ?? ''}`,
   approval_decided: (d) => `approval ${d.decision ?? 'decided'}`,
-  verify: (d) => `${d.name ?? 'check'} ${d.ok === false ? 'failed' : 'ok'}`,
+  verify: (d) => `checks: ${(Array.isArray(d.results) ? d.results : [d]).map((r) => `${r.name ?? 'check'} ${r.ok === false ? '✗' : '✓'}`).join(' · ')}`,
 };
 
 function ToolResult({ ev }) {
@@ -31,7 +31,8 @@ function ToolResult({ ev }) {
 }
 
 export default function TranscriptTab({ goal, tasks }) {
-  const root = useMemo(() => tasks.find((t) => !t.parentTaskId) ?? tasks[0] ?? null, [tasks]);
+  // The latest root task: after a retry, that is the attempt you want to read.
+  const root = useMemo(() => [...tasks].reverse().find((t) => !t.parentTaskId) ?? tasks[0] ?? null, [tasks]);
   const [taskId, setTaskId] = useState('');
   const picked = taskId && tasks.some((t) => t.id === taskId) ? taskId : root?.id ?? '';
 

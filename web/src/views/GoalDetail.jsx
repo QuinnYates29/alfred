@@ -14,7 +14,7 @@ import './GoalDetail.css';
 
 const TABS = [['', 'Overview'], ['transcript', 'Transcript'], ['changes', 'Changes'], ['files', 'Files']];
 
-const OUTPUT_EXT = { markdown: 'md', text: 'txt', json: 'json', csv: 'csv', 'html-code': 'html' };
+const OUTPUT_EXT = { markdown: 'md', text: 'txt', json: 'json', csv: 'csv', 'html-code': 'html', images: 'json' };
 
 /** Minimal CSV parse (quoted cells + "" escapes); capped at 200 data rows. */
 function csvRows(text) {
@@ -37,7 +37,34 @@ function csvRows(text) {
   return rows.slice(0, 201);
 }
 
+/** ALF-7: screenshots from a UI test — a grid of thumbnails; click one to see it full size. */
+function ImageGallery({ content }) {
+  const [open, setOpen] = useState(null);
+  let shots = [];
+  try { shots = JSON.parse(content); } catch { /* not a gallery */ }
+  shots = Array.isArray(shots) ? shots.filter((s) => typeof s?.src === 'string' && s.src.startsWith('data:image/')) : [];
+  if (!shots.length) return <Empty icon="file" title="No screenshots" />;
+  return (
+    <>
+      <div className="output-gallery">
+        {shots.map((s, i) => (
+          <button key={i} className="output-shot" onClick={() => setOpen(s)} title={s.name}>
+            <img src={s.src} alt={s.name} loading="lazy" />
+            <span className="xs ellipsis">{s.name}</span>
+          </button>
+        ))}
+      </div>
+      {open && (
+        <Modal title={open.name} onClose={() => setOpen(null)} footer={<Button onClick={() => setOpen(null)}>Close</Button>}>
+          <img src={open.src} alt={open.name} style={{ width: '100%', height: 'auto', display: 'block' }} />
+        </Modal>
+      )}
+    </>
+  );
+}
+
 function renderOutput(kind, content) {
+  if (kind === 'images') return <ImageGallery content={content} />;
   if (kind === 'markdown') return <Markdown text={content} />;
   if (kind === 'json') {
     let pretty = content;
@@ -62,13 +89,18 @@ function renderOutput(kind, content) {
   return <pre className="output-pre">{content}</pre>;
 }
 
-/** ALF-7 — change where a goal works (repo / node / workspace), e.g. one made from a board item. */
+/** ALF-7 — change where a goal works (repo / node / workspace / peer review) and what its gate checks. */
 function EditWhereDialog({ goal, onClose, onSaved }) {
   const { toast } = useToast();
   const [repo, setRepo] = useState(goal.meta?.repo ?? '');
   const [where, setWhere] = useState(goal.meta?.node ?? 'local');
   const [mode, setMode] = useState(goal.meta?.mode ?? 'auto');
   const [peerReview, setPeerReview] = useState(goal.meta?.peerReview === true);
+  const self = repo.trim() === 'alfred';
+  const [checksMode, setChecksMode] = useState(goal.meta?.repo === 'alfred' && goal.meta?.checks !== 'custom' ? 'auto' : 'custom');
+  const [checks, setChecks] = useState(() => (goal.acceptance ?? []).map((c) => ({ ...c })));
+  const [checksDirty, setChecksDirty] = useState(false);
+  const editCheck = (i, k, v) => { setChecks((cs) => cs.map((c, j) => (j === i ? { ...c, [k]: v } : c))); setChecksDirty(true); };
   const [repos, setRepos] = useState([]);
   const [nodes, setNodes] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -79,7 +111,9 @@ function EditWhereDialog({ goal, onClose, onSaved }) {
   const save = async () => {
     setBusy(true);
     try {
-      await patch(`/api/goals/${goal.id}`, { repo: repo.trim() || null, node: where === 'local' ? null : where, mode: mode === 'auto' ? null : mode, peerReview });
+      const body = { repo: repo.trim() || null, node: where === 'local' ? null : where, mode: mode === 'auto' ? null : mode, peerReview };
+      if (checksDirty) body.checks = self && checksMode === 'auto' ? 'auto' : checks.filter((c) => c.name.trim() || c.cmd.trim());
+      await patch(`/api/goals/${goal.id}`, body);
       toast('Saved — Retry to run it there', 'ok');
       onSaved();
       onClose();
@@ -91,7 +125,7 @@ function EditWhereDialog({ goal, onClose, onSaved }) {
   };
   return (
     <Modal
-      title="Where this goal works"
+      title="Edit goal"
       onClose={onClose}
       footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={busy} onClick={save}>Save</Button></>}
     >
@@ -114,6 +148,29 @@ function EditWhereDialog({ goal, onClose, onSaved }) {
         <input type="checkbox" checked={peerReview} onChange={(e) => setPeerReview(e.target.checked)} />
         <span>Peer review by coder-lg when done (an agent deploy needs its approve)</span>
       </label>
+      <div className="field" style={{ marginTop: 'var(--s-3)' }}>
+        <div className="label">Checks (the gate before done — also used by the next Retry)</div>
+        {self && (
+          <Seg value={checksMode} onChange={(v) => { setChecksMode(v); setChecksDirty(true); }} options={[['auto', 'Auto (recommended)'], ['custom', 'Custom']]} />
+        )}
+        {self && checksMode === 'auto' ? (
+          <p className="xs muted" style={{ marginTop: 6 }}>
+            Tests + typecheck. When the change touches web/, the gate also builds the UI and runs a UI smoke test in a sandboxed
+            copy of alfred (every page, desktop + phone), with screenshots on this page. No need to know the checks up front.
+          </p>
+        ) : (
+          <>
+            {checks.map((c, i) => (
+              <div className="row" key={i} style={{ marginTop: 6 }}>
+                <input className="input" style={{ maxWidth: 140 }} aria-label={`check ${i + 1} name`} placeholder="name" value={c.name} onChange={(e) => editCheck(i, 'name', e.target.value)} />
+                <input className="input mono" aria-label={`check ${i + 1} command`} placeholder="command, e.g. npm test" value={c.cmd} onChange={(e) => editCheck(i, 'cmd', e.target.value)} />
+                <Button variant="ghost" icon="x" aria-label="remove check" onClick={() => { setChecks(checks.filter((_, j) => j !== i)); setChecksDirty(true); }} />
+              </div>
+            ))}
+            <Button size="sm" variant="ghost" icon="plus" style={{ marginTop: 6 }} onClick={() => { setChecks([...checks, { name: '', cmd: '' }]); setChecksDirty(true); }}>Add check</Button>
+          </>
+        )}
+      </div>
     </Modal>
   );
 }
@@ -284,7 +341,7 @@ export default function GoalDetail({ id, tab = '' }) {
           <Button icon="git" variant="ghost" data-testid="goal-where" title="Change the repo / machine / workspace this goal works in"
             disabled={tasks.some((t) => t.status === 'running' || t.status === 'verifying')}
             onClick={() => setWhereOpen(true)}>
-            Edit where
+            Edit goal
           </Button>
           {root && (
             <Button icon="comment" variant="ghost" onClick={() => setNoteOpen(true)}>Add note</Button>

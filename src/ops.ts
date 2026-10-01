@@ -38,15 +38,51 @@ export function isReportCheck(c: AcceptanceCheck): boolean {
 /** The repo name of alfred's own checkout. Registered at boot, so a board item or goal can just say `alfred`. */
 export const SELF_REPO = 'alfred';
 
+/** The deps are the server's, mounted read-only: build with them (`build:web` would `npm install`). */
+export const BUILD_WEB_CHECK: AcceptanceCheck = { name: 'build-web', cmd: 'npm run build:web:local', timeoutMs: 600_000 };
+/**
+ * Boots a throwaway copy of alfred from the workspace (temp DB, random port, a model that never acts) and
+ * drives every page in headless Chromium at desktop and phone width: fails on page errors; the screenshots
+ * become a goal output (scripts/ui-test.mts).
+ */
+export const UI_SMOKE_CHECK: AcceptanceCheck = { name: 'ui-smoke', cmd: 'npx tsx scripts/ui-test.mts --smoke', timeoutMs: 600_000 };
+
 /** The done-gate for a change to alfred itself: both suites + typecheck (+ the web build for area `web`). */
 export function devAcceptance(area?: string): AcceptanceCheck[] {
   return [
-    // The deps are the server's, mounted read-only: build with them (`build:web` would `npm install`).
-    ...(area === 'web' ? [{ name: 'build-web', cmd: 'npm run build:web:local', timeoutMs: 600_000 }] : []),
+    ...(area === 'web' ? [BUILD_WEB_CHECK] : []),
     // p18 drives the Electron Mac app: it needs a display and the app's deps, so it runs on the Mac, not here.
     { name: 'tests', cmd: "npx vitest run test/acceptance/ test/unit/ --exclude 'test/acceptance/p18/**'", timeoutMs: 1_200_000 },
     { name: 'typecheck', cmd: 'npx tsc --noEmit -p tsconfig.src.json', timeoutMs: 600_000 },
   ];
+}
+
+/**
+ * Auto checks (goals on alfred unless set to custom): nobody has to know the right checks before the work
+ * exists. The gate starts from the dev gate and adds what the change turns out to need — touching web/ adds
+ * the web build (first) and the UI smoke test (last).
+ */
+export function autoChecks(base: AcceptanceCheck[], changed: string[]): AcceptanceCheck[] {
+  if (!changed.some((f) => f.startsWith('web/'))) return base;
+  const has = (n: string) => base.some((c) => c.name === n);
+  return [...(has(BUILD_WEB_CHECK.name) ? [] : [BUILD_WEB_CHECK]), ...base, ...(has(UI_SMOKE_CHECK.name) ? [] : [UI_SMOKE_CHECK])];
+}
+
+/** Does this goal's gate grow with its diff (autoChecks)? Goals on alfred, unless Quinn set custom checks. */
+export function usesAutoChecks(store: Partial<Pick<Store, 'getRepo'>>, goal: { meta?: Record<string, any> } | undefined): boolean {
+  return !!goal && isSelfRepo(store, goal.meta?.repo) && goal.meta?.checks !== 'custom';
+}
+
+/** Validate checks from the API/UI: 1–12 of {name, cmd, timeoutMs?}. */
+export function parseChecks(v: unknown): AcceptanceCheck[] {
+  if (!Array.isArray(v) || v.length < 1 || v.length > 12) throw new Error('checks: give 1–12 checks, or "auto"');
+  return v.map((c: any, i) => {
+    const name = typeof c?.name === 'string' ? c.name.trim() : '';
+    const cmd = typeof c?.cmd === 'string' ? c.cmd.trim() : '';
+    if (!name || name.length > 40 || !cmd || cmd.length > 2000) throw new Error(`check ${i + 1}: needs a name (≤ 40) and a command`);
+    const t = Number(c.timeoutMs);
+    return { name, cmd, ...(Number.isFinite(t) && t > 0 ? { timeoutMs: Math.min(t, 3_600_000) } : {}) };
+  });
 }
 
 /** Does a goal's `meta.repo` name alfred's own repo (by name, or by its registered path)? */
@@ -99,7 +135,7 @@ export function createGoalWithRoot(
     meta: {
       ...(input.repo ? { repo: input.repo } : {}),
       ...(input.model ? { model: input.model } : {}),
-      ...(isSelfRepo(store, input.repo) ? { mode: 'sandbox' } : {}),
+      ...(isSelfRepo(store, input.repo) ? { mode: 'sandbox', ...((input.acceptance ?? []).length ? { checks: 'custom' } : {}) } : {}),
     },
   });
   const task = store.createTask({

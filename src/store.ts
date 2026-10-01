@@ -122,9 +122,11 @@ export interface Repo {
 }
 
 /** O1 — a first-class deliverable published to a goal (what Quinn reads on the goal page). */
-export const OUTPUT_KINDS = ['markdown', 'text', 'json', 'csv', 'html-code'] as const;
+/** `images`: a JSON array of {name, src: data:image/… URL} — screenshots (ALF-7 UI tests), shown as a gallery. */
+export const OUTPUT_KINDS = ['markdown', 'text', 'json', 'csv', 'html-code', 'images'] as const;
 export type OutputKind = (typeof OUTPUT_KINDS)[number];
 export const OUTPUT_MAX_BYTES = 512 * 1024;
+export const IMAGES_MAX_BYTES = 8 * 1024 * 1024;
 
 export interface PutOutputInput {
   goalId: string;
@@ -162,6 +164,8 @@ export interface Store {
   listGoals(): Goal[];
   /** Shallow-merge patch into the goal's meta; returns the updated goal. */
   setGoalMeta(goalId: string, patch: Record<string, any>): Goal;
+  /** ALF-7: replace the goal's acceptance checks and those of its unfinished tasks (what a retry copies). Emits `goal_checks`. */
+  setAcceptance(goalId: string, checks: AcceptanceCheck[]): Goal;
   /** Permanently delete a goal with its tasks, events, approvals and outputs. Refuses while a task is
    * running or verifying (stop it first). Emits a system `goal_deleted` event. */
   deleteGoal(goalId: string): void;
@@ -529,6 +533,8 @@ export function openStore(
     countGoalSlug: db.prepare(`SELECT COUNT(*) AS n FROM goals WHERE slug = ?`),
     listGoals: db.prepare(`SELECT * FROM goals ORDER BY seq ASC`),
     updateGoalStatus: db.prepare(`UPDATE goals SET status = ?, updatedAt = ? WHERE id = ?`),
+    updateGoalAcceptance: db.prepare(`UPDATE goals SET acceptance = ?, updatedAt = ? WHERE id = ?`),
+    updateOpenTaskAcceptance: db.prepare(`UPDATE tasks SET acceptance = ?, updatedAt = ? WHERE goalId = ? AND status != 'done'`),
     updateGoalMeta: db.prepare(`UPDATE goals SET meta = ?, updatedAt = ? WHERE id = ?`),
 
     insertTask: db.prepare(
@@ -740,6 +746,20 @@ export function openStore(
     const updated = getGoalRow(goalId)!;
     emit(goalId, null, 'goal_meta', { meta: next });
     return goalFromRow(updated);
+  }
+
+  const setAcceptanceTxn = db.transaction((goalId: string, checks: AcceptanceCheck[]) => {
+    if (!getGoalRow(goalId)) throw new Error(`no such goal: ${goalId}`);
+    const json = JSON.stringify(checks);
+    const t = now();
+    stmts.updateGoalAcceptance.run(json, t, goalId);
+    stmts.updateOpenTaskAcceptance.run(json, t, goalId);
+    emit(goalId, null, 'goal_checks', { checks });
+    return goalFromRow(getGoalRow(goalId)!);
+  });
+
+  function setAcceptance(goalId: string, checks: AcceptanceCheck[]): Goal {
+    return setAcceptanceTxn.immediate(goalId, checks);
   }
 
   const deleteGoalTxn = db.transaction((goalId: string) => {
@@ -1279,7 +1299,7 @@ export function openStore(
     const kind = input.kind == null || input.kind === '' ? 'markdown' : String(input.kind);
     if (!(OUTPUT_KINDS as readonly string[]).includes(kind)) throw new Error(`unknown output kind: ${kind}`);
     const content = String(input.content ?? '');
-    if (Buffer.byteLength(content, 'utf8') > OUTPUT_MAX_BYTES) throw new Error('output too large');
+    if (Buffer.byteLength(content, 'utf8') > (kind === 'images' ? IMAGES_MAX_BYTES : OUTPUT_MAX_BYTES)) throw new Error('output too large');
     return { name, kind: kind as OutputKind, content };
   }
 
@@ -1352,6 +1372,7 @@ export function openStore(
     getGoal,
     listGoals,
     setGoalMeta,
+    setAcceptance,
     deleteGoal,
     createTask,
     getTask,

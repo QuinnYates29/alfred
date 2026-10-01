@@ -15,7 +15,8 @@ import { resolveRepo, resolveBase, pushedBranches, DIFF_CAP } from './changes.js
 import { HttpError } from './land.js';
 import { runSidecar } from '../executors/langgraph.js';
 import { linkSelfDeps } from '../workspace.js';
-import { isSelfRepo } from '../ops.js';
+import { isSelfRepo, autoChecks, usesAutoChecks } from '../ops.js';
+import { publishUiRun, summarize } from '../uitest.js';
 
 export type Severity = 'blocker' | 'major' | 'minor';
 export interface Finding {
@@ -43,7 +44,7 @@ export interface PeerReview {
  * approved by an agent — it waits for Quinn's own review and Merge.
  */
 export const GUARDRAIL_RE =
-  /^(src\/sandbox\.ts|src\/approvals\.ts|src\/powers\/(gate|dev)\.ts|src\/jev\/(triage|policy)\.ts|src\/git\/|src\/review\/(land|peer)\.ts|src\/workspace\.ts|src\/executors\/langgraph\.ts|sidecar\/langgraph_coder\/|config\/(powers|jev)\.yaml|test\/acceptance\/)/;
+  /^(src\/sandbox\.ts|src\/approvals\.ts|src\/powers\/(gate|dev)\.ts|src\/jev\/(triage|policy)\.ts|src\/git\/|src\/review\/(land|peer)\.ts|src\/workspace\.ts|src\/executors\/langgraph\.ts|src\/uitest\.ts|scripts\/ui-test\.mts|sidecar\/langgraph_coder\/|config\/(powers|jev)\.yaml|test\/acceptance\/)/;
 
 export function guardrailFindings(files: string[]): Finding[] {
   return files
@@ -99,7 +100,9 @@ async function doReview(deps: ModuleDeps, goal: Goal): Promise<PeerReview> {
     if (isSelfRepo(deps.store, goal.meta?.repo)) linkSelfDeps(ws, repo.paths?.local);
     const files = (await git(['diff', '--name-only', `origin/${base}...${sha}`], ws)).split('\n').map((f) => f.trim()).filter(Boolean);
     const diff = (await git(['diff', `origin/${base}...${sha}`], ws)).slice(0, DIFF_CAP);
-    const cmds = goal.acceptance.map((c) => c.cmd).filter(Boolean);
+    // The same checks the gate ran: Auto goals grow theirs from the diff (web/ → web build + UI smoke test).
+    const checks = usesAutoChecks(deps.store, goal) ? autoChecks(goal.acceptance, files) : goal.acceptance;
+    const cmds = checks.map((c) => c.cmd).filter(Boolean);
     const spec = deps.models?.resolve('coder');
     const run = await runSidecar({
       python: (deps.extra?.lgPython as string | undefined) ?? join(deps.repoRoot, 'sidecar', '.venv', 'bin', 'python'),
@@ -130,6 +133,10 @@ async function doReview(deps: ModuleDeps, goal: Goal): Promise<PeerReview> {
       reviewed: ran && Array.isArray(r.reviewed) ? r.reviewed.map(String) : [],
       ...(ran ? {} : { error: String(r?.error ?? (run.ok ? 'reviewer failed' : `${run.error}: ${run.tail.slice(-500)}`)) }),
     };
+    // The UI smoke test's screenshots (when the checks included it) → their own output; a failed run is a finding.
+    const ui = publishUiRun(deps.store, goal.id, null, ws, 'Peer review · UI');
+    if (ui && !ui.ok) out.findings.push({ file: null, severity: 'major', line: null, what: `UI test failed:\n${summarize(ui)}` });
+    if (ui && !ui.ok && out.verdict === 'approve') out.verdict = 'changes_requested';
     if (ran && !out.checksOk && r.checksOutput) out.findings.unshift({ file: null, severity: 'blocker', line: null, what: `checks failed:\n${String(r.checksOutput).slice(-1500)}` });
   } finally {
     rmSync(ws, { recursive: true, force: true });
