@@ -12,9 +12,23 @@ export interface OpenaiOptions {
 
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
-/** Remove every <think>…</think> block and trim. */
-function stripThink(s: string): string {
-  return s.replace(/<think[\s\S]*?<\/think>/g, '').trim();
+/**
+ * Split a reply into its thinking and its answer: every <think>…</think> block, plus a leading
+ * "…</think>" whose opening tag the chat template emitted (Qwen often does) — that used to leak
+ * the model's reasoning into the answer. The answer is what the conversation keeps.
+ */
+export function splitThink(s: string): { content: string; thinking: string } {
+  const thoughts: string[] = [];
+  let rest = s.replace(/<think>([\s\S]*?)<\/think>/g, (_m, t: string) => {
+    thoughts.push(t.trim());
+    return '';
+  });
+  const close = rest.indexOf('</think>');
+  if (close >= 0 && !rest.slice(0, close).includes('<think>')) {
+    thoughts.unshift(rest.slice(0, close).trim());
+    rest = rest.slice(close + '</think>'.length);
+  }
+  return { content: rest.trim(), thinking: thoughts.filter(Boolean).join('\n\n') };
 }
 
 function parseArgs(raw: unknown): any {
@@ -97,8 +111,12 @@ export function openaiLLM(o: OpenaiOptions): LLM {
         args: parseArgs(tc.function?.arguments),
       }));
       const usage: any = json.usage ?? {};
+      const split = splitThink(String(msg.content ?? ''));
+      // llama-server (--reasoning-format) sends the thinking separately as reasoning_content.
+      const thinking = [typeof msg.reasoning_content === 'string' ? msg.reasoning_content.trim() : '', split.thinking].filter(Boolean).join('\n\n');
       return {
-        content: stripThink(String(msg.content ?? '')),
+        content: split.content,
+        ...(thinking ? { thinking } : {}),
         toolCalls,
         usage: {
           promptTokens: usage.prompt_tokens ?? 0,

@@ -605,8 +605,9 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
         tools: resp.toolCalls.map((c) => c.name),
         usage: resp.usage,
         // P15 transcript: what the model said and asked for (capped; never the full context).
-        text: capText(resp.content ?? '', 4000),
-        calls: resp.toolCalls.map((c) => ({ name: c.name, args: capText(safeJson(c.args), 2000) })),
+        text: capText(resp.content ?? '', 8000),
+        ...(resp.thinking ? { thinking: capText(resp.thinking, 12000) } : {}),
+        calls: resp.toolCalls.map((c) => ({ name: c.name, args: capText(safeJson(c.args), 4000) })),
       });
 
       const calls: ToolCall[] = resp.toolCalls;
@@ -694,7 +695,8 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
           control = { kind: 'park', status: result.park.status, reason: result.park.reason };
         }
         if (!result.ok) failedCalls.add(c.id);
-        record('tool', { name: c.name, ok: result.ok, output: capText(result.output ?? '', 2000) });
+        // In and out together, so the transcript shows each call whole.
+        record('tool', { name: c.name, ok: result.ok, args: capText(safeJson(c.args ?? {}), 4000), output: capText(result.output ?? '', 8000) });
         if (c.name !== 'finish') {
           recentCalls.push({ name: c.name, args: safeJson(c.args ?? {}), ok: result.ok, output: result.output ?? '' });
           if (recentCalls.length > 16) recentCalls.shift();

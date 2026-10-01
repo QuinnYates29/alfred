@@ -168,3 +168,31 @@ export function perTaskEconomy(events = []) {
   }
   return m;
 }
+
+/** ALF-7: split a turn's text into thinking + answer (older events still carry "…</think> answer"). */
+export function splitThink(text) {
+  const thoughts = [];
+  let rest = String(text ?? '').replace(/<think>([\s\S]*?)<\/think>/g, (_m, t) => { thoughts.push(t.trim()); return ''; });
+  const close = rest.indexOf('</think>');
+  if (close >= 0 && !rest.slice(0, close).includes('<think>')) {
+    thoughts.unshift(rest.slice(0, close).trim());
+    rest = rest.slice(close + 8);
+  }
+  return { answer: rest.trim(), thinking: thoughts.filter(Boolean).join('\n\n') };
+}
+
+/** A tool call's args (JSON string or object) → object, or the raw string. */
+export function parseArgs(args) {
+  if (args == null) return {};
+  if (typeof args !== 'string') return args;
+  try { return JSON.parse(args); } catch { return args; }
+}
+
+/** One line saying what a call was about (the command, the path, …). */
+export function callGist(name, args) {
+  const a = parseArgs(args);
+  if (typeof a === 'string') return truncate(a, 90);
+  const v = a.cmd ?? a.path ?? a.query ?? a.url ?? a.task ?? a.op ?? a.name ?? a.summary ?? a.reason ?? a.text;
+  if (typeof v === 'string') return truncate(v.split('\n')[0], 90);
+  return truncate(JSON.stringify(a), 90);
+}

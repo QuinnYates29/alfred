@@ -166,6 +166,10 @@ export interface Store {
   setGoalMeta(goalId: string, patch: Record<string, any>): Goal;
   /** ALF-7: replace the goal's acceptance checks and those of its unfinished tasks (what a retry copies). Emits `goal_checks`. */
   setAcceptance(goalId: string, checks: AcceptanceCheck[]): Goal;
+  /** ALF-7: a goal is `active` while something works on it outside its tasks (the coder-lg review). */
+  setGoalActive(goalId: string, reason: string): void;
+  /** Re-derive the goal's status from its tasks (after setGoalActive's work ended). `reason` lands on the goal_status event. */
+  rollupGoalStatus(goalId: string, reason?: string): void;
   /** Permanently delete a goal with its tasks, events, approvals and outputs. Refuses while a task is
    * running or verifying (stop it first). Emits a system `goal_deleted` event. */
   deleteGoal(goalId: string): void;
@@ -687,7 +691,7 @@ export function openStore(
     return stmts.getGoalById.get(id) as GoalRow | undefined;
   }
 
-  function rollupGoal(goalId: string) {
+  function rollupGoal(goalId: string, reason?: string) {
     const rows = stmts.listTasksByGoal.all(goalId) as TaskRow[];
     if (rows.length === 0) return;
     const allTerminal = rows.every((r) => (TERMINAL as readonly string[]).includes(r.status));
@@ -697,7 +701,14 @@ export function openStore(
     if (!g || g.status === newStatus) return;
     const t = now();
     stmts.updateGoalStatus.run(newStatus, t, goalId);
-    emit(goalId, null, 'goal_status', { status: newStatus });
+    emit(goalId, null, 'goal_status', { status: newStatus, ...(reason ? { reason } : {}) });
+  }
+
+  function setGoalActive(goalId: string, reason: string): void {
+    const g = getGoalRow(goalId);
+    if (!g || g.status === 'active') return;
+    stmts.updateGoalStatus.run('active', now(), goalId);
+    emit(goalId, null, 'goal_status', { status: 'active', reason });
   }
 
   function createGoal(input: CreateGoalInput): Goal {
@@ -1373,6 +1384,8 @@ export function openStore(
     listGoals,
     setGoalMeta,
     setAcceptance,
+    setGoalActive,
+    rollupGoalStatus: (goalId: string, reason?: string) => rollupGoal(goalId, reason),
     deleteGoal,
     createTask,
     getTask,

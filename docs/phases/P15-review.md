@@ -68,6 +68,17 @@ from the in-process review, with its steps as `peer_review_progress` events — 
 `transcriptFor` read `store.allEvents()` — the first 500 events ever recorded — so every task after those had an empty
 transcript. It reads the task's goal events (`store.events(goalId)`). The tab opens on the latest root task (the latest attempt).
 
+## 4e. Transcript, readable (ALF-7)
+`turn` events carry `thinking` (the adapter splits `<think>` blocks, a leading "…</think>" the chat template opened, and
+llama-server's `reasoning_content` out of the answer — it used to leak into the text) and `text` (the answer, ≤ 8000).
+`tool` events carry `args` (≤ 4000) next to `output` (≤ 8000). The tab renders each turn as a collapsed **Thinking** and a
+**Response** (open unless long), and each tool call as one block: ✓/✗, name, gist (command / path) → first output line;
+expanded, **in** (shell commands as `$ cmd`, file writes as path + content, else JSON) and **out**. Older tool events
+without `args` take theirs from the turn's calls (matched by name).
+A goal is `active` while coder-lg reviews it (`store.setGoalActive`), then re-derived from its tasks
+(`rollupGoalStatus`, reason `peer review finished` — which the done → review trigger ignores). Boot repairs goals a
+restart left `active` with only finished tasks.
+
 ## 5. Discard
 Deletes the goal's pushed branch(es) from the hub (`git --git-dir <bare> branch -D <branch>`; only `branch` if given), and removes
 local workspaces of the goal's tasks: a path inside `deps.workRoot` → `rm -rf`; a path containing `/.alfred-worktrees/` on the local

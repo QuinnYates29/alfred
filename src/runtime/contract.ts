@@ -33,6 +33,8 @@ export interface LLMRequest {
 
 export interface LLMResponse {
   content: string;
+  /** The model's reasoning (not part of the conversation; shown in the transcript). */
+  thinking?: string;
   toolCalls: ToolCall[];
   usage: { promptTokens: number; completionTokens: number };
 }

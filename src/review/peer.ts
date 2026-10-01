@@ -98,7 +98,19 @@ async function doReview(deps: ModuleDeps, goal: Goal): Promise<PeerReview> {
   const sha = await deps.repoHub.headSha(repo.name, branch);
   const base = await resolveBase(deps.repoHub, repo.name, repo);
   if (!sha || !base) throw new HttpError(409, `branch ${branch} or its base is not in the hub`);
+  // The goal is being worked on: `active` while coder-lg reviews, then back to what its tasks say.
+  deps.store.setGoalActive(goal.id, 'peer review');
+  try {
+    return await reviewCommit(deps, goal, repo, branch, sha, base);
+  } finally {
+    deps.store.rollupGoalStatus(goal.id, PEER_REVIEW_DONE);
+  }
+}
 
+/** The `reason` on the goal_status event when a review ends (the done → review trigger ignores it). */
+export const PEER_REVIEW_DONE = 'peer review finished';
+
+async function reviewCommit(deps: ModuleDeps, goal: Goal, repo: NonNullable<ReturnType<typeof resolveRepo>>, branch: string, sha: string, base: string): Promise<PeerReview> {
   // A fresh clone at exactly this commit: the review never sees the agent's workspace.
   const ws = join(deps.workRoot, '.peer-review', `${goal.slug}-${sha.slice(0, 8)}`);
   rmSync(ws, { recursive: true, force: true });

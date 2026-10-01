@@ -26,6 +26,9 @@
   on any branch, agents can't alter it); Auto goals always gate on today's devAcceptance() (+ diff extras), pre-Auto goals too;
   coder-lg review progress is visible (peer_review_progress events, a running chip on the goal header + Changes; the running
   state comes from the server, so a restart can't leave it stuck).
+- Transcript rework + goal `active` during coder-lg reviews (P15 §4e). Web builds use `--configLoader runner` (Vite's temp
+  config can't be written into the read-only deps); verified by running the review's whole check chain on the graph-view
+  branch in bwrap.
 - To retry ALF-7 after deploying: Retry on its goal page (repo `alfred` now resolves; the retry gets the dev gate).
 
 ## 2026-09-30 — Jev goes local + triages approvals: MERGED + DEPLOYED
