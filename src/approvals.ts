@@ -174,9 +174,35 @@ export const GUARDS: Guard[] = [
   { name: 'shutdown', test: (c) => runs(c, 'shutdown', 'reboot', 'poweroff', 'halt') },
 ];
 
+/**
+ * ALF-7: heredoc bodies written to a file with `cat` / `tee` are file content, not commands — an agent
+ * appending code that mentions "git push" used to trip the git push guard. Only those bodies are dropped,
+ * and only when the line has no pipe or command substitution (`cat <<EOF | bash` runs its body) and the
+ * heredoc is properly terminated. Bodies fed to anything else (bash, ssh, python, …) stay: they may run.
+ */
+export function stripDataHeredocs(cmd: string): string {
+  const lines = cmd.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    out.push(line);
+    if (/[|`]|\$\(|\beval\b/.test(line)) continue;
+    const m = /(?:^|[;&]\s*)(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:\S*\/)?(?:cat|tee)\b[^<\n]*<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/.exec(line);
+    if (!m) continue;
+    const dash = m[1] === '-';
+    const tag = m[3]!;
+    let j = i + 1;
+    while (j < lines.length && (dash ? lines[j]!.replace(/^\t+/, '') : lines[j]) !== tag) j++;
+    if (j >= lines.length) continue; // unterminated: keep every line (conservative)
+    out.push(lines[j]!);
+    i = j;
+  }
+  return out.join('\n');
+}
+
 /** The name of the matching guard, or null. */
 export function guardCommand(cmd: string): string | null {
-  const text = String(cmd ?? '');
+  const text = stripDataHeredocs(String(cmd ?? ''));
   if (!text.trim()) return null;
   for (const g of GUARDS) {
     try {
