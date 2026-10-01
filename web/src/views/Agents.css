@@ -22,3 +22,64 @@
   .agent-meta { width: 100%; order: 5; }
   .agent-actions { margin-left: 0; }
 }
+
+/* ---------- Graph view: one tidy task tree per goal, as plain SVG ---------- */
+.agent-graphs { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
+.agent-graph .card-head { gap: var(--s-2); flex-wrap: wrap; }
+.agent-graph-title { font-weight: 600; min-width: 0; flex: 1 1 200px; color: var(--fg); }
+.agent-graph-title:hover { color: var(--accent); }
+/* the graph scrolls sideways inside the card, never the page */
+.ag-scroll { overflow-x: auto; overflow-y: hidden; padding: var(--s-3) var(--s-4); }
+.ag-svg { display: block; }
+
+.ag-edges .ag-edge { fill: none; stroke: var(--line-strong); stroke-width: 1.5; }
+.ag-edge.done { stroke: var(--ok-soft); }
+.ag-edge.failed { stroke: color-mix(in srgb, var(--bad) 45%, transparent); }
+.ag-edge.running, .ag-edge.verifying { stroke: color-mix(in srgb, var(--info) 55%, transparent); }
+
+.ag-link { cursor: pointer; }
+.ag-node .ag-box { fill: var(--surface-2); stroke: var(--line-strong); stroke-width: 1; }
+.ag-node .ag-bar { fill: var(--fg-3); }
+.ag-node .ag-persona {
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.4px;
+  text-transform: uppercase; fill: var(--fg-3);
+}
+.ag-node .ag-title { font-family: var(--font-sans); font-size: 12px; font-weight: 500; fill: var(--fg); }
+.ag-node:hover .ag-box { stroke: var(--accent-line); }
+.ag-node:focus .ag-box, .ag-link:focus-visible .ag-box { stroke: var(--accent); }
+
+/* status colouring — same tokens as StatusChip */
+.ag-node.running .ag-box, .ag-node.verifying .ag-box { fill: var(--info-soft); stroke: color-mix(in srgb, var(--info) 45%, transparent); }
+.ag-node.running .ag-bar, .ag-node.verifying .ag-bar { fill: var(--info); }
+.ag-node.queued .ag-box { fill: var(--muted-soft); }
+.ag-node.queued .ag-bar { fill: var(--fg-2); }
+.ag-node.blocked .ag-box, .ag-node.needs_claude .ag-box { fill: var(--warn-soft); stroke: color-mix(in srgb, var(--warn) 45%, transparent); }
+.ag-node.blocked .ag-bar, .ag-node.needs_claude .ag-bar { fill: var(--warn); }
+.ag-node.done .ag-box { fill: var(--ok-soft); stroke: color-mix(in srgb, var(--ok) 40%, transparent); }
+.ag-node.done .ag-bar { fill: var(--ok); }
+.ag-node.done .ag-title { fill: var(--fg-2); }
+.ag-node.failed .ag-box { fill: var(--bad-soft); stroke: color-mix(in srgb, var(--bad) 45%, transparent); }
+.ag-node.failed .ag-bar { fill: var(--bad); }
+.ag-node.stopped .ag-box { stroke: var(--line); }
+.ag-node.stopped .ag-bar { fill: var(--fg-3); }
+.ag-node.stopped .ag-title { fill: var(--fg-3); }
+
+/* waiting on Quinn: a persistent amber ring + "!" badge (the badge itself, below) */
+.ag-node.waits .ag-box { stroke: var(--warn); stroke-dasharray: 4 3; }
+
+/* live nodes breathe */
+.ag-node .ag-pulse { fill: none; stroke: var(--info); stroke-width: 1.5; opacity: 0; transform-box: fill-box; transform-origin: center; }
+.ag-node.live .ag-pulse { animation: ag-pulse 1.8s ease-in-out infinite; }
+@keyframes ag-pulse {
+  0%, 100% { opacity: 0; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.015); }
+}
+.ag-node .ag-alert circle { fill: var(--warn); }
+.ag-node .ag-alert text { font-family: var(--font-sans); font-size: 12px; font-weight: 700; fill: var(--bg); }
+
+@media (prefers-reduced-motion: reduce) { .ag-node.live .ag-pulse { animation: none; opacity: 0.35; } }
+
+@media (max-width: 640px) {
+  .agents-page .page-head .seg { order: 3; }
+  .ag-scroll { padding: var(--s-2) var(--s-3); }
+}
