@@ -15,7 +15,7 @@ import { resolveRepo, resolveBase, pushedBranches, DIFF_CAP } from './changes.js
 import { HttpError } from './land.js';
 import { runSidecar } from '../executors/langgraph.js';
 import { linkSelfDeps } from '../workspace.js';
-import { isSelfRepo, autoChecks, usesAutoChecks } from '../ops.js';
+import { isSelfRepo, autoChecks, usesAutoChecks, devAcceptance } from '../ops.js';
 import { publishUiRun, summarize } from '../uitest.js';
 
 export type Severity = 'blocker' | 'major' | 'minor';
@@ -71,6 +71,17 @@ export function latestPeerReview(deps: Pick<ModuleDeps, 'store'>, goalId: string
 
 const inflight = new Map<string, Promise<PeerReview>>();
 
+/** A review running in this server now: its commit and its latest step (null when none runs). */
+export function reviewInProgress(deps: Pick<ModuleDeps, 'store'>, goalId: string): { sha: string; step: string | null; since: number } | null {
+  if (!inflight.has(goalId)) return null;
+  let cur: { sha: string; step: string | null; since: number } | null = null;
+  for (const e of deps.store.events(goalId)) {
+    if (e.kind === 'peer_review_started') cur = { sha: String(e.data?.sha ?? ''), step: null, since: e.ts };
+    if (e.kind === 'peer_review_progress' && cur) cur.step = String(e.data?.msg ?? '');
+  }
+  return cur;
+}
+
 /** Review the goal's branch head. One at a time per goal (a second call joins the first). */
 export function runPeerReview(deps: ModuleDeps, goal: Goal): Promise<PeerReview> {
   const cur = inflight.get(goal.id);
@@ -101,7 +112,7 @@ async function doReview(deps: ModuleDeps, goal: Goal): Promise<PeerReview> {
     const files = (await git(['diff', '--name-only', `origin/${base}...${sha}`], ws)).split('\n').map((f) => f.trim()).filter(Boolean);
     const diff = (await git(['diff', `origin/${base}...${sha}`], ws)).slice(0, DIFF_CAP);
     // The same checks the gate ran: Auto goals grow theirs from the diff (web/ → web build + UI smoke test).
-    const checks = usesAutoChecks(deps.store, goal) ? autoChecks(goal.acceptance, files) : goal.acceptance;
+    const checks = usesAutoChecks(deps.store, goal) ? autoChecks(devAcceptance(), files) : goal.acceptance;
     const cmds = checks.map((c) => c.cmd).filter(Boolean);
     const spec = deps.models?.resolve('coder');
     const run = await runSidecar({
@@ -119,6 +130,8 @@ async function doReview(deps: ModuleDeps, goal: Goal): Promise<PeerReview> {
         diff,
       },
       timeoutMs: Number(deps.extra?.peerReviewTimeoutMs ?? 60 * 60_000),
+      // Visible on the goal page while it runs ("checks: PASS", "review: x.ts (2/3)", "review: scope").
+      onProgress: (msg) => deps.store.appendEvent(goal.id, null, 'peer_review_progress', { sha, msg: String(msg).slice(0, 200) }),
     });
     const r = run.ok ? run.result : null;
     const ran = !!r && r.ok === true;

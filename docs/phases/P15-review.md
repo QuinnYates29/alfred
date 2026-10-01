@@ -61,7 +61,8 @@ checks → each changed file in order (read-only tools, temperature 0, JSON rubr
 finding) → one scope question. The verdict is code (`verdictOf`): `error` if it didn't run; `needs_human` if any file matches
 `GUARDRAIL_RE`; `changes_requested` on failing checks or any blocker/major; else `approve`. Events `peer_review_started`,
 `peer_review {sha, branch, base, verdict, checksOk, findings, reviewed, error?}`; output **Peer review** (markdown).
-`/changes` returns the latest as `peerReview`. `alfred_dev deploy` of an opted-in goal requires an `approve` of the exact commit.
+`/changes` returns the latest as `peerReview`, and `peerReviewRunning: {sha, step, since} | null` (also on `GET /goals/:id`)
+from the in-process review, with its steps as `peer_review_progress` events — the goal header and Changes tab show it live. `alfred_dev deploy` of an opted-in goal requires an `approve` of the exact commit.
 
 ## 4d. Transcript fix (ALF-7)
 `transcriptFor` read `store.allEvents()` — the first 500 events ever recorded — so every task after those had an empty

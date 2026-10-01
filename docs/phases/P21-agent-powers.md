@@ -86,7 +86,9 @@ after chat (already done in `src/main.ts`).
      idle model, a demo goal + subtask), Chromium headless_shell with the Mesa EGL/Vulkan env (see the P17 harness);
      `--smoke` = 11 routes × desktop/phone, fails on page errors; `--steps` = the `ui_test` tool's plan. `.ui-test/` →
      an `images` output (JSON [{name, src: data:image/jpeg}], ≤ 8 MB, a gallery on the goal page) + a `ui_test` event,
-     then removed. The runner and uitest.ts are safety rails (GUARDRAIL_RE).
+     then removed. The runner and uitest.ts are safety rails (GUARDRAIL_RE), and the gate/tool always run the server's own
+     copy (`UI_RUNNER` = <server checkout>/scripts/ui-test.mts, mounted read-only), never the workspace's. Auto goals gate
+     on `autoChecks(devAcceptance(), changed)` — not their stored list — so goals made before Auto get today's gate.
    - Jev triage (`src/jev/triage.ts`): a `git push` (to anything but the hub's `spark`) from such a goal always goes to Quinn;
      `deploy` can't be removed from `approvals.alwaysAsk` by `config/jev.yaml`.
    - `deploy` (and `rollback`) refuse to rebuild/restart when the merge didn't fast-forward `repoRoot` (`localUpdated: false`).

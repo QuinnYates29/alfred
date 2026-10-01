@@ -29,7 +29,7 @@ import { createApp } from './server/app.js';
 import { allowedHostsFromEnv } from './server/security.js';
 import { envRedactor } from './redact.js';
 import { RepoHub } from './git/hub.js';
-import { configureSandbox, type SandboxMode } from './sandbox.js';
+import { configureSandbox, registerSharedReadonly, type SandboxMode } from './sandbox.js';
 import type { AlfredModule, ModuleDeps, ModuleFactory } from './modules.js';
 import { createBoardModule } from './board/index.js';
 import { createOpsModule } from './ops/index.js';
@@ -166,6 +166,8 @@ export async function startAlfred(c: AlfredConfig = {}): Promise<Alfred> {
   const registry = new ToolRegistry();
   for (const t of builtinTools()) registry.register(t);
   registry.register(uiTestTool({ runShell })); // ALF-7: agents test alfred's UI in a sandboxed copy
+  // …with this server's own runner (scripts/) and its deps, read-only in every agent sandbox.
+  for (const p of [join(REPO_ROOT, 'scripts'), join(REPO_ROOT, 'node_modules')]) if (existsSync(p)) registerSharedReadonly(p);
 
   const notifier = new Notifier([]);
   const deckState: DeckState = { url: null };

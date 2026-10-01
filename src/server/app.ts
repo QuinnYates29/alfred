@@ -16,6 +16,7 @@ import type { ToolRegistry } from '../runtime/tools.js';
 import type { ModelRegistry } from '../models.js';
 import { promptCost } from '../runtime/personas.js';
 import type { PluginRouteReg, AlfredPlugin } from '../plugins.js';
+import { reviewInProgress } from '../review/peer.js';
 import { createGoalWithRoot, retryTask, goalSummary, checkRepo, checkSelfMeta, devAcceptance, isSelfRepo, parseChecks } from '../ops.js';
 import { DISPATCH_SYNTAX, dispatchPrompt, parseDispatch } from '../dispatch.js';
 import { agentsOverview } from './agents.js';
@@ -86,6 +87,7 @@ export const EVENT_KINDS: { kind: string; meaning: string }[] = [
   { kind: 'goal_reverted', meaning: 'A landed goal was reverted on its base (data: into, sha, reverted).' },
   { kind: 'goal_checks', meaning: 'A goal\'s acceptance checks were replaced (data: checks).' },
   { kind: 'ui_test', meaning: 'A UI test ran against a sandboxed copy of alfred (data: ok, mode, shots, errors).' },
+  { kind: 'peer_review_progress', meaning: 'A step of a running coder-lg review (data: sha, msg).' },
   { kind: 'peer_review_started', meaning: 'coder-lg started reviewing a goal branch (data: sha, branch, base).' },
   { kind: 'peer_review', meaning: 'coder-lg reviewed a goal branch (data: sha, branch, base, verdict, checksOk, findings, reviewed).' },
 ];
@@ -288,6 +290,8 @@ function buildRouter(d: AppDeps): express.Router {
       tasks: d.store.listTasks(goal.id),
       events: d.store.events(goal.id).slice(-200),
       outputs: d.store.outputs(goal.id),
+      // ALF-7: a coder-lg review running in this server right now (null after a restart, never stale).
+      peerReviewRunning: reviewInProgress(d, goal.id),
     };
     const usage = (d.store as any).goalUsage;
     if (typeof usage === 'function') body.usage = usage.call(d.store, goal.id);

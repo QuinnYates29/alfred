@@ -16,7 +16,7 @@ import {
   type WorkspaceBackend,
 } from './contract.js';
 import { verifyAndComplete, defaultRunner } from '../gate.js';
-import { isReportCheck, autoChecks, usesAutoChecks } from '../ops.js';
+import { isReportCheck, autoChecks, usesAutoChecks, devAcceptance } from '../ops.js';
 import { publishUiRun } from '../uitest.js';
 import { execFileSync } from 'node:child_process';
 import type { Store } from '../store.js';
@@ -787,8 +787,8 @@ export async function runTask(taskId: string, o: RunOpts): Promise<Task> {
     // ALF-7: Auto checks — the gate grows with what this change actually touched.
     let checks: AcceptanceCheck[] | undefined;
     if (usesAutoChecks(o.store, o.store.getGoal(task!.goalId))) {
-      checks = autoChecks(task!.acceptance, await changedFiles());
-      if (checks.length !== task!.acceptance.length) record('progress', { msg: `auto checks: ${checks.map((c) => c.name).join(', ')}` });
+      checks = autoChecks(devAcceptance(), await changedFiles());
+      record('progress', { msg: `auto checks: ${checks.map((c) => c.name).join(', ')}` });
     }
     let v: { ok: boolean; results: import('../types.js').CheckResult[] };
     try {

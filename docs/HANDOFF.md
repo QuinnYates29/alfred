@@ -21,6 +21,11 @@
   sandboxed UI tests (`ui_test` tool for coder, `ui-smoke` gate check) with screenshot galleries — verified in bwrap on the
   Spark (22 shots, 660 KB); Transcript tab fixed (it read the first 500 events ever). `ui_test` must stay registered in
   main.ts too (the server's registry isn't allTools(): a persona naming an unregistered tool is skipped at load).
+- 2026-10-01 later: the graph-view retry failed only on env (p18 — its old hand-set checks — and ui-smoke: the continued
+  branch predates scripts/ui-test.mts). Fixed: the UI runner always comes from the server's checkout (read-only mount; works
+  on any branch, agents can't alter it); Auto goals always gate on today's devAcceptance() (+ diff extras), pre-Auto goals too;
+  coder-lg review progress is visible (peer_review_progress events, a running chip on the goal header + Changes; the running
+  state comes from the server, so a restart can't leave it stuck).
 - To retry ALF-7 after deploying: Retry on its goal page (repo `alfred` now resolves; the retry gets the dev gate).
 
 ## 2026-09-30 — Jev goes local + triages approvals: MERGED + DEPLOYED

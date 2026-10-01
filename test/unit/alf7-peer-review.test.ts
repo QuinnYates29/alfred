@@ -10,7 +10,7 @@ import { openStore, type Store } from '../../src/store.js';
 import { ToolRegistry } from '../../src/runtime/tools.js';
 import { RepoHub } from '../../src/git/hub.js';
 import { createReviewModule } from '../../src/review/index.js';
-import { runPeerReview, verdictOf, peerReviewBlocks, guardrailFindings, type Finding } from '../../src/review/peer.js';
+import { runPeerReview, verdictOf, peerReviewBlocks, guardrailFindings, reviewInProgress, type Finding } from '../../src/review/peer.js';
 import type { ModuleDeps } from '../../src/modules.js';
 
 const git = (cwd: string, ...args: string[]) =>
@@ -32,7 +32,7 @@ function goalWithBranch(files: Record<string, string>, meta: Record<string, any>
   const g = store.createGoal({ title: 'Change', body: 'make app print v2', acceptance: [{ name: 'tests', cmd: 'npm test' }], meta: { repo: 'proj', ...meta } } as any);
   const t = store.createTask({ goalId: g.id, persona: 'coder', title: 'T' });
   const wt = join(root, `wt-${g.id.slice(0, 6)}`);
-  git(root, 'clone', '-q', hub.barePath('proj'), wt);
+  git(root, 'clone', '-q', hub.barePath(String(g.meta.repo)), wt);
   git(wt, 'checkout', '-q', '-b', `alfred/change/${g.id.slice(0, 8)}`);
   for (const [p, c] of Object.entries(files)) {
     mkdirSync(join(wt, p, '..'), { recursive: true });
@@ -89,6 +89,8 @@ describe('runPeerReview', () => {
     expect(store.events(g.id).find((e) => e.kind === 'peer_review')?.data).toMatchObject({ sha, verdict: 'approve' });
     expect(store.outputs(g.id).map((o) => o.name)).toContain('Peer review');
     expect(readdirSync(join(root, 'work', '.peer-review'))).toEqual([]); // clone removed
+    expect(store.events(g.id).find((e) => e.kind === 'peer_review_progress')?.data).toMatchObject({ sha, msg: 'fake' }); // visible while it runs
+    expect(reviewInProgress(deps, g.id)).toBeNull(); // done
   });
 
   it('a change to a safety rail is never approved by the agent; a broken sidecar is an error, not a pass', async () => {
@@ -134,5 +136,28 @@ describe("deploy's gate", () => {
     expect(peerReviewBlocks(deps, g, sha)).toBeNull();
     expect(peerReviewBlocks(deps, g, 'f'.repeat(40))).toMatch(/wants a peer review of ffffffff/); // a newer commit needs its own
     expect(existsSync(join(root, 'work', '.peer-review'))).toBe(true);
+  });
+});
+
+describe('a review in progress, and goals on alfred', () => {
+  it('reports its step while it runs; a pre-Auto goal on alfred is reviewed against today\'s dev gate', async () => {
+    store.upsertRepo({ name: 'alfred', paths: { local: join(root, 'src') } });
+    await hub.ensure('alfred', join(root, 'src'));
+    const { g } = goalWithBranch({ 'web/src/x.jsx': 'export {}\n' }, { repo: 'alfred' }); // stored checks: a stale hand-set 'npm test'
+    const bin = join(root, 'slow-py');
+    writeFileSync(bin, `#!/bin/sh\ncat > '${join(root, 'request.json')}'\necho '{"progress":"review: web/src/x.jsx (1/1)"}' >&2\nsleep 1\nprintf '%s\\n' '{"ok":true,"checksOk":true,"findings":[],"reviewed":["web/src/x.jsx"]}'\n`);
+    chmodSync(bin, 0o755);
+    deps.extra.lgPython = bin;
+    const run = runPeerReview(deps, g);
+    const end = Date.now() + 5000;
+    while (!reviewInProgress(deps, g.id)?.step && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    expect(reviewInProgress(deps, g.id)).toMatchObject({ step: 'review: web/src/x.jsx (1/1)' });
+    await run;
+    expect(reviewInProgress(deps, g.id)).toBeNull();
+    const req = JSON.parse(readFileSync(join(root, 'request.json'), 'utf8'));
+    expect(req.testCmd).toContain("--exclude 'test/acceptance/p18/**'"); // not the stale 'npm test'
+    expect(req.testCmd).toContain('npm run build:web:local'); // web/ changed → build first …
+    expect(req.testCmd).toMatch(/scripts\/ui-test\.mts' --smoke$/); // … and the server's own UI runner last
+    expect(req.testCmd).not.toContain(join(root, 'work')); // never a runner from the reviewed checkout
   });
 });

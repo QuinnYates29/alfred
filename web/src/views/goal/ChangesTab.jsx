@@ -133,7 +133,12 @@ export default function ChangesTab({ id }) {
   const pr = data?.peerReview ?? null;
   const prStale = pr && data?.branches?.[0]?.sha && pr.sha !== data.branches[0].sha;
   const PR_TONE = { approve: 'ok', changes_requested: 'bad', needs_human: 'warn', error: 'bad' };
-  const reviewChip = pr ? (
+  const prRunning = data?.peerReviewRunning ?? null;
+  const reviewChip = prRunning ? (
+    <span className="chip info" title={`coder-lg is reviewing ${String(prRunning.sha).slice(0, 8)}`}>
+      <Spinner size={11} /> LG review: running{prRunning.step ? ` · ${prRunning.step}` : ''}
+    </span>
+  ) : pr ? (
     <span className={`chip ${prStale ? '' : PR_TONE[pr.verdict] ?? ''}`} title={`coder-lg review of ${String(pr.sha).slice(0, 8)}${prStale ? ' (older commit)' : ''} — details in Outputs`}>
       LG review: {String(pr.verdict).replace('_', ' ')}{prStale ? ' (older commit)' : ''}
     </span>
@@ -172,7 +177,7 @@ export default function ChangesTab({ id }) {
         {data.repo ? <span className="chip" title="repo">{data.repo}</span> : null}
         <span className="grow" />
         {reviewChip}
-        <Button size="sm" variant="ghost" data-testid="peer-review-btn" onClick={peerReview} title="Have coder-lg review this branch (read-only)">LG review</Button>
+        <Button size="sm" variant="ghost" data-testid="peer-review-btn" onClick={peerReview} disabled={!!prRunning} title="Have coder-lg review this branch (read-only)">{prRunning ? 'Reviewing…' : 'LG review'}</Button>
         {rollbackBtn}
         <Button variant="danger" size="sm" data-testid="discard-btn" onClick={discard}>Discard</Button>
         <Button variant="primary" size="sm" icon="merge" data-testid="merge-btn" onClick={() => setMerging(true)}>Merge</Button>

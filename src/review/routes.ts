@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { ModuleDeps } from '../modules.js';
 import { getChanges, getFileDiff, resolveRepo, pushedBranches } from './changes.js';
 import { mergeGoal, discardGoal, revertGoal, landedMerges, HttpError } from './land.js';
-import { runPeerReview, latestPeerReview } from './peer.js';
+import { runPeerReview, latestPeerReview, reviewInProgress } from './peer.js';
 import { transcriptFor } from './transcript.js';
 import { resolveWorkspace, listWorkspace, readWorkspaceFile } from './files.js';
 
@@ -40,6 +40,7 @@ export function reviewRouter(deps: ModuleDeps): Router {
         ...(await getChanges(store, deps.repoHub, goal, branch)),
         landed: landedMerges(store, goal.id).pop() ?? null,
         peerReview: latestPeerReview(deps, goal.id),
+        peerReviewRunning: reviewInProgress(deps, goal.id),
       });
     }),
   );

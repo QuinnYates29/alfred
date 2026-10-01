@@ -275,6 +275,15 @@ export default function GoalDetail({ id, tab = '' }) {
   const stoppableTasks = tasks.filter(stoppable);
   const retryRoot = root && ['failed', 'stopped'].includes(root.status);
   const itemKey = typeof goal.meta?.item === 'string' ? goal.meta.item : null;
+  // ALF-7: the coder-lg review, visible from every tab — running (with its step) or its verdict.
+  const lg = (() => {
+    const running = data?.peerReviewRunning; // from the server: never stale across a restart
+    if (running) return { tone: 'info', text: `LG review: running${running.step ? ` · ${running.step}` : ''}`, running: true };
+    let result = null;
+    for (const e of data?.events ?? []) if (e.kind === 'peer_review') result = e;
+    if (result) return { tone: { approve: 'ok', needs_human: 'warn' }[result.data?.verdict] ?? 'bad', text: `LG review: ${String(result.data?.verdict ?? '?').replace('_', ' ')}` };
+    return null;
+  })();
 
   const stopAll = () =>
     act(async () => {
@@ -328,6 +337,11 @@ export default function GoalDetail({ id, tab = '' }) {
                 <span aria-hidden="true">·</span>
                 <a className="row" style={{ gap: 4 }} href={href(`/board/${itemKey}`)}><Icon name="board" size={13} />{itemKey}</a>
               </>
+            ) : null}
+            {lg ? (
+              <a className={`chip ${lg.tone}`} href={href(`/goal/${goal.id}/changes`)} data-testid="lg-review-chip" title="coder-lg peer review — details on Changes and in Outputs">
+                {lg.running ? <Spinner size={11} /> : null}{lg.text}
+              </a>
             ) : null}
           </div>
         </div>

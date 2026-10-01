@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import type { Store } from './store.js';
 import type { Tool, ToolContext, ToolResult } from './runtime/contract.js';
 import { storeForTask } from './approvals.js';
-import { isSelfRepo } from './ops.js';
+import { isSelfRepo, UI_RUNNER } from './ops.js';
 
 export const UI_DIR = '.ui-test';
 const STEPS_FILE = '.ui-test-steps.json';
@@ -77,11 +77,11 @@ export function uiTestTool(o: { runShell: (args: any, ctx: ToolContext) => Promi
       if (ctx.backend && ctx.backend.node !== 'local') return { ok: false, output: 'ui_test runs on the Spark only' };
       const steps = Array.isArray(args?.steps) ? args.steps : null;
       if (!steps?.length || steps.length > 60) return { ok: false, output: 'steps: give 1–60 steps' };
-      if (!existsSync(join(ctx.workspace, 'scripts', 'ui-test.mts'))) return { ok: false, output: 'this checkout has no scripts/ui-test.mts' };
+      if (!existsSync(UI_RUNNER)) return { ok: false, output: 'the UI test runner is missing on this server' };
       writeFileSync(join(ctx.workspace, STEPS_FILE), JSON.stringify(steps));
       ctx.progress('ui_test: booting a copy of alfred and driving it');
       // Rebuild the UI from the workspace first, so the copy shows the change being made.
-      const run = await o.runShell({ cmd: `npm run build:web:local >/dev/null 2>&1; npx tsx scripts/ui-test.mts --steps ${STEPS_FILE}`, timeoutSec: 600 }, ctx);
+      const run = await o.runShell({ cmd: `npm run build:web:local >/dev/null 2>&1; npx tsx '${UI_RUNNER}' --steps ${STEPS_FILE}`, timeoutSec: 600 }, ctx);
       rmSync(join(ctx.workspace, STEPS_FILE), { force: true });
       const title = String(args?.title ?? '').trim().slice(0, 60) || 'UI test';
       const r = publishUiRun(store, ctx.goalId, ctx.taskId, ctx.workspace, `UI: ${title}`);

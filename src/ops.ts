@@ -1,7 +1,8 @@
 // P4 §1 — operations shared by the API, the CLI and the Claude door.
 import type { AcceptanceCheck, Budget, Goal, Task, TaskStatus } from './types.js';
 import type { Store } from './store.js';
-import { isAbsolute } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export interface CreateGoalWithRootInput {
   title: string;
@@ -40,12 +41,19 @@ export const SELF_REPO = 'alfred';
 
 /** The deps are the server's, mounted read-only: build with them (`build:web` would `npm install`). */
 export const BUILD_WEB_CHECK: AcceptanceCheck = { name: 'build-web', cmd: 'npm run build:web:local', timeoutMs: 600_000 };
+/** The running server's own checkout (this file is <root>/src/ops.ts). */
+export const SERVER_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+/**
+ * The UI-test runner always comes from the server's checkout (mounted read-only in the sandbox), never from
+ * the agent's workspace: it works on a branch of any age, and an agent can't change what judges its UI.
+ */
+export const UI_RUNNER = join(SERVER_ROOT, 'scripts', 'ui-test.mts');
 /**
  * Boots a throwaway copy of alfred from the workspace (temp DB, random port, a model that never acts) and
  * drives every page in headless Chromium at desktop and phone width: fails on page errors; the screenshots
- * become a goal output (scripts/ui-test.mts).
+ * become a goal output.
  */
-export const UI_SMOKE_CHECK: AcceptanceCheck = { name: 'ui-smoke', cmd: 'npx tsx scripts/ui-test.mts --smoke', timeoutMs: 600_000 };
+export const UI_SMOKE_CHECK: AcceptanceCheck = { name: 'ui-smoke', cmd: `npx tsx '${UI_RUNNER}' --smoke`, timeoutMs: 600_000 };
 
 /** The done-gate for a change to alfred itself: both suites + typecheck (+ the web build for area `web`). */
 export function devAcceptance(area?: string): AcceptanceCheck[] {
@@ -60,7 +68,8 @@ export function devAcceptance(area?: string): AcceptanceCheck[] {
 /**
  * Auto checks (goals on alfred unless set to custom): nobody has to know the right checks before the work
  * exists. The gate starts from the dev gate and adds what the change turns out to need — touching web/ adds
- * the web build (first) and the UI smoke test (last).
+ * the web build (first) and the UI smoke test (last). Callers pass `devAcceptance()` as the base, so goals
+ * made before Auto existed get today's gate too.
  */
 export function autoChecks(base: AcceptanceCheck[], changed: string[]): AcceptanceCheck[] {
   if (!changed.some((f) => f.startsWith('web/'))) return base;
