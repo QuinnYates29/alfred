@@ -202,3 +202,21 @@ describe('agents ask Quinn yes/no questions', () => {
     expect(chatTools(deps).map((t) => t.schema.name)).toContain('jev_decide');
   });
 });
+
+describe('a review that cannot compare anything', () => {
+  it('ends as a visible error, never as a decision about an empty diff', async () => {
+    const g = failedGoalWithBranch({ 'app.js': 'v2\n' });
+    // point the branch at the base: a pushed branch with nothing to compare
+    const sha = git(root, '--git-dir', hub.barePath('proj'), 'rev-parse', 'main');
+    git(root, '--git-dir', hub.barePath('proj'), 'update-ref', `refs/heads/alfred/g/${g.id.slice(0, 8)}`, sha);
+    deps.extra.lgPython = fakeSidecar({ ok: true, checksOk: true, findings: [], reviewed: [] });
+    answers['review-done'] = { done: { type: 'noul', noul: 0.1 }, safe: { type: 'noul', noul: 0.9 } };
+    const r = await runPeerReview(deps, g);
+    expect(r.verdict).toBe('error');
+    expect(r.error).toMatch(/nothing to review/);
+    expect(asked.some((a) => a.use === 'review-done')).toBe(false);
+    expect(store.events(g.id).find((e) => e.kind === 'peer_review')?.data.verdict).toBe('error');
+    expect(notified.at(-1).level).toBe('warn');
+    expect(store.getGoal(g.id)!.status).toBe('failed');
+  });
+});

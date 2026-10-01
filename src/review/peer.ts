@@ -169,6 +169,12 @@ async function doReview(deps: ModuleDeps, goal: Goal): Promise<PeerReview> {
   try {
     result = await reviewCommit(deps, goal, repo, branch, sha, base);
     return result;
+  } catch (e: any) {
+    // Whatever broke, the review ends visibly: an `error` verdict, its report, and (below) a notification.
+    result = { sha, branch, base, verdict: 'error', checksOk: false, findings: [], reviewed: [], error: String(e?.message ?? e).slice(0, 1000) };
+    deps.store.appendEvent(goal.id, null, 'peer_review', result);
+    deps.store.putOutput({ goalId: goal.id, name: 'Peer review', kind: 'markdown', content: reportOf(result) });
+    return result;
   } finally {
     deps.store.rollupGoalStatus(goal.id, PEER_REVIEW_DONE);
     if (result) await afterReview(deps, goal, result);
@@ -216,6 +222,9 @@ async function reviewCommit(deps: ModuleDeps, goal: Goal, repo: NonNullable<Retu
     if (isSelfRepo(deps.store, goal.meta?.repo)) linkSelfDeps(ws, repo.paths?.local);
     const files = (await git(['diff', '--name-only', `origin/${base}...${sha}`], ws)).split('\n').map((f) => f.trim()).filter(Boolean);
     const diff = (await git(['diff', `origin/${base}...${sha}`], ws)).slice(0, DIFF_CAP);
+    // A pushed branch with no changes against its base means the comparison went wrong (seen once:
+    // the decision layer then judged "the spec vs nothing" and said not done). Never review nothing.
+    if (!files.length) throw new Error(`no changes between ${base} and ${sha.slice(0, 8)} — nothing to review (the hub may have been mid-sync; run the review again)`);
     // The same checks the gate ran: Auto goals grow theirs from the diff (web/ → web build + UI smoke test).
     const checks = usesAutoChecks(deps.store, goal) ? autoChecks(devAcceptance(), files) : goal.acceptance;
     const cmds = checks.map((c) => c.cmd).filter(Boolean);
