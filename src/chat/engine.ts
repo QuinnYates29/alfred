@@ -1,4 +1,5 @@
 // P16 §3 — the chat engine: one LLM tool-loop per send, one reply at a time per thread.
+import { answerFromChat, QUESTIONS_THREAD } from '../questions.js';
 import { createHash } from 'node:crypto';
 import type { LLM, LLMMessage, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModuleDeps } from '../modules.js';
@@ -176,6 +177,15 @@ export class ChatEngine {
     try {
       this.cs.addMessage({ threadId, role: 'user', content: text });
       this.progress(threadId, 'thinking', { turn: 1 });
+      // ALF-7: in "Agent questions", a yes / no reply answers the oldest open agent question.
+      // (Only that thread awaits here: every other turn starts exactly as before.)
+      if (this.cs.getThread(threadId)?.title === QUESTIONS_THREAD) {
+        const answered = await answerFromChat(this.deps, this.cs, threadId, text);
+        if (answered) {
+          phase = 'done';
+          return answered;
+        }
+      }
       const { message, ok } = await this.runTurn(threadId, o?.source);
       if (ok) phase = 'done';
       return message;

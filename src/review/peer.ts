@@ -36,6 +36,71 @@ export interface PeerReview {
   findings: Finding[];
   reviewed: string[];
   error?: string;
+  /** The decision layer's two steps (null = unavailable / not asked). */
+  decision?: {
+    gate: { pIssues: number | null; review: boolean; why: string };
+    final: { pDone: number; pSafe: number } | null;
+  };
+  /** The final decision marked the (failed) goal done. */
+  markedDone?: boolean;
+}
+
+// ---- the decision layer's steps around the LangGraph review (/v1/decision on the same model) ----
+
+/**
+ * First step: skip the careful line-by-line review only when the decision layer is confidently safe —
+ * P(issues) under this. Anything else (any doubt, no answer, a diff too big to judge whole, a safety
+ * rail touched) runs the full review.
+ */
+export const SKIP_REVIEW_BELOW = 0.1;
+/** Last step: "done" and "safe" both at least this, with passing checks, = approve (and mark the goal done). */
+export const DONE_AT = 0.8;
+const GATE_DIFF_CHARS = 24_000;
+
+const ISSUES_Q =
+  'Does this change break any of these rules or have problems that deserve a careful line-by-line review? Rules: ' +
+  'stay within what the spec asked; never weaken, skip or delete tests; no secrets or credentials; no destructive ' +
+  'operations; no changes to safety rails (sandbox, approvals, gates, review); no obvious bugs, missing error ' +
+  'handling or broken behaviour. Answer yes when in doubt.';
+const DONE_Q =
+  'Is the task done: does this change do what the spec asked, and did its checks pass? Findings that only say ' +
+  '"the reviewer gave no usable verdict" are failures of the reviewer, not problems with the change.';
+const SAFE_Q =
+  'Is this change safe to land: within the spec, no weakened tests, no secrets, no destructive operations, no ' +
+  'safety-rail changes, and no real defect among the findings?';
+
+type Decider = { ask: (state: unknown, q: Record<string, any>, use: string, o?: { goalId?: string }) => Promise<{ answers: Record<string, any> } | null> };
+const decider = (deps: ModuleDeps): Decider | null => (deps.modules?.jev as any)?.client?.() ?? null;
+const prob = (a: any): number | null => (typeof a?.noul === 'number' && Number.isFinite(a.noul) ? a.noul : null);
+
+export async function gateDecision(deps: ModuleDeps, goalId: string, spec: string, files: string[], diff: string): Promise<{ pIssues: number | null; review: boolean; why: string }> {
+  if (files.some((f) => GUARDRAIL_RE.test(f))) return { pIssues: null, review: true, why: 'touches a safety rail' };
+  const d = decider(deps);
+  if (!d) return { pIssues: null, review: true, why: 'decision layer unavailable' };
+  if (diff.length > GATE_DIFF_CHARS) return { pIssues: null, review: true, why: 'diff too large to judge whole' };
+  const out = await d.ask({ spec: spec.slice(0, 4000), files, diff }, { issues: { type: 'noul', instructions: ISSUES_Q } }, 'review-gate', { goalId }).catch(() => null);
+  const p = prob(out?.answers?.issues);
+  if (p === null) return { pIssues: null, review: true, why: 'no answer from the decision layer' };
+  return p < SKIP_REVIEW_BELOW
+    ? { pIssues: p, review: false, why: `confidently safe (P(issues) ${p.toFixed(2)} < ${SKIP_REVIEW_BELOW})` }
+    : { pIssues: p, review: true, why: `worth a careful review (P(issues) ${p.toFixed(2)})` };
+}
+
+export async function finalDecision(deps: ModuleDeps, goalId: string, spec: string, files: string[], r: PeerReview, uiOk: boolean | null): Promise<{ pDone: number; pSafe: number } | null> {
+  const d = decider(deps);
+  if (!d) return null;
+  const state = {
+    spec: spec.slice(0, 4000),
+    files,
+    checks: r.checksOk ? 'all passed' : 'FAILED',
+    uiTest: uiOk === null ? 'not run' : uiOk ? 'passed' : 'FAILED',
+    filesReviewedLineByLine: r.reviewed,
+    findings: r.findings.slice(0, 20).map((f) => `[${f.severity}] ${f.file ?? '(change)'}: ${f.what.split('\n')[0].slice(0, 200)}`),
+  };
+  const out = await d.ask(state, { done: { type: 'noul', instructions: DONE_Q }, safe: { type: 'noul', instructions: SAFE_Q } }, 'review-done', { goalId }).catch(() => null);
+  const pDone = prob(out?.answers?.done);
+  const pSafe = prob(out?.answers?.safe);
+  return pDone === null || pSafe === null ? null : { pDone, pSafe };
 }
 
 /**
@@ -100,10 +165,38 @@ async function doReview(deps: ModuleDeps, goal: Goal): Promise<PeerReview> {
   if (!sha || !base) throw new HttpError(409, `branch ${branch} or its base is not in the hub`);
   // The goal is being worked on: `active` while coder-lg reviews, then back to what its tasks say.
   deps.store.setGoalActive(goal.id, 'peer review');
+  let result: PeerReview | undefined;
   try {
-    return await reviewCommit(deps, goal, repo, branch, sha, base);
+    result = await reviewCommit(deps, goal, repo, branch, sha, base);
+    return result;
   } finally {
     deps.store.rollupGoalStatus(goal.id, PEER_REVIEW_DONE);
+    if (result) await afterReview(deps, goal, result);
+  }
+}
+
+/** The last decision said safe and done: the goal is done (even if its own gate failed), and Quinn hears about it. */
+async function afterReview(deps: ModuleDeps, goal: Goal, r: PeerReview): Promise<void> {
+  const f = r.decision?.final;
+  // Only the decision layer's "done and safe" marks a goal done — never an approve from the findings alone.
+  if (r.verdict === 'approve' && f && deps.store.getGoal(goal.id)?.status !== 'done') {
+    const why = f ? `done by review (P(done) ${f.pDone.toFixed(2)}, P(safe) ${f.pSafe.toFixed(2)})` : 'done by review';
+    deps.store.setGoalStatus(goal.id, 'done', why, 'coder-lg review');
+    r.markedDone = true;
+  }
+  try {
+    await deps.notifier?.notify({
+      level: r.verdict === 'approve' ? 'info' : 'warn',
+      goalId: goal.id,
+      title: `LG review of ${goal.slug}: ${r.verdict.replace('_', ' ')}${r.markedDone ? ' — marked done' : ''}`,
+      body: [
+        r.verdict === 'approve' ? 'Safe and done.' : VERDICT_LINE[r.verdict],
+        `checks ${r.checksOk ? 'pass' : 'fail'}` + (f ? ` · P(done) ${f.pDone.toFixed(2)} · P(safe) ${f.pSafe.toFixed(2)}` : ''),
+        r.markedDone ? 'You can change the goal status any time on its page.' : '',
+      ].filter(Boolean).join('\n'),
+    } as any);
+  } catch {
+    /* a notification never fails a review */
   }
 }
 
@@ -127,6 +220,12 @@ async function reviewCommit(deps: ModuleDeps, goal: Goal, repo: NonNullable<Retu
     const checks = usesAutoChecks(deps.store, goal) ? autoChecks(devAcceptance(), files) : goal.acceptance;
     const cmds = checks.map((c) => c.cmd).filter(Boolean);
     const spec = deps.models?.resolve('coder');
+    // The goal body, else the root task's spec (MCP/door goals keep the spec there), else the title.
+    const specText = goal.body || deps.store.listTasks(goal.id).find((t) => !t.parentTaskId)?.spec || goal.title;
+    const note = (msg: string) => deps.store.appendEvent(goal.id, null, 'peer_review_progress', { sha, msg: msg.slice(0, 200) });
+    // Decision, first step: a careful line-by-line review unless the diff is confidently safe.
+    const gate = await gateDecision(deps, goal.id, specText, files, diff);
+    note(`decide: ${gate.review ? 'line-by-line review' : 'skip the line review'} — ${gate.why}`);
     const run = await runSidecar({
       python: (deps.extra?.lgPython as string | undefined) ?? join(deps.repoRoot, 'sidecar', '.venv', 'bin', 'python'),
       workspace: ws,
@@ -136,10 +235,10 @@ async function reviewCommit(deps: ModuleDeps, goal: Goal, repo: NonNullable<Retu
         testCmd: cmds.length ? cmds.join(' && ') : 'true',
         baseUrl: spec?.baseUrl ?? 'http://127.0.0.1:1110',
         model: spec?.model ?? 'qwen3.8-flash-next',
-        // The goal body, else the root task's spec (MCP/door goals keep the spec there), else the title.
-        spec: goal.body || deps.store.listTasks(goal.id).find((t) => !t.parentTaskId)?.spec || goal.title,
+        spec: specText,
         files,
         diff,
+        reviewFiles: gate.review,
       },
       timeoutMs: Number(deps.extra?.peerReviewTimeoutMs ?? 60 * 60_000),
       // Visible on the goal page while it runs ("checks: PASS", "review: x.ts (2/3)", "review: scope").
@@ -163,6 +262,14 @@ async function reviewCommit(deps: ModuleDeps, goal: Goal, repo: NonNullable<Retu
     if (ui && !ui.ok) out.findings.push({ file: null, severity: 'major', line: null, what: `UI test failed:\n${summarize(ui)}` });
     if (ui && !ui.ok && out.verdict === 'approve') out.verdict = 'changes_requested';
     if (ran && !out.checksOk && r.checksOutput) out.findings.unshift({ file: null, severity: 'blocker', line: null, what: `checks failed:\n${String(r.checksOutput).slice(-1500)}` });
+    // Decision, last step: is it done, is it safe? It decides the verdict — except that failing checks or a
+    // failed UI test always mean changes requested, and a safety rail always needs Quinn.
+    const final = out.verdict === 'error' ? null : await finalDecision(deps, goal.id, specText, files, out, ui ? ui.ok : null);
+    out.decision = { gate, final };
+    if (final) note(`decide: P(done) ${final.pDone.toFixed(2)} · P(safe) ${final.pSafe.toFixed(2)}`);
+    if (final && out.verdict !== 'needs_human' && out.checksOk && (ui?.ok ?? true)) {
+      out.verdict = final.pDone >= DONE_AT && final.pSafe >= DONE_AT ? 'approve' : 'changes_requested';
+    }
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }
@@ -183,7 +290,13 @@ export function reportOf(r: PeerReview): string {
     `# Peer review (coder-lg) of \`${r.sha.slice(0, 8)}\` on \`${r.branch}\``,
     '',
     `**Verdict:** ${VERDICT_LINE[r.verdict]}`,
-    `**Checks:** ${r.checksOk ? 'pass' : 'fail'} · **Files reviewed:** ${r.reviewed.length}`,
+    `**Checks:** ${r.checksOk ? 'pass' : 'fail'} · **Files reviewed line by line:** ${r.reviewed.length}`,
+    ...(r.decision
+      ? [
+          `**Decision, first:** ${r.decision.gate.review ? 'line-by-line review' : 'skipped the line review'} — ${r.decision.gate.why}`,
+          `**Decision, last:** ${r.decision.final ? `P(done) ${r.decision.final.pDone.toFixed(2)} · P(safe) ${r.decision.final.pSafe.toFixed(2)}` : 'unavailable (verdict from the findings)'}`,
+        ]
+      : []),
     ...(r.error ? ['', `Error: ${r.error}`] : []),
     '',
   ];

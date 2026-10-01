@@ -29,6 +29,10 @@
 - Transcript rework + goal `active` during coder-lg reviews (P15 §4e). Web builds use `--configLoader runner` (Vite's temp
   config can't be written into the read-only deps); verified by running the review's whole check chain on the graph-view
   branch in bwrap.
+- Decision layer (/v1/decision) around the coder-lg review (P15 §4c+): first step skips the line review only when
+  confidently safe; last step decides done/safe → approve + marks the goal done + notifies. Goal status override on the
+  goal page. ask_quinn + "Agent questions" chat thread + chat jev_decide (P21). Earlier "no usable verdict": the reviewer's
+  reply budget was 2k tokens and Qwen's thinking used it all — now 8k.
 - To retry ALF-7 after deploying: Retry on its goal page (repo `alfred` now resolves; the retry gets the dev gate).
 
 ## 2026-09-30 — Jev goes local + triages approvals: MERGED + DEPLOYED

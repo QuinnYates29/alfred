@@ -12,7 +12,8 @@ export function createReviewModule(deps: ModuleDeps): AlfredModule {
   // ALF-7: a goal that opted into peer review gets one when it is done.
   deps.store.onEvent((e) => {
     // (not the done that a finished review rolls the goal back to — that would review forever)
-    if (e.kind !== 'goal_status' || e.data?.status !== 'done' || e.data?.reason === PEER_REVIEW_DONE || !e.goalId) return;
+    // …nor a status someone set (`by`: Quinn's override, "done by review").
+    if (e.kind !== 'goal_status' || e.data?.status !== 'done' || e.data?.reason === PEER_REVIEW_DONE || e.data?.by || !e.goalId) return;
     const goal = deps.store.getGoal(e.goalId);
     if (goal?.meta?.peerReview !== true) return;
     setImmediate(() => runPeerReview(deps, goal).catch((err) => console.error(`[peer-review] ${goal.slug}: ${err?.message ?? err}`)));

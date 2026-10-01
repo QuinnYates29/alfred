@@ -89,7 +89,7 @@ describe('runPeerReview', () => {
     expect(store.events(g.id).find((e) => e.kind === 'peer_review')?.data).toMatchObject({ sha, verdict: 'approve' });
     expect(store.outputs(g.id).map((o) => o.name)).toContain('Peer review');
     expect(readdirSync(join(root, 'work', '.peer-review'))).toEqual([]); // clone removed
-    expect(store.events(g.id).find((e) => e.kind === 'peer_review_progress')?.data).toMatchObject({ sha, msg: 'fake' }); // visible while it runs
+    expect(store.events(g.id).find((e) => e.kind === 'peer_review_progress' && e.data.msg === 'fake')?.data).toMatchObject({ sha }); // visible while it runs
     expect(reviewInProgress(deps, g.id)).toBeNull(); // done
   });
 
@@ -150,7 +150,7 @@ describe('a review in progress, and goals on alfred', () => {
     deps.extra.lgPython = bin;
     const run = runPeerReview(deps, g);
     const end = Date.now() + 5000;
-    while (!reviewInProgress(deps, g.id)?.step && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    while (!reviewInProgress(deps, g.id)?.step?.startsWith('review:') && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
     expect(reviewInProgress(deps, g.id)).toMatchObject({ step: 'review: web/src/x.jsx (1/1)' });
     await run;
     expect(reviewInProgress(deps, g.id)).toBeNull();

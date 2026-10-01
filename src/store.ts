@@ -168,6 +168,8 @@ export interface Store {
   setAcceptance(goalId: string, checks: AcceptanceCheck[]): Goal;
   /** ALF-7: a goal is `active` while something works on it outside its tasks (the coder-lg review). */
   setGoalActive(goalId: string, reason: string): void;
+  /** ALF-7: set a goal's status outright (Quinn's override, "done by review"); stands until a task changes. */
+  setGoalStatus(goalId: string, status: GoalStatus, reason: string, by: string): Goal;
   /** Re-derive the goal's status from its tasks (after setGoalActive's work ended). `reason` lands on the goal_status event. */
   rollupGoalStatus(goalId: string, reason?: string): void;
   /** Permanently delete a goal with its tasks, events, approvals and outputs. Refuses while a task is
@@ -704,6 +706,16 @@ export function openStore(
     emit(goalId, null, 'goal_status', { status: newStatus, ...(reason ? { reason } : {}) });
   }
 
+  function setGoalStatus(goalId: string, status: GoalStatus, reason: string, by: string): Goal {
+    const g = getGoalRow(goalId);
+    if (!g) throw new Error(`no such goal: ${goalId}`);
+    if (g.status !== status) {
+      stmts.updateGoalStatus.run(status, now(), goalId);
+      emit(goalId, null, 'goal_status', { status, reason, by });
+    }
+    return goalFromRow(getGoalRow(goalId)!);
+  }
+
   function setGoalActive(goalId: string, reason: string): void {
     const g = getGoalRow(goalId);
     if (!g || g.status === 'active') return;
@@ -1181,10 +1193,13 @@ export function openStore(
           { from: 'blocked', to: 'queued', reason: decision, by: by ?? null },
         );
       }
+      // ALF-7: a `question` (ask_quinn) is answered yes/no, not approved/denied.
       const note =
-        decision === 'approved'
-          ? `approved: ${a.detail}`
-          : `denied: ${a.detail} — find another way`;
+        a.action === 'question'
+          ? `Quinn answered ${decision === 'approved' ? 'YES' : 'NO'} — ${a.detail}`
+          : decision === 'approved'
+            ? `approved: ${a.detail}`
+            : `denied: ${a.detail} — find another way`;
       const chat = a.taskId.startsWith(CHAT_TASK_PREFIX);
       if (!chat) stmts.appendNoteStmt.run(note, t, a.taskId);
       emit(a.goalId, chat ? null : a.taskId, 'approval_decided', {
@@ -1385,6 +1400,7 @@ export function openStore(
     setGoalMeta,
     setAcceptance,
     setGoalActive,
+    setGoalStatus,
     rollupGoalStatus: (goalId: string, reason?: string) => rollupGoal(goalId, reason),
     deleteGoal,
     createTask,

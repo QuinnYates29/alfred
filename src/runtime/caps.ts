@@ -30,6 +30,7 @@ export const BUILTIN_CAPS: Record<string, ToolCap[]> = {
   contacts: ['people'],
   jira: ['network', 'people'],
   notify: ['people'],
+  ask_quinn: ['people'],
   platform: ['platform-admin'],
   connectors: ['platform-admin', 'network'],
   alfred_dev: ['platform-admin'],

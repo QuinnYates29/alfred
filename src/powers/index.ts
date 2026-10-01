@@ -11,12 +11,13 @@ import { platformTool } from './platform.js';
 import { alfredDevTool, devRouter } from './dev.js';
 import express from 'express';
 import { notifyTool } from './notify.js';
+import { askQuinnTool } from '../questions.js';
 
 /** Each running instance's tools, by its store (for the unbound stubs below). */
 const bound = new WeakMap<Store, Tool[]>();
 
 function buildTools(deps: ModuleDeps, conns: Connectors): Tool[] {
-  return [platformTool(deps), connectorsTool(deps, conns), alfredDevTool(deps), notifyTool(deps)];
+  return [platformTool(deps), connectorsTool(deps, conns), alfredDevTool(deps), notifyTool(deps), askQuinnTool(deps)];
 }
 
 export function createPowersModule(deps: ModuleDeps): AlfredModule {

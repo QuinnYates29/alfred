@@ -1,6 +1,10 @@
 """The peer-review graph (ALF-7): a fixed, read-only review of one commit.
 
-    START → checks → review_file ⟲ (one changed file per pass, in order) → scope → END
+    [decide: needs a careful review?]  →  START → checks → review_file ⟲ (one changed file per pass, in order) → scope → END  →  [decide: done? safe?]
+
+The two bracketed steps are the decision layer's (/v1/decision on the same model), run by the caller
+(src/review/peer.ts) on either side of this graph: when the first one is confidently "safe", the caller
+sends reviewFiles=false and the graph only runs the checks.
 
 Determinism is the point, so the shape is fixed and the model only fills a rubric:
 - `checks` runs the acceptance command in a fresh clone at the exact commit (code decides pass/fail);
@@ -115,7 +119,7 @@ def split_diff(diff: str) -> dict:
 
 
 def build_review_graph(workspace: str, test_cmd: str, base_url: str, model: str, spec: str,
-                       files: list, diff: str, max_steps: int, progress):
+                       files: list, diff: str, max_steps: int, progress, review_files: bool = True):
     # late imports: venv-heavy (the helpers above run on a bare python3)
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
     from langchain_openai import ChatOpenAI
@@ -123,8 +127,9 @@ def build_review_graph(workspace: str, test_cmd: str, base_url: str, model: str,
 
     from .graph import make_tools, run_test
 
+    # 8k: the model thinks before it answers; at 2k the thinking used the whole budget and no JSON came out.
     llm = ChatOpenAI(base_url=base_url.rstrip("/") + "/v1", model=model,
-                     api_key="local", max_tokens=2048, temperature=0)
+                     api_key="local", max_tokens=8192, temperature=0)
     read_file, _write_file, list_dir = make_tools(workspace, [])
     tools = {"read_file": read_file, "list_dir": list_dir}  # read-only: write_file is never bound
     llm_tools = llm.bind_tools([read_file, list_dir])
@@ -172,6 +177,8 @@ def build_review_graph(workspace: str, test_cmd: str, base_url: str, model: str,
         return {"findings": state.get("findings", []) + found}
 
     def next_after(state: State) -> str:
+        if not review_files:
+            return "end"  # the decision layer judged the diff confidently safe: checks only
         return "review_file" if state.get("index", 0) < len(files) else "scope"
 
     g = StateGraph(State)
@@ -179,7 +186,7 @@ def build_review_graph(workspace: str, test_cmd: str, base_url: str, model: str,
     g.add_node("review_file", review_file)
     g.add_node("scope", scope)
     g.add_edge(START, "checks")
-    g.add_conditional_edges("checks", next_after, {"review_file": "review_file", "scope": "scope"})
+    g.add_conditional_edges("checks", next_after, {"review_file": "review_file", "scope": "scope", "end": END})
     g.add_conditional_edges("review_file", next_after, {"review_file": "review_file", "scope": "scope"})
     g.add_edge("scope", END)
     return g.compile()
@@ -194,6 +201,7 @@ def run_review(req: dict, progress) -> dict:
             str(req.get("workspace", "")), str(req.get("testCmd", "")),
             str(req.get("baseUrl", "http://127.0.0.1:1110")), str(req.get("model", "qwen3.8-flash-next")),
             str(req.get("spec", "")), files, str(req.get("diff", "")), int(req.get("maxStepsPerFile", 8)), progress,
+            review_files=req.get("reviewFiles", True) is not False,
         )
         final = graph.invoke({}, config={"recursion_limit": 4 * len(files) + 20})
         result.update(ok=True, checksOk=bool(final.get("checks_ok")), checksOutput=str(final.get("checks_output", ""))[-3000:],

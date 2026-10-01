@@ -176,5 +176,7 @@ export function chatTools(deps: ModuleDeps): Tool[] {
   const commsTools = deps.modules.comms?.tools ?? [];
   const reg = deps.registry as { get?: (n: string) => unknown } | undefined;
   const webTools = reg?.get?.('web_search') && reg?.get?.('web_fetch') ? [webSearchTool(), webFetchTool()] : [];
-  return [...boardTools, goalsTool(deps), startGoalTool(deps), approvalsTool(deps), ...webTools, ...powerTools, ...commsTools];
+  // ALF-7: classify things with options in chat — the same jev_decide agents use (/v1/decision).
+  const decideTools = deps.modules.jev?.tools ?? [];
+  return [...boardTools, goalsTool(deps), startGoalTool(deps), approvalsTool(deps), ...webTools, ...powerTools, ...commsTools, ...decideTools];
 }

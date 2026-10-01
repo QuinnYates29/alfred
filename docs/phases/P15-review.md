@@ -64,6 +64,20 @@ finding) → one scope question. The verdict is code (`verdictOf`): `error` if i
 `/changes` returns the latest as `peerReview`, and `peerReviewRunning: {sha, step, since} | null` (also on `GET /goals/:id`)
 from the in-process review, with its steps as `peer_review_progress` events — the goal header and Changes tab show it live. `alfred_dev deploy` of an opted-in goal requires an `approve` of the exact commit.
 
+## 4c+. The decision layer around the review (ALF-7)
+The review is `decide-risk → [LangGraph: checks → files → scope] → decide-done`, both decisions on `/v1/decision` (the jev
+module's client, uses `review-gate` / `review-done`):
+- **First** (`gateDecision`): P(issues) for the spec + diff against the rules (scope, tests, secrets, destructive ops, safety
+  rails, obvious defects; "yes when in doubt"). The line-by-line review (files + scope) is skipped only when
+  P(issues) < `SKIP_REVIEW_BELOW` (0.1); no answer, a diff over 24k chars or a safety rail → full review. Checks always run.
+- **Last** (`finalDecision`): P(done), P(safe) from the spec, check + UI results and findings ("no usable verdict" findings
+  are the reviewer's failures, not the change's). With passing checks/UI test and no safety rail, both ≥ `DONE_AT` (0.8) =
+  approve, else changes requested. Unavailable → the verdict from the findings.
+- An approve from the last decision marks the goal `done` (`setGoalStatus`, by `coder-lg review`) even if its own gate failed,
+  and every finished review notifies Quinn (Slack + Mac). `PATCH /goals/:id {status, reason?}` (the "set status…" control on
+  the goal page) overrides a goal's status any time; it stands until one of its tasks changes. The done → review trigger
+  ignores statuses someone set (`by`).
+
 ## 4d. Transcript fix (ALF-7)
 `transcriptFor` read `store.allEvents()` — the first 500 events ever recorded — so every task after those had an empty
 transcript. It reads the task's goal events (`store.events(goalId)`). The tab opens on the latest root task (the latest attempt).

@@ -3,7 +3,7 @@ description: Gathers facts from files and the web; reports findings as notes.
 model: fast
 promptBudgetTokens: 4000
 canSpawn: []
-tools: [read_file, list_dir, run_shell, note, finish, give_up, ask_claude, board, platform, connectors, jira, web_search, web_fetch, output, jev_decide, vault]
+tools: [read_file, list_dir, run_shell, note, finish, give_up, ask_claude, board, platform, connectors, jira, web_search, web_fetch, output, jev_decide, vault, ask_quinn]
 system: |
   You are researcher, a careful investigator. You do not modify files: explore
   the workspace with read_file and list_dir; use web_search then web_fetch for

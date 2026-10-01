@@ -87,6 +87,7 @@ export const EVENT_KINDS: { kind: string; meaning: string }[] = [
   { kind: 'goal_reverted', meaning: 'A landed goal was reverted on its base (data: into, sha, reverted).' },
   { kind: 'goal_checks', meaning: 'A goal\'s acceptance checks were replaced (data: checks).' },
   { kind: 'ui_test', meaning: 'A UI test ran against a sandboxed copy of alfred (data: ok, mode, shots, errors).' },
+  { kind: 'question_auto', meaning: 'The decision layer answered an agent\'s question for Quinn (data: question, answer, p).' },
   { kind: 'peer_review_progress', meaning: 'A step of a running coder-lg review (data: sha, msg).' },
   { kind: 'peer_review_started', meaning: 'coder-lg started reviewing a goal branch (data: sha, branch, base).' },
   { kind: 'peer_review', meaning: 'coder-lg reviewed a goal branch (data: sha, branch, base, verdict, checksOk, findings, reviewed).' },
@@ -239,6 +240,12 @@ function buildRouter(d: AppDeps): express.Router {
     const goal = findGoal(req.params.id);
     if (!goal) return send(res, 404, { error: 'no such goal' });
     const b = req.body ?? {};
+    // ALF-7: Quinn sets the goal's status outright, any time (it stands until one of its tasks changes).
+    if ('status' in b) {
+      if (b.status !== 'active' && b.status !== 'done' && b.status !== 'failed') return send(res, 400, { error: 'status must be active, done or failed' });
+      d.store.setGoalStatus(goal.id, b.status, typeof b.reason === 'string' && b.reason.trim() ? b.reason.trim().slice(0, 200) : 'set by Quinn', 'quinn');
+      if (Object.keys(b).length === 1 || (Object.keys(b).length === 2 && 'reason' in b)) return res.json({ goal: d.store.getGoal(goal.id) });
+    }
     const live = d.store.listTasks(goal.id).find((t) => t.status === 'running' || t.status === 'verifying');
     if (live) return send(res, 409, { error: `task ${live.id.slice(0, 8)} is ${live.status}; stop it first` });
     const patch: Record<string, any> = {};
@@ -272,7 +279,7 @@ function buildRouter(d: AppDeps): express.Router {
           if (self) patch.checks = 'custom';
         }
       }
-      if (!Object.keys(patch).length && !checks) throw new Error('nothing to change (repo, node, mode, inPlace, peerReview, checks)');
+      if (!Object.keys(patch).length && !checks && !('status' in b)) throw new Error('nothing to change (repo, node, mode, inPlace, peerReview, checks, status)');
       if (patch.repo) checkRepo(d.store, patch.repo);
       checkSelfMeta(d.store, { ...goal.meta, ...patch });
       if (checks) d.store.setAcceptance(goal.id, checks);

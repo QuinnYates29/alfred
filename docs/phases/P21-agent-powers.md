@@ -89,6 +89,11 @@ after chat (already done in `src/main.ts`).
      then removed. The runner and uitest.ts are safety rails (GUARDRAIL_RE), and the gate/tool always run the server's own
      copy (`UI_RUNNER` = <server checkout>/scripts/ui-test.mts, mounted read-only), never the workspace's. Auto goals gate
      on `autoChecks(devAcceptance(), changed)` — not their stored list — so goals made before Auto get today's gate.
+   - **ask_quinn** (`src/questions.ts`, alfred/coder/researcher): a yes/no question. The decision layer answers when ≥ 0.9
+     sure of yes/no (`question_auto` event); otherwise a `question` approval (Inbox Yes/No, Slack, and the
+     "Agent questions" chat thread) parks the task; Quinn's free-text reply in that thread is classified (≥ 0.8, regex
+     fallback) and answers the oldest open question. The answer lands as a task note ("Quinn answered YES — Q: …").
+     Chat also has `jev_decide` for classify-with-options requests.
    - Jev triage (`src/jev/triage.ts`): a `git push` (to anything but the hub's `spark`) from such a goal always goes to Quinn;
      `deploy` can't be removed from `approvals.alwaysAsk` by `config/jev.yaml`.
    - `deploy` (and `rollback`) refuse to rebuild/restart when the merge didn't fast-forward `repoRoot` (`localUpdated: false`).

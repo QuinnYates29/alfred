@@ -313,6 +313,18 @@ export default function GoalDetail({ id, tab = '' }) {
           <div className="row wrap" style={{ gap: 10 }}>
             <h1 style={{ lineHeight: 1.25 }}>{goal.title}</h1>
             <StatusChip status={goal.status} />
+            <select className="select" aria-label="Set goal status" data-testid="goal-status-set" value="" style={{ width: 'auto', height: 26, padding: '0 6px', fontSize: 'var(--t-xs)' }}
+              title="Override the goal's status (stands until one of its tasks changes)"
+              onChange={async (e) => {
+                const status = e.target.value;
+                if (!status) return;
+                if (!(await confirm({ title: `Mark this goal ${status}?`, body: 'This overrides the status its tasks gave it, until one of its tasks changes again.', ok: `Mark ${status}` }))) return;
+                try { await patch(`/api/goals/${goal.id}`, { status }); toast(`Goal marked ${status}`, 'ok'); reload(); }
+                catch (err) { toast(err?.message ?? String(err), 'bad'); }
+              }}>
+              <option value="">set status…</option>
+              {['active', 'done', 'failed'].filter((s) => s !== goal.status).map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
           </div>
           <div className="sub row wrap" style={{ gap: 8, marginTop: 4 }}>
             <span className="key">{goal.slug}</span>
