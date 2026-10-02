@@ -151,13 +151,43 @@ function runs(c: string, ...names: string[]): boolean {
 
 const SYSTEMCTL_READ_ONLY = /\bsystemctl\s+--user\s+(?:--[\w-]+(?:=\S+)?\s+)*(status|is-active|is-enabled|is-failed|show|cat|list-units|list-timers|list-unit-files|list-dependencies)\b/;
 
+/** Segments of a command with quoted strings blanked (what actually runs, word-wise). */
+function runSegments(c: string): string[] {
+  const unquoted = c.replace(/'[^']*'/g, "''").replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  return unquoted.split(/[;&|\n\r`]+|\$\(|\(|\)/);
+}
+
+/**
+ * ALF-7: is `prog <sub…>` actually run? Plain commands: only when the program is invoked with that
+ * subcommand outside quoted strings (a string mentioning "git push" is not a push). Under a nested
+ * interpreter (bash -c, node -e, ssh, eval …) any text may run, so every mention counts (`mentions`).
+ */
+function subcommandRuns(c: string, progs: string[], sub: string, mentions: (c: string) => boolean): boolean {
+  const inv = invokedCommands(c);
+  if (inv === null) return mentions(c);
+  if (!inv.some((w) => progs.includes(w))) return false;
+  const re = new RegExp(`^\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:(?:time|command|sudo)\\s+)*(?:\\S*/)?(?:${progs.join('|')})\\b(?:\\s+-{1,2}\\S+(?:\\s+[^\\s-]\\S*)?)*\\s+${sub}\\b`);
+  return runSegments(c).some((seg) => re.test(seg));
+}
+
+/** A "git … push <remote>" mention anywhere (nested interpreters): pushes to the hub (`spark`) don't count. */
+function mentionsNonSparkPush(c: string): boolean {
+  for (const line of c.split(/\n/)) {
+    if (!/\bgit\b/.test(line)) continue;
+    for (const m of line.matchAll(/\bpush\b((?:\s+-[^\s'"`]+)*)\s*([^\s'"`;|&)]*)/g)) {
+      if (m[2] !== 'spark') return true;
+    }
+  }
+  return false;
+}
+
 /** Guards, checked in order. Names appear in the park reason and the approval row. */
 export const GUARDS: Guard[] = [
-  { name: 'git push', test: (c) => /\bgit\b/.test(c) && /\bpush\b/.test(c) && !hasSparkOnlyPush(c) },
-  { name: 'gh pr', test: (c) => /\bgh\b[\s\S]*?\bpr\b[\s\S]*?\b(create|merge)\b/.test(c) },
-  { name: 'gh release', test: (c) => /\bgh\b[\s\S]*?\brelease\b/.test(c) },
-  { name: 'npm publish', test: (c) => /\b(npm|pnpm|yarn)\b[\s\S]*?\bpublish\b/.test(c) },
-  { name: 'docker push', test: (c) => /\b(docker|podman)\b[\s\S]*?\bpush\b/.test(c) },
+  { name: 'git push', test: (c) => subcommandRuns(c, ['git'], 'push', mentionsNonSparkPush) && !hasSparkOnlyPush(c) },
+  { name: 'gh pr', test: (c) => subcommandRuns(c, ['gh'], 'pr\\s+(?:create|merge)', (x) => /\bgh\b[\s\S]*?\bpr\b[\s\S]*?\b(create|merge)\b/.test(x)) },
+  { name: 'gh release', test: (c) => subcommandRuns(c, ['gh'], 'release', (x) => /\bgh\b[\s\S]*?\brelease\b/.test(x)) },
+  { name: 'npm publish', test: (c) => subcommandRuns(c, ['npm', 'pnpm', 'yarn'], 'publish', (x) => /\b(npm|pnpm|yarn)\b[\s\S]*?\bpublish\b/.test(x)) },
+  { name: 'docker push', test: (c) => subcommandRuns(c, ['docker', 'podman'], 'push', (x) => /\b(docker|podman)\b[\s\S]*?\bpush\b/.test(x)) },
   { name: 'sudo', test: (c) => runs(c, 'sudo', 'doas', 'su') },
   { name: 'ssh', test: (c) => runs(c, 'ssh') },
   { name: 'scp', test: (c) => runs(c, 'scp', 'sftp') },
