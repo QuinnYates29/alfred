@@ -4,7 +4,7 @@
 import type { Tool, ToolContext, ToolResult } from '../runtime/contract.js';
 import type { ModuleDeps } from '../modules.js';
 import { createGoalWithRoot, devAcceptance, isSelfRepo, resolveGoal, SELF_REPO } from '../ops.js';
-import { pushedBranches, resolveBase, resolveRepo } from '../review/changes.js';
+import { pushedBranches, resolveBase, resolveRepo, syncBaseFromLocal } from '../review/changes.js';
 import { landedMerges } from '../review/land.js';
 import { peerReviewBlocks, runPeerReview } from '../review/peer.js';
 import express from 'express';
@@ -73,6 +73,7 @@ export async function deployPin(deps: ModuleDeps, goal: { id: string; meta?: Rec
   if (!repo || !branch) return null;
   const base = await resolveBase(deps.repoHub, repo.name, repo);
   if (!base) return null;
+  await syncBaseFromLocal(deps.repoHub, repo, base); // pin against what is running
   const [sha, baseSha] = await Promise.all([deps.repoHub.headSha(repo.name, branch), deps.repoHub.headSha(repo.name, base)]);
   return sha && baseSha ? { branch, sha, base, baseSha } : null;
 }
@@ -83,7 +84,7 @@ export function deployDetail(slug: string, pin: DeployPin | null): string {
 // ---- end SB
 
 /** Exported for tests of the post-approval sequence (merge → build-web → Mac app → restart); the tool gates it. */
-export async function deploy(deps: ModuleDeps, goalId: string, pin?: DeployPin | null): Promise<ToolResult> {
+export async function deploy(deps: ModuleDeps, goalId: string, pin?: DeployPin | null, opts: { strategy?: 'merge' | 'squash'; deleteBranch?: boolean } = {}): Promise<ToolResult> {
   const steps: string[] = [];
   const changes = await selfApi(deps, 'GET', `/goals/${encodeURIComponent(goalId)}/changes`);
   const files: string[] = changes.ok ? (changes.body?.files ?? []).map((f: any) => String(f.path)) : [];
@@ -91,13 +92,15 @@ export async function deploy(deps: ModuleDeps, goalId: string, pin?: DeployPin |
   const merge = await selfApi(deps, 'POST', `/goals/${encodeURIComponent(goalId)}/merge`, {
     confirm: true,
     ...(pin ? { branch: pin.branch, sha: pin.sha, into: pin.base, baseSha: pin.baseSha } : {}), // SB: exactly what was approved
+    ...(opts.strategy ? { strategy: opts.strategy } : {}),
+    ...(opts.deleteBranch !== undefined ? { deleteBranch: opts.deleteBranch } : {}),
   });
   if (!merge.ok) {
     steps.push(`merge: failed (${apiError(merge)})`);
     return { ok: false, output: steps.join('\n') };
   }
   steps.push(`merge: ok → ${merge.body?.into ?? 'base'} ${String(merge.body?.sha ?? '').slice(0, 8)}`);
-  return applyLanded(deps, files, merge.body?.localUpdated, steps);
+  return applyLanded(deps, files, merge.body?.localUpdated, steps, merge.body?.localNote);
 }
 
 /**
@@ -117,13 +120,14 @@ export async function rollback(deps: ModuleDeps, goalId: string, merged?: string
 }
 
 /** After a merge or revert landed on the base: build the web, rebuild the Mac app, restart — as the diff needs. */
-async function applyLanded(deps: ModuleDeps, files: string[], localUpdated: unknown, steps: string[]): Promise<ToolResult> {
+async function applyLanded(deps: ModuleDeps, files: string[], localUpdated: unknown, steps: string[], note?: string): Promise<ToolResult> {
   const say = (ok: boolean) => ({ ok, output: steps.join('\n') });
   // The server runs from its checkout: if that didn't move, a build/restart would ship the old code.
   if (localUpdated === false) {
-    steps.push(`local checkout: not updated (dirty or not on the base branch) — not rebuilding or restarting; clean it, then: git -C ${powersRoot(deps)} pull`);
+    steps.push(`live checkout: not updated — ${note || 'dirty or not on the base branch'}. Not rebuilding or restarting.`);
     return say(false);
   }
+  steps.push('live checkout: updated');
 
   const build = await selfApi(deps, 'POST', '/ops/alfred/build-web', { confirm: true, by: 'agent' });
   if (!build.ok) {
@@ -179,6 +183,31 @@ export function lastMerge(deps: Pick<ModuleDeps, 'store'>, goalId: string): stri
  */
 export function devRouter(deps: ModuleDeps): express.Router {
   const r = express.Router();
+  // ALF-7 — Quinn's "Merge & update" (goals on alfred): merge exactly what the Changes view showed, update the
+  // live checkout, rebuild the web UI, rebuild the Mac app when app code changed, restart when server code
+  // changed. His click is the approval.
+  r.post('/goals/:id/deploy', async (req, res) => {
+    try {
+      const goal = resolveGoal(deps.store, req.params.id);
+      if (!goal) return void res.status(404).json({ error: 'no such goal' });
+      const b = req.body ?? {};
+      if (b.confirm !== true) return void res.status(400).json({ error: 'confirm: true required' });
+      if (!isSelfRepo(deps.store, goal.meta?.repo)) return void res.status(400).json({ error: 'Merge & update is for goals on alfred; use Merge' });
+      const pin = await deployPin(deps, goal);
+      if (!pin) return void res.status(409).json({ error: 'nothing to merge' });
+      // The commit the reviewer saw, when the dialog sends it (else the branch head now).
+      if (typeof b.sha === 'string' && b.sha) pin.sha = b.sha;
+      if (typeof b.baseSha === 'string' && b.baseSha) pin.baseSha = b.baseSha;
+      const out = await deploy(deps, goal.id, pin, {
+        strategy: b.strategy === 'squash' ? 'squash' : 'merge',
+        ...(typeof b.deleteBranch === 'boolean' ? { deleteBranch: b.deleteBranch } : {}),
+      });
+      res.status(out.ok ? 200 : 500).json(out.ok ? { ok: true, output: out.output } : { error: out.output });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message ?? String(e) });
+    }
+  });
+
   r.post('/goals/:id/rollback', async (req, res) => {
     try {
       const goal = resolveGoal(deps.store, req.params.id);

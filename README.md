@@ -97,8 +97,9 @@ run there. Desktop notifications reach the Mac (cap `notify`).
   **Retry** continues on that same branch and workspace (a fresh clone of the branch if the workspace was cleaned up).
 - Agents can only push their own `alfred/<goal>/<id>` branch to the hub; base branches are hook-protected. A push to any
   other remote from these goals always asks you (Jev triage can't auto-approve it), and so do `deploy` and `rollback`.
-- Landing = `alfred_dev deploy` (approved) or **Merge** in Goals → Changes: a merge commit on `master` in the hub, then
-  `~/repos/alfred` fast-forwards. Deploy refuses to rebuild/restart if that checkout didn't move (dirty or off `master`).
+- Landing = **Merge & update** in Goals → Changes (merge, update `~/repos/alfred`, rebuild the web UI / Mac app, restart as
+  needed) or `alfred_dev deploy` (approved). Plain **Merge** only lands it (and says if the live checkout didn't move). A merge
+  is never only in the hub: the goal branch (and, if the checkout couldn't take it, `merged/<goal>`) is kept in `~/repos/alfred`.
 - Optional second opinion: tick **Peer review by coder-lg** (Edit where), `alfred_dev propose {review:true}`, or
   `peerReview: true` on the goal. When the goal is done (or on **LG review** in Goals → Changes / `alfred_dev review`),
   the LangGraph sidecar reviews the exact commit in a fresh clone: re-runs the checks, reviews each changed file with

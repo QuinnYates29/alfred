@@ -20,25 +20,45 @@ function DiffView({ diff }) {
   );
 }
 
-function MergeDialog({ goalId, branch, branches, base, head, baseSha, onClose }) {
+function MergeDialog({ goalId, branch, branches, base, head, baseSha, repo, onClose }) {
   const [strategy, setStrategy] = useState('merge');
   const [into, setInto] = useState(base ?? 'main');
   const [delBranch, setDelBranch] = useState(false);
   const [busy, setBusy] = useState(false);
   const [conflicts, setConflicts] = useState(null);
+  const [result, setResult] = useState(null); // ALF-7: what Merge & update did, step by step
   const { toast } = useToast();
+  // Goals on alfred can go live in one click: merge, update the live checkout, rebuild, restart as needed.
+  const updatable = repo === 'alfred';
   const targets = [...new Set([base, 'main', 'master', ...branches].filter(Boolean))];
 
-  const run = async () => {
+  const run = async (update = false) => {
     setBusy(true);
     setConflicts(null);
+    setResult(null);
     try {
       // Merge exactly the commit shown here; onto the base it was diffed against (else the server refuses).
       const pin = { ...(head ? { sha: head } : {}), ...(baseSha && into === base ? { baseSha } : {}) };
+      if (update) {
+        const r = await post(`/api/goals/${goalId}/deploy`, { confirm: true, strategy, deleteBranch: delBranch, ...pin });
+        setResult({ ok: true, text: r.output ?? 'done' });
+        toast('Merged and live', 'ok');
+        return;
+      }
       const r = await post(`/api/goals/${goalId}/merge`, { confirm: true, branch, into, strategy, deleteBranch: delBranch, ...pin });
-      toast(`Merged into ${r.into ?? into} (${String(r.sha ?? '').slice(0, 8)})`, 'ok');
+      if (r.localUpdated === false) {
+        // Landed in the hub (and kept on the Spark), but what's running didn't move: say so, don't hide it.
+        setResult({ ok: false, text: `Merged into ${r.into ?? into} (${String(r.sha ?? '').slice(0, 8)}) in the hub, but the live checkout was not updated: ${r.localNote ?? 'unknown reason'}` });
+        toast('Merged — not live yet', 'warn');
+        return;
+      }
+      toast(`Merged into ${r.into ?? into} (${String(r.sha ?? '').slice(0, 8)})${updatable ? ' — Merge & update makes it live' : ''}`, 'ok');
       onClose(true);
     } catch (e) {
+      if (update && e?.data?.error) {
+        setResult({ ok: false, text: String(e.data.error) });
+        return;
+      }
       if (e?.status === 409 && Array.isArray(e.data?.conflicts) && e.data.conflicts.length) setConflicts(e.data.conflicts);
       else if (e?.status === 409) setConflicts(['(no file list from the server)']);
       else toast(e?.message ?? String(e), 'bad');
@@ -53,7 +73,13 @@ function MergeDialog({ goalId, branch, branches, base, head, baseSha, onClose })
       onClose={() => onClose(false)}
       footer={<>
         <Button onClick={() => onClose(false)}>Cancel</Button>
-        <Button variant="primary" icon="merge" disabled={busy} onClick={run}>{busy ? 'Merging…' : 'Merge'}</Button>
+        <Button variant={updatable ? undefined : 'primary'} icon="merge" disabled={busy} onClick={() => run(false)}>{busy ? 'Working…' : 'Merge'}</Button>
+        {updatable && (
+          <Button variant="primary" icon="merge" data-testid="merge-update-btn" disabled={busy} onClick={() => run(true)}
+            title="Merge, update the live checkout, rebuild the web UI (and the Mac app if needed), restart alfred if server code changed">
+            {busy ? 'Working…' : 'Merge & update'}
+          </Button>
+        )}
       </>}
     >
       <div className="form">
@@ -75,6 +101,12 @@ function MergeDialog({ goalId, branch, branches, base, head, baseSha, onClose })
           <input type="checkbox" checked={delBranch} onChange={(e) => setDelBranch(e.target.checked)} />
           Delete <span className="mono">{branch}</span> after merging
         </label>
+        {result && (
+          <div className={`card pad ${result.ok ? '' : 'amber'}`} role="status" data-testid="merge-result">
+            <strong className="small">{result.ok ? 'Merged and live' : 'Not live yet'}</strong>
+            <pre className="codeblock wrap" style={{ margin: '6px 0 0' }}>{result.text}</pre>
+          </div>
+        )}
         {conflicts && (
           <div className="conflicts" role="alert">
             <strong className="small">Merge conflict</strong>
@@ -222,7 +254,7 @@ export default function ChangesTab({ id }) {
       </div>
 
       {merging && (
-        <MergeDialog goalId={id} branch={branch} branches={(data.branches ?? []).map((b) => b.branch)} base={data.base} head={data.head} baseSha={data.baseSha} onClose={() => setMerging(false)} />
+        <MergeDialog goalId={id} branch={branch} branches={(data.branches ?? []).map((b) => b.branch)} base={data.base} head={data.head} baseSha={data.baseSha} repo={data.repo} onClose={() => setMerging(false)} />
       )}
     </div>
   );

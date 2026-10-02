@@ -166,6 +166,7 @@
 .toast { min-width: 240px; max-width: 380px; padding: 10px 14px; border-radius: var(--r); background: var(--bg-elev); border: 1px solid var(--line-strong); box-shadow: var(--shadow-2); animation: pop 0.14s var(--ease); }
 .toast.bad { border-color: var(--bad); }
 .toast.ok { border-color: var(--ok); }
+.toast.warn { border-color: var(--warn); }
 @media (max-width: 860px) { .toasts { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 8px); left: var(--s-3); right: var(--s-3); } }
 
 .palette { margin: 12vh auto auto; width: min(620px, calc(100vw - 24px)); background: var(--bg-elev); border: 1px solid var(--line-strong); border-radius: var(--r-lg); box-shadow: var(--shadow-3); overflow: hidden; animation: pop 0.12s var(--ease); }

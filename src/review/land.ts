@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { Store } from '../store.js';
 import type { RepoHub } from '../git/hub.js';
 import { git, gitTry } from './git.js';
-import { resolveRepo, resolveBase, pushedBranches } from './changes.js';
+import { resolveRepo, resolveBase, pushedBranches, syncBaseFromLocal } from './changes.js';
 import { assertBranch, SHA_RE } from '../git/refs.js';
 
 export class HttpError extends Error {
@@ -29,12 +29,22 @@ export interface MergeInput {
   baseSha?: string;
 }
 
+export interface MergeResult {
+  ok: true;
+  into: string;
+  sha: string;
+  /** The live checkout (the Spark's copy of the repo) now holds the merge. */
+  localUpdated: boolean;
+  /** Why it doesn't, when it doesn't — and where the merge was kept instead. */
+  localNote?: string;
+}
+
 export async function mergeGoal(
   store: Store,
   repoHub: RepoHub,
-  goal: { id: string; title: string; meta?: Record<string, any> },
+  goal: { id: string; title: string; slug?: string; meta?: Record<string, any> },
   input: MergeInput,
-): Promise<{ ok: true; into: string; sha: string; localUpdated: boolean }> {
+): Promise<MergeResult> {
   for (const [k, v] of [['branch', input.branch], ['into', input.into]] as const) {
     try {
       assertBranch(v, k);
@@ -54,6 +64,7 @@ export async function mergeGoal(
   const into = input.into ?? base;
   if (!into) throw new HttpError(409, 'no base branch in the hub');
   repoHub.protect(repo.name, [into]);
+  await syncBaseFromLocal(repoHub, repo, into);
 
   // What gets merged is a commit, read from the hub — never a name that could move under us.
   const branchHead = await repoHub.headSha(repo.name, branch);
@@ -100,6 +111,9 @@ export async function mergeGoal(
     }
 
     sha = await landInHub(bare, tmp, into, baseHead, `alfred merge ${branch}`);
+    // Before the hub branch may be deleted: the Spark checkout's repo keeps a copy of the goal branch.
+    const local = repo.paths?.local;
+    if (local && existsSync(local)) await gitTry(['fetch', '-q', '--', bare, `+refs/heads/${branch}:refs/heads/${branch}`], local);
     if (deleteBranch) {
       // Only if nobody pushed more to it meanwhile (expected old value = what we merged from).
       await gitTry(['--git-dir', bare, 'update-ref', '-d', `refs/heads/${branch}`, branchHead]);
@@ -108,10 +122,21 @@ export async function mergeGoal(
     await rm(tmp, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
   }
 
-  const localUpdated = await fastForwardLocal(repo?.paths?.local, bare, into);
+  const ff = await fastForwardLocal(repo?.paths?.local, bare, into);
+  // A merge must never live only in the hub (a later sync could lose it): the live checkout's repo keeps a
+  // copy of the goal branch, and of the merge itself whenever the checkout couldn't take it.
+  let localNote = ff.ok ? undefined : ff.why;
+  const local = repo?.paths?.local;
+  if (local && existsSync(local)) {
+    if (!ff.ok) {
+      const keep = `merged/${goal.slug ?? goal.id.slice(0, 8)}`;
+      const k = await gitTry(['fetch', '-q', '--', bare, `+refs/heads/${into}:refs/heads/${keep}`], local);
+      localNote = `${ff.why}${k.ok ? ` — the merge is kept in the Spark checkout as branch ${keep}` : ''}`;
+    }
+  }
 
-  store.appendEvent(goal.id, null, 'goal_merged', { branch, into, sha, strategy });
-  return { ok: true, into, sha, localUpdated };
+  store.appendEvent(goal.id, null, 'goal_merged', { branch, into, sha, strategy, localUpdated: ff.ok, ...(localNote ? { localNote } : {}) });
+  return { ok: true, into, sha, localUpdated: ff.ok, ...(localNote ? { localNote } : {}) };
 }
 
 /**
@@ -161,6 +186,7 @@ export async function revertGoal(
     throw new HttpError(400, e.message);
   }
   repoHub.protect(repo.name, [into]);
+  await syncBaseFromLocal(repoHub, repo, into);
   const bare = repoHub.barePath(repo.name);
   const baseHead = await repoHub.headSha(repo.name, into);
   if (!baseHead) throw new HttpError(409, `base ${into} is not in the hub`);
@@ -186,7 +212,7 @@ export async function revertGoal(
     await rm(tmp, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
   }
 
-  const localUpdated = await fastForwardLocal(repo.paths?.local, bare, into);
+  const localUpdated = (await fastForwardLocal(repo.paths?.local, bare, into)).ok;
   store.appendEvent(goal.id, null, 'goal_reverted', { into, sha, reverted: target.sha });
   return { ok: true, into, sha, reverted: target.sha, files, localUpdated };
 }
@@ -259,17 +285,18 @@ export async function discardGoal(
 }
 
 /** Fast-forward a clean local checkout sitting on `into`; failures are reported, not fatal. */
-async function fastForwardLocal(local: string | undefined, bare: string, into: string): Promise<boolean> {
-  if (!local || !existsSync(local)) return false;
+async function fastForwardLocal(local: string | undefined, bare: string, into: string): Promise<{ ok: boolean; why: string }> {
+  if (!local || !existsSync(local)) return { ok: false, why: 'no checkout of this repo on the Spark' };
   try {
     const status = await git(['status', '--porcelain'], local);
-    if (status.trim()) return false;
-    const head = await git(['rev-parse', '--abbrev-ref', 'HEAD'], local);
-    if (head.trim() !== into) return false;
-    await git(['fetch', '--', bare, into], local);
-    await git(['merge', '--ff-only', 'FETCH_HEAD'], local);
-    return true;
-  } catch {
-    return false;
+    if (status.trim()) return { ok: false, why: `the Spark checkout (${local}) has uncommitted changes` };
+    const head = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], local)).trim();
+    if (head !== into) return { ok: false, why: `the Spark checkout is on ${head}, not ${into}` };
+    await git(['fetch', '-q', '--', bare, into], local);
+    const ff = await gitTry(['merge', '-q', '--ff-only', 'FETCH_HEAD'], local);
+    if (!ff.ok) return { ok: false, why: `the Spark checkout's ${into} has commits the hub's doesn't (they diverged)` };
+    return { ok: true, why: '' };
+  } catch (e: any) {
+    return { ok: false, why: `could not update the Spark checkout: ${String(e?.message ?? e).slice(0, 200)}` };
   }
 }

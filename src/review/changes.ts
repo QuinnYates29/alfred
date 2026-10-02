@@ -1,5 +1,6 @@
 // P15 §2 — where a goal's code is: repo, base branch, pushed branches, and the
 // diff of one branch against base (three-dot) in the bare hub.
+import { existsSync } from 'node:fs';
 import type { Store, Repo } from '../store.js';
 import type { RepoHub } from '../git/hub.js';
 import { git, gitTry } from './git.js';
@@ -81,6 +82,17 @@ export interface ChangesResult {
   baseSha?: string | null;
 }
 
+/**
+ * ALF-7: the live checkout and the hub each hold a `master`; bring the hub's up to the checkout's
+ * (fast-forward only) before anyone diffs or merges against it, so a merge is always built on what is
+ * running. A hub that is ahead (a merge the checkout hasn't taken) is left alone.
+ */
+export async function syncBaseFromLocal(repoHub: RepoHub, repo: { name: string; paths?: Record<string, string> } | null, into: string | null): Promise<void> {
+  const local = repo?.paths?.local;
+  if (!repo || !into || !local || !existsSync(local)) return;
+  await gitTry(['--git-dir', repoHub.barePath(repo.name), 'fetch', '-q', '--', local, `refs/heads/${into}:refs/heads/${into}`]);
+}
+
 export async function getChanges(
   store: Store,
   repoHub: RepoHub,
@@ -105,6 +117,7 @@ export async function getChanges(
   const branch = branchQ ? branches.find((b) => b.branch === branchQ)?.branch ?? branchQ : branches[0].branch;
   out.base = base;
   if (!base || !validBranchName(branch) || !validBranchName(base)) return out;
+  await syncBaseFromLocal(repoHub, repo, base); // diff against what is running
 
   const bare = repoHub.barePath(repo.name);
   // Pin both ends to shas read once, so the diff, the commits and head/baseSha all describe the same thing.

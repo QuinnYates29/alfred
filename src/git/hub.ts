@@ -161,7 +161,14 @@ export class RepoHub {
     } else if (source && existsSync(source)) {
       // Already there: sync branches/tags from the source. Fetched from the bare side (not pushed
       // into it), so the base-branch pre-receive hook doesn't apply to this trusted local sync.
-      await git(['--git-dir', bare, 'fetch', '-q', '--force', '--', source, '+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*']);
+      // ALF-7: fast-forwards only. This used to be a forced fetch, which wound the hub's master back to
+      // the checkout's and erased a merge that only the hub had. A ref that can't fast-forward is left
+      // as it is (git reports it as rejected; the other refs still update).
+      try {
+        await git(['--git-dir', bare, 'fetch', '-q', '--', source, 'refs/heads/*:refs/heads/*', 'refs/tags/*:refs/tags/*']);
+      } catch {
+        /* some ref diverged (hub ahead): kept as is; every fast-forwardable ref was still updated */
+      }
     }
     this.protect(name);
     return bare;

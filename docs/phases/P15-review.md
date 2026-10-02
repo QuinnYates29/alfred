@@ -44,6 +44,18 @@ Every mutating route needs `confirm: true` (400 otherwise). Git failures → 500
   `git -C <local> fetch <bare> <into>` + `git -C <local> merge --ff-only FETCH_HEAD`. Failures here are reported, not fatal.
 - Event `goal_merged {branch, into, sha, strategy}` on the goal. → 200 `{ ok: true, into, sha /* new tip of into */, localUpdated: boolean }`.
 
+## 4a. Merges can't be lost, and say whether they're live (ALF-7)
+- The hub's checkout → hub sync (`RepoHub.ensure`) only fast-forwards; it used to force `+refs/heads/*`, which wound the
+  hub's master back to the checkout's and erased a merge only the hub had (the graph-view merge, 2026-10-01).
+- Changes, merge, revert and deploy pins first bring the hub's base up to the live checkout (`syncBaseFromLocal`,
+  fast-forward only), so merges are built on what is running.
+- Merge copies the goal branch into the live checkout's repo before the hub branch may be deleted; when the checkout can't
+  take the merge, the merge commit is kept there as `merged/<goal slug>`. The response (and `goal_merged`) carries
+  `localUpdated` and `localNote` (why not); the dialog shows it instead of closing.
+- **Merge & update** (goals on alfred; `POST /goals/:id/deploy {confirm, strategy?, deleteBranch?, sha?, baseSha?}`, powers
+  module): merge exactly what was shown → live checkout → build-web → Mac app (app/, src/node, src/cli) → restart
+  (src/, personas/, config/), each step reported. Quinn's click is the approval.
+
 ## 4b. Revert (ALF-7)
 `POST /goals/:id/revert { sha?, confirm: true }` undoes a landed merge: `sha` (default: the latest `goal_merged` without a
 `goal_reverted`) is reverted on the branch it landed on, in a temp clone (`git revert --no-edit`, `-m 1` for merge commits),

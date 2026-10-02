@@ -33,6 +33,9 @@
   confidently safe; last step decides done/safe → approve + marks the goal done + notifies. Goal status override on the
   goal page. ask_quinn + "Agent questions" chat thread + chat jev_decide (P21). Earlier "no usable verdict": the reviewer's
   reply budget was 2k tokens and Qwen's thinking used it all — now 8k.
+- The graph-view merge was erased (hub sync was a forced fetch; the hub's master lagged the live checkout because deploys
+  fast-forward the checkout directly). Fixed: ff-only sync, base synced from the checkout before diff/merge, copies kept in
+  ~/repos/alfred, Merge & update (P15 §4a).
 - To retry ALF-7 after deploying: Retry on its goal page (repo `alfred` now resolves; the retry gets the dev gate).
 
 ## 2026-09-30 — Jev goes local + triages approvals: MERGED + DEPLOYED
